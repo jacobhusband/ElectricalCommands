@@ -5,7 +5,14 @@
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
+
+  <!-- This now points to the correct subfolder -->
+  <ItemGroup>
+    <Compile Include="CleanCAD\*.cs" />
+    <Compile Include="GeneralCommands\*.cs" />
+  </ItemGroup>
 
   <!-- AutoCAD API references -->
   <ItemGroup>
@@ -21,6 +28,11 @@
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcDbMgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Enables WPF features like the Clipboard. Requires .NET 8 Windows-specific TFM -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
   </ItemGroup>
 
   <!-- NuGet Package References -->
