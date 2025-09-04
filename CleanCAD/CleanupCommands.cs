@@ -2,9 +2,11 @@
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 
 namespace AutoCADCleanupTool
 {
@@ -100,6 +102,7 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage($"\nFound {newBlockIds.Count} new block definition(s) created by bind.");
 
                     int imagesErased = 0;
+                    int imagesEmbedded = 0;
                     foreach (ObjectId newBtrId in newBlockIds)
                     {
                         BlockTableRecord newBtr = trans.GetObject(newBtrId, OpenMode.ForRead) as BlockTableRecord;
@@ -108,16 +111,55 @@ namespace AutoCADCleanupTool
                             if (entId.ObjectClass.DxfName == "IMAGE")
                             {
                                 RasterImage image = trans.GetObject(entId, OpenMode.ForWrite) as RasterImage;
-                                if (image != null && !image.ImageDefId.IsNull)
+                                if (image == null)
+                                    continue;
+
+                                if (image.ImageDefId.IsNull)
                                 {
-                                    _imageDefsToPurge.Add(image.ImageDefId); // Add the definition to our kill list
+                                    ed.WriteMessage("\n  -> WARNING: IMAGE entity has no ImageDef; skipping.");
+                                    continue;
                                 }
-                                image.Erase();
-                                imagesErased++;
+
+                                // Open the image definition to get its source path
+                                RasterImageDef imageDef = trans.GetObject(image.ImageDefId, OpenMode.ForRead) as RasterImageDef;
+                                if (imageDef == null)
+                                {
+                                    ed.WriteMessage("\n  -> WARNING: Could not open RasterImageDef; skipping.");
+                                    continue;
+                                }
+
+                                string imagePath = imageDef.SourceFileName;
+                                if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+                                {
+                                    ed.WriteMessage($"\n  -> WARNING: Source image not found, cannot embed: {imagePath}");
+                                    continue;
+                                }
+
+                                Point3d position = image.Position;
+                                double rotation = image.Rotation; // Already in radians
+                                double scale = image.Scale.X;     // Assume uniform scale
+
+                                ed.WriteMessage($"\n  -> Found linked image: {imagePath}");
+
+                                bool success = EmbedImageViaLisp(imagePath, position, scale, rotation);
+
+                                if (success)
+                                {
+                                    ed.WriteMessage("     ...Success: Embedded a copy via LISP interop.");
+                                    imagesEmbedded++;
+                                    _imageDefsToPurge.Add(image.ImageDefId); // Queue original def for purge
+
+                                    image.Erase();
+                                    imagesErased++;
+                                }
+                                else
+                                {
+                                    ed.WriteMessage("     ...FAILURE: Could not embed. The linked image will be left in place.");
+                                }
                             }
                         }
                     }
-                    ed.WriteMessage($"\nErased {imagesErased} RasterImage entit(ies) and added {_imageDefsToPurge.Count} definitions to kill list.");
+                    ed.WriteMessage($"\nEmbedded {imagesEmbedded} image(s). Erased {imagesErased} RasterImage entit(ies). Added {_imageDefsToPurge.Count} definitions to kill list.");
 
                     int ghostsDetached = 0;
                     foreach (ObjectId originalXrefId in _originalXrefIds)
@@ -207,6 +249,37 @@ namespace AutoCADCleanupTool
             finally
             {
                 _imageDefsToPurge.Clear();
+            }
+        }
+
+        // LISP Interop: Call ARX-exposed function to embed an image
+        private static bool EmbedImageViaLisp(string imagePath, Point3d position, double scale, double rotationInRadians)
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return false;
+
+            try
+            {
+                ResultBuffer args = new ResultBuffer();
+                // LISP function name
+                args.Add(new TypedValue((int)LispDataType.Text, "C:EmbedImage-ARX"));
+                // Argument 1: Image Path
+                args.Add(new TypedValue((int)LispDataType.Text, imagePath));
+                // Argument 2: Insertion Point
+                args.Add(new TypedValue((int)LispDataType.Point3d, position));
+                // Argument 3: Scale
+                args.Add(new TypedValue((int)LispDataType.Double, scale));
+                // Argument 4: Rotation in Radians
+                args.Add(new TypedValue((int)LispDataType.Double, rotationInRadians));
+
+                Application.Invoke(args);
+
+                return true; // Assume success if no exception is thrown
+            }
+            catch (System.Exception ex)
+            {
+                doc.Editor.WriteMessage($"\nLISP interop failed: {ex.Message}");
+                return false;
             }
         }
     }
