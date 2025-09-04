@@ -5,6 +5,7 @@ using Autodesk.AutoCAD.EditorInput;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using EmbedImageWrapper;
 
 namespace AutoCADCleanupTool
 {
@@ -73,7 +74,7 @@ namespace AutoCADCleanupTool
             }
         }
 
-        // STAGE 2: Erase images, build the "kill list", and detach ghost XREF blocks.
+        // STAGE 2: Replace images with embedded copies, build the "kill list", and detach ghost XREF blocks.
         [CommandMethod("-FINALIZE-CLEANUP", CommandFlags.Modal)]
         public static void FinalizeCleanupCommand()
         {
@@ -82,7 +83,7 @@ namespace AutoCADCleanupTool
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
-            ed.WriteMessage("\n--- Stage 2: Erasing images and detaching ghost XREF blocks... ---");
+            ed.WriteMessage("\n--- Stage 2: Embedding images and detaching ghost XREF blocks... ---");
 
             try
             {
@@ -99,7 +100,9 @@ namespace AutoCADCleanupTool
                     }
                     ed.WriteMessage($"\nFound {newBlockIds.Count} new block definition(s) created by bind.");
 
-                    int imagesErased = 0;
+                    int imagesProcessed = 0;
+                    int imagesEmbedded = 0;
+
                     foreach (ObjectId newBtrId in newBlockIds)
                     {
                         BlockTableRecord newBtr = trans.GetObject(newBtrId, OpenMode.ForRead) as BlockTableRecord;
@@ -107,17 +110,38 @@ namespace AutoCADCleanupTool
                         {
                             if (entId.ObjectClass.DxfName == "IMAGE")
                             {
+                                imagesProcessed++;
                                 RasterImage image = trans.GetObject(entId, OpenMode.ForWrite) as RasterImage;
-                                if (image != null && !image.ImageDefId.IsNull)
+                                if (image == null || image.ImageDefId.IsNull) continue;
+
+                                RasterImageDef imageDef = trans.GetObject(image.ImageDefId, OpenMode.ForRead) as RasterImageDef;
+                                if (imageDef == null) continue;
+
+                                string imagePath = imageDef.SourceFileName;
+                                Autodesk.AutoCAD.Geometry.Point3d position = image.Position;
+                                double rotation = image.Rotation;
+                                double scale = image.Scale.X;
+
+                                ed.WriteMessage($"\n  -> Found linked image: {imagePath}");
+
+                                bool success = ManagedEmbedder.EmbedImage(imagePath, position, scale, rotation * (180.0 / Math.PI));
+
+                                if (success)
                                 {
-                                    _imageDefsToPurge.Add(image.ImageDefId); // Add the definition to our kill list
+                                    ed.WriteMessage("     ...Success: Embedded a copy.");
+                                    imagesEmbedded++;
+                                    _imageDefsToPurge.Add(image.ImageDefId);
+                                    image.Erase();
                                 }
-                                image.Erase();
-                                imagesErased++;
+                                else
+                                {
+                                    ed.WriteMessage("     ...FAILURE: Could not embed. The linked image will be left in place.");
+                                }
                             }
                         }
                     }
-                    ed.WriteMessage($"\nErased {imagesErased} RasterImage entit(ies) and added {_imageDefsToPurge.Count} definitions to kill list.");
+                    ed.WriteMessage($"\nProcessed {imagesProcessed} image(s) and successfully embedded {imagesEmbedded} replacement(s).");
+                    ed.WriteMessage($"\nAdded {_imageDefsToPurge.Count} old image definitions to the purge list.");
 
                     int ghostsDetached = 0;
                     foreach (ObjectId originalXrefId in _originalXrefIds)
