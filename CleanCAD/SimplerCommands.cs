@@ -187,10 +187,55 @@ namespace AutoCADCleanupTool
 
         private static bool EnsurePowerPoint(Editor ed)
         {
-            if (_pptAppShared != null && _pptPresentationShared != null)
-                return true;
             try
             {
+                // Validate existing COM objects if present
+                if (_pptAppShared != null)
+                {
+                    try
+                    {
+                        var presentations = _pptAppShared.Presentations;
+                        try { _pptAppShared.Visible = true; } catch { }
+
+                        if (_pptPresentationShared != null)
+                        {
+                            try
+                            {
+                                var slides = _pptPresentationShared.Slides;
+                                int count = 0;
+                                try { count = slides.Count; } catch { count = 0; }
+                                if (count < 1)
+                                {
+                                    // Ensure a blank slide exists (ppLayoutBlank = 12)
+                                    _pptPresentationShared.Slides.Add(1, 12);
+                                }
+                                return true;
+                            }
+                            catch
+                            {
+                                // Presentation reference is stale; create a new presentation
+                                _pptPresentationShared = presentations.Add();
+                                _pptPresentationShared.Slides.Add(1, 12);
+                                return true;
+                            }
+                        }
+                        else
+                        {
+                            _pptPresentationShared = presentations.Add();
+                            _pptPresentationShared.Slides.Add(1, 12);
+                            return true;
+                        }
+                    }
+                    catch
+                    {
+                        // App reference is stale; release and recreate below
+                        try { Marshal.FinalReleaseComObject(_pptAppShared); } catch { }
+                        _pptAppShared = null;
+                        _pptPresentationShared = null;
+                    }
+                }
+
+                // Create new instance if we get here
                 Type pptType = Type.GetTypeFromProgID("PowerPoint.Application");
                 if (pptType == null)
                 {
@@ -199,16 +244,45 @@ namespace AutoCADCleanupTool
                 }
                 _pptAppShared = Activator.CreateInstance(pptType);
                 try { _pptAppShared.Visible = true; } catch { }
-                var presentations = _pptAppShared.Presentations;
-                _pptPresentationShared = presentations.Add();
-                // Ensure a blank slide exists (ppLayoutBlank = 12)
-                _pptPresentationShared.Slides.Add(1, 12);
+                var pres = _pptAppShared.Presentations;
+                _pptPresentationShared = pres.Add();
+                _pptPresentationShared.Slides.Add(1, 12); // ppLayoutBlank
                 return true;
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\nFailed to start PowerPoint: {ex.Message}");
+                ed.WriteMessage($"\nFailed to start or access PowerPoint: {ex.Message}");
+                try { if (_pptAppShared != null) Marshal.FinalReleaseComObject(_pptAppShared); } catch { }
+                _pptAppShared = null;
+                _pptPresentationShared = null;
                 return false;
+            }
+        }
+
+        // Close and release the shared PowerPoint COM objects without saving
+        private static void ClosePowerPoint(Editor ed = null)
+        {
+            try
+            {
+                if (_pptPresentationShared != null)
+                {
+                    try { _pptPresentationShared.Saved = -1; } catch { }
+                    try { _pptPresentationShared.Close(); } catch { }
+                    try { Marshal.FinalReleaseComObject(_pptPresentationShared); } catch { }
+                    _pptPresentationShared = null;
+                }
+                if (_pptAppShared != null)
+                {
+                    try { _pptAppShared.Quit(); } catch { }
+                    try { Marshal.FinalReleaseComObject(_pptAppShared); } catch { }
+                    _pptAppShared = null;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                try { ed?.WriteMessage($"\nWarning: failed to close PowerPoint: {ex.Message}"); } catch { }
+                _pptPresentationShared = null;
+                _pptAppShared = null;
             }
         }
 
@@ -216,6 +290,7 @@ namespace AutoCADCleanupTool
         {
             try
             {
+                if (!EnsurePowerPoint(ed)) return false;
                 dynamic slide = _pptPresentationShared.Slides[1]; // 1-based
                 var shapes = slide.Shapes;
                 // Clear previous shapes
@@ -500,6 +575,8 @@ namespace AutoCADCleanupTool
                     // Clean up handlers first, then purge unused image defs
                     DetachHandlers(db, doc);
                     PurgeEmbeddedImageDefs(db, ed);
+                    // Close PowerPoint for a clean state between runs (no save)
+                    ClosePowerPoint(ed);
                     // Restore original current layer if we changed it
                     try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
                     _savedClayer = ObjectId.Null;
@@ -522,7 +599,26 @@ namespace AutoCADCleanupTool
             if (!PrepareClipboardWithImageShared(target.Path, ed))
             {
                 _pending.Dequeue();
-                if (_pending.Count > 0) ProcessNextPaste(doc, ed);
+                if (_pending.Count > 0)
+                {
+                    ProcessNextPaste(doc, ed);
+                }
+                else
+                {
+                    // Nothing left to process; finalize and close PowerPoint between runs
+                    var db = doc.Database;
+                    ed.WriteMessage("\nCompleted embedding over all raster images.");
+                    DetachHandlers(db, doc);
+                    PurgeEmbeddedImageDefs(db, ed);
+                    ClosePowerPoint(ed);
+                    try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
+                    _savedClayer = ObjectId.Null;
+                    if (_chainFinalizeAfterEmbed)
+                    {
+                        _chainFinalizeAfterEmbed = false;
+                        doc.SendStringToExecute("_.FINALIZE ", true, false, false);
+                    }
+                }
                 return;
             }
 
@@ -606,6 +702,8 @@ namespace AutoCADCleanupTool
             if (_pending.Count == 0)
             {
                 ed.WriteMessage("\nNo raster images found in current space.");
+                // Close PowerPoint if it was open from a prior run (no save)
+                ClosePowerPoint(ed);
                 // Restore original current layer if we changed it
                 try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
                 _savedClayer = ObjectId.Null;
@@ -678,7 +776,7 @@ namespace AutoCADCleanupTool
 
             try
             {
-                // 1) Detach DWG XREFs that match tokens
+                // 1) Detach DWG XREFs that match tokens or contain both "WL" and "sig"
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
@@ -703,6 +801,15 @@ namespace AutoCADCleanupTool
                                 match = true;
                                 break;
                             }
+                        }
+
+                        // Also match if BOTH substrings "wl" and "sig" are present (case-insensitive)
+                        if (!match)
+                        {
+                            bool nameWlSig = name.Contains("wl") && name.Contains("sig");
+                            bool fileWlSig = !string.IsNullOrEmpty(fileNoExt) && fileNoExt.Contains("wl") && fileNoExt.Contains("sig");
+                            if (nameWlSig || fileWlSig)
+                                match = true;
                         }
 
                         if (match)
@@ -753,6 +860,17 @@ namespace AutoCADCleanupTool
                                 {
                                     match = true;
                                     break;
+                                }
+                            }
+                            // Also match if BOTH substrings "wl" and "sig" are present (case-insensitive)
+                            if (!match)
+                            {
+                                bool keyWlSig = keyLower.Contains("wl") && keyLower.Contains("sig");
+                                bool nameWlSig = nameLower.Contains("wl") && nameLower.Contains("sig");
+                                bool nameNoExtWlSig = nameNoExtLower.Contains("wl") && nameNoExtLower.Contains("sig");
+                                if (keyWlSig || nameWlSig || nameNoExtWlSig)
+                                {
+                                    match = true;
                                 }
                             }
                             if (match)
@@ -957,7 +1075,10 @@ namespace AutoCADCleanupTool
                         string lname = (ltr.Name ?? string.Empty).ToLowerInvariant();
                         bool matchChristian = lname.Contains("christian");
                         bool matchWlSig = lname.Contains("wl") && lname.Contains("sig");
-                        if ((matchChristian || matchWlSig) && !ltr.IsFrozen)
+                        bool matchWLstamp = lname.Contains("wlstamp");
+                        bool matchRev = lname.Contains("rev");
+                        bool matchDelta = lname.Contains("delta");
+                        if ((matchChristian || matchWlSig || matchWLstamp || matchRev || matchDelta) && !ltr.IsFrozen)
                         {
                             try
                             {
