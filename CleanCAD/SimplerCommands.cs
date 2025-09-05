@@ -178,6 +178,8 @@ namespace AutoCADCleanupTool
         private static bool _handlersAttached = false;
         private static dynamic _pptAppShared = null;
         private static dynamic _pptPresentationShared = null;
+        // Save/restore current layer while embedding
+        private static ObjectId _savedClayer = ObjectId.Null;
         // Track candidate image definitions for purge after embedding
         private static readonly HashSet<ObjectId> _imageDefsToPurge = new HashSet<ObjectId>();
         // Chain flag: when true, run FINALIZE after EMBEDFROMXREFS completes
@@ -441,6 +443,9 @@ namespace AutoCADCleanupTool
                                 destOrigin, destX, destY, destZ);
 
                             ole.TransformBy(m);
+
+                            // Ensure pasted OLE is on layer "0"
+                            try { ole.Layer = "0"; } catch { }
                         }
                         catch (System.Exception ex1)
                         {
@@ -495,6 +500,9 @@ namespace AutoCADCleanupTool
                     // Clean up handlers first, then purge unused image defs
                     DetachHandlers(db, doc);
                     PurgeEmbeddedImageDefs(db, ed);
+                    // Restore original current layer if we changed it
+                    try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
+                    _savedClayer = ObjectId.Null;
                     // If requested, continue the chain by running FINALIZE
                     if (_chainFinalizeAfterEmbed)
                     {
@@ -538,6 +546,21 @@ namespace AutoCADCleanupTool
 
             try
             {
+                // Ensure layer "0" is thawed and make it current for embedding
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                    if (lt.Has("0"))
+                    {
+                        var zeroId = lt["0"];
+                        var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
+                        if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
+                        if (_savedClayer.IsNull) _savedClayer = db.Clayer;
+                        db.Clayer = zeroId;
+                    }
+                    tr.Commit();
+                }
+
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var space = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForRead);
@@ -574,12 +597,18 @@ namespace AutoCADCleanupTool
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nFailed to collect raster images: {ex.Message}");
+                // Restore original current layer if we changed it
+                try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
+                _savedClayer = ObjectId.Null;
                 return;
             }
 
             if (_pending.Count == 0)
             {
                 ed.WriteMessage("\nNo raster images found in current space.");
+                // Restore original current layer if we changed it
+                try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
+                _savedClayer = ObjectId.Null;
                 // If running as part of CLEANCAD chain, move on to FINALIZE immediately
                 if (_chainFinalizeAfterEmbed)
                 {
@@ -589,7 +618,13 @@ namespace AutoCADCleanupTool
                 return;
             }
 
-            if (!EnsurePowerPoint(ed)) return;
+            if (!EnsurePowerPoint(ed))
+            {
+                // Restore original current layer if we changed it
+                try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
+                _savedClayer = ObjectId.Null;
+                return;
+            }
             AttachHandlers(db, doc);
             ed.WriteMessage($"\nEmbedding over {_pending.Count} raster image(s)...");
             ProcessNextPaste(doc, ed);
