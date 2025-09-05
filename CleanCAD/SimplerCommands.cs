@@ -968,13 +968,14 @@ namespace AutoCADCleanupTool
                         if (btr == null) continue;
                         if (btr.IsLayout || btr.IsDependent || btr.IsFromExternalReference) continue;
 
+                        // Case-insensitive match for specific block name tokens
                         string bname = (btr.Name ?? string.Empty).ToLowerInvariant();
-                        bool matchChristian = bname.Contains("christian");
-                        bool matchWlSig = bname.Contains("wl") && bname.Contains("sig");
-                        if (matchChristian || matchWlSig)
-                        {
-                            matchedDefs.Add(btrId);
-                        }
+                        bool match =
+                            bname.Contains("acieslogo") ||
+                            bname.Contains("wlstamp") ||
+                            bname.Contains("christian") ||
+                            (bname.Contains("wl") && bname.Contains("sig")); // keep old heuristic
+                        if (match) matchedDefs.Add(btrId);
                     }
 
                     if (matchedDefs.Count > 0)
