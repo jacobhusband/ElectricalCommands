@@ -55,7 +55,7 @@ namespace AutoCADCleanupTool
                 }
                 else
                 {
-                    CleanupCommands.KeepOnlyTitleBlockInModelSpace();
+                    CleanupCommands.KeepOnlyTitleBlockInPaperSpaceFromXref();
                     CleanupCommands.TrimModelSpaceToViewportBounds();
                 }
 

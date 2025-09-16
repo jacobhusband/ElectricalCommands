@@ -5,6 +5,7 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace AutoCADCleanupTool
@@ -327,6 +328,147 @@ namespace AutoCADCleanupTool
             }
         }
 
+        internal static void KeepOnlyTitleBlockInPaperSpaceFromXref()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            var layoutData = new List<(ObjectId LayoutId, string LayoutName, ObjectId TitleRefId, Extents3d Extents)>();
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    foreach (ObjectId btrId in bt)
+                    {
+                        var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
+                        if (btr == null || !btr.IsLayout || btr.Name == BlockTableRecord.ModelSpace) continue;
+
+                        Layout layout = null;
+                        try { layout = (Layout)tr.GetObject(btr.LayoutId, OpenMode.ForRead); }
+                        catch { }
+
+                        BlockReference bestRef = null;
+                        Extents3d? bestExt = null;
+                        double bestArea = 0.0;
+
+                        foreach (ObjectId entId in btr)
+                        {
+                            var br = tr.GetObject(entId, OpenMode.ForRead) as BlockReference;
+                            if (br == null || br.IsErased) continue;
+
+                            BlockTableRecord def = null;
+                            try { def = (BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead); }
+                            catch { }
+
+                            if (def == null || !def.IsFromExternalReference) continue;
+
+                            string nameLower = (def.Name ?? string.Empty).ToLowerInvariant();
+                            string pathLower = (def.PathName ?? string.Empty).ToLowerInvariant();
+                            string fileLower = string.Empty;
+                            try { fileLower = Path.GetFileNameWithoutExtension(def.PathName)?.ToLowerInvariant() ?? string.Empty; }
+                            catch { }
+
+                            if (!nameLower.Contains("tblk") && !pathLower.Contains("tblk") && !fileLower.Contains("tblk"))
+                            {
+                                continue;
+                            }
+
+                            var extOpt = TryGetExtents(br);
+                            if (extOpt == null) continue;
+
+                            var ext = extOpt.Value;
+                            double width = Math.Abs(ext.MaxPoint.X - ext.MinPoint.X);
+                            double height = Math.Abs(ext.MaxPoint.Y - ext.MinPoint.Y);
+                            double area = Math.Abs(width * height);
+
+                            if (bestExt == null || area > bestArea)
+                            {
+                                bestExt = ext;
+                                bestArea = area;
+                                bestRef = br;
+                            }
+                        }
+
+                        if (bestRef != null && bestExt != null)
+                        {
+                            string layoutName = layout?.LayoutName ?? btr.Name;
+                            layoutData.Add((btr.ObjectId, layoutName, bestRef.ObjectId, bestExt.Value));
+                        }
+                    }
+
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nFailed to locate paper space titleblocks: {ex.Message}");
+                return;
+            }
+
+            if (layoutData.Count == 0)
+            {
+                ed.WriteMessage("\nNo paper space titleblock references named like 'TBLK' were found.");
+                return;
+            }
+
+            foreach (var info in layoutData)
+            {
+                try
+                {
+                    var keepIds = new HashSet<ObjectId> { info.TitleRefId };
+                    var expanded = ExpandExtents(info.Extents, 0.01);
+
+                    using (var tr = db.TransactionManager.StartTransaction())
+                    {
+                        var btr = (BlockTableRecord)tr.GetObject(info.LayoutId, OpenMode.ForRead);
+
+                        foreach (ObjectId entId in btr)
+                        {
+                            if (keepIds.Contains(entId)) continue;
+
+                            var ent = tr.GetObject(entId, OpenMode.ForRead) as Entity;
+                            if (ent == null) continue;
+
+                            if (ent is Viewport vp && vp.Number == 1)
+                            {
+                                keepIds.Add(entId);
+                                continue;
+                            }
+
+                            var extOpt = TryGetExtents(ent);
+                            if (extOpt != null && ExtentsIntersectXY(expanded, extOpt.Value))
+                            {
+                                keepIds.Add(entId);
+                            }
+                        }
+
+                        tr.Commit();
+                    }
+
+                    EraseEntitiesExcept(db, ed, info.LayoutId, keepIds);
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nFailed to prune layout '{info.LayoutName}': {ex.Message}");
+                }
+            }
+        }
+
+        private static Extents3d ExpandExtents(Extents3d ext, double fraction)
+        {
+            double width = Math.Abs(ext.MaxPoint.X - ext.MinPoint.X);
+            double height = Math.Abs(ext.MaxPoint.Y - ext.MinPoint.Y);
+            double dx = Math.Max(width * fraction, 1e-4);
+            double dy = Math.Max(height * fraction, 1e-4);
+
+            return new Extents3d(
+                new Point3d(ext.MinPoint.X - dx, ext.MinPoint.Y - dy, ext.MinPoint.Z),
+                new Point3d(ext.MaxPoint.X + dx, ext.MaxPoint.Y + dy, ext.MaxPoint.Z));
+        }
         private static void ZoomToTitleBlock(Editor ed, Point3d[] poly)
         {
             try
@@ -439,7 +581,7 @@ namespace AutoCADCleanupTool
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage("\nError during zoom: {ex.Message}");
+                ed.WriteMessage($"\nError during zoom: {ex.Message}");
             }
         }
 
@@ -490,4 +632,3 @@ namespace AutoCADCleanupTool
 
     }
 }
-
