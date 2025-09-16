@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -19,6 +19,16 @@ namespace AutoCADCleanupTool
             if (doc == null) return;
             Database db = doc.Database;
             Editor ed = doc.Editor;
+
+            try
+            {
+                var modelId = SymbolUtilityServices.GetBlockModelSpaceId(db);
+                if (db.CurrentSpaceId != modelId)
+                {
+                    try { ed.SwitchToModelSpace(); } catch { try { Application.SetSystemVariable("TILEMODE", 1); } catch { } }
+                }
+            }
+            catch { }
         
             string[] layerTokens = { "TITLE", "TBLK", "BORDER", "SHEET", "FRAME" };
             var attrTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -28,6 +38,7 @@ namespace AutoCADCleanupTool
                 "REV", "REVISION", "TITLE"
             };
         
+            HashSet<ObjectId> keepIds = null;
             try
             {
                 using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -267,9 +278,16 @@ namespace AutoCADCleanupTool
                     }
         
                     var best = candidates.OrderByDescending(c => c.Score).First();
-        
+
+                    // Transform polygon from UCS to WCS
+                    var ucs = ed.CurrentUserCoordinateSystem;
+                    var wcs_poly = best.Poly.Select(p => p.TransformBy(ucs.Inverse())).ToArray();
+
+                    var expandedPoly = ExpandTitleBlockPolygon(wcs_poly);
+                    ZoomToTitleBlock(ed, expandedPoly ?? wcs_poly);
+
                     // Select objects strictly inside the found polygon
-                    var polyColl = new Point3dCollection(best.Poly);
+                    var polyColl = new Point3dCollection(expandedPoly ?? best.Poly);
                     var selRes = ed.SelectWindowPolygon(polyColl);
                     if (selRes.Status != PromptStatus.OK)
                     {
@@ -278,22 +296,198 @@ namespace AutoCADCleanupTool
                         return;
                     }
         
-                    var keepIds = new HashSet<ObjectId>(selRes.Value.GetObjectIds());
+                    keepIds = new HashSet<ObjectId>(selRes.Value.GetObjectIds());
                     // Ensure the border entities themselves are also kept
                     foreach (var bid in best.Boundary) if (!bid.IsNull) keepIds.Add(bid);
         
-                    // Pre-select and call EraseOther to remove everything else from Model Space
-                    ed.SetImpliedSelection(keepIds.ToArray());
-                    doc.SendStringToExecute("EraseOther ", true, false, false);
-        
+                    // Record ids to keep; removal happens after the transaction
+
                     tr.Commit();
                 }
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nError in KEEPONLYTITLEBLOCKMS: {ex.Message}");
+                return;
+            }
+
+            if (keepIds == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var modelSpaceId = SymbolUtilityServices.GetBlockModelSpaceId(db);
+                CleanupCommands.EraseEntitiesExcept(db, ed, modelSpaceId, keepIds);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nFailed to prune model space: {ex.Message}");
             }
         }
+
+        private static void ZoomToTitleBlock(Editor ed, Point3d[] poly)
+        {
+            try
+            {
+                if (ed == null || poly == null || poly.Length != 4) return;
+
+                const double minLength = 1e-6;
+
+                var centroid = new Point3d(
+                    poly.Average(p => p.X),
+                    poly.Average(p => p.Y),
+                    0);
+
+                var ordered = poly
+                    .OrderBy(p => Math.Atan2(p.Y - centroid.Y, p.X - centroid.X))
+                    .ToArray();
+                if (ordered.Length != 4) return;
+
+                Point3d p0 = ordered[0];
+                Point3d p1 = ordered[1];
+                Point3d p2 = ordered[2];
+                Point3d p3 = ordered[3];
+
+                Vector3d edge0 = p1 - p0;
+                Vector3d edge1 = p2 - p1;
+                Vector3d edge2 = p3 - p2;
+                Vector3d edge3 = p0 - p3;
+
+                if (edge0.Length < minLength || edge1.Length < minLength || edge2.Length < minLength || edge3.Length < minLength)
+                {
+                    return;
+                }
+
+                Vector3d widthVec = edge0;
+                Vector3d heightVec = edge1;
+                if (heightVec.Length > widthVec.Length)
+                {
+                    var tmp = widthVec;
+                    widthVec = heightVec;
+                    heightVec = tmp;
+                }
+
+                Vector3d widthDir = widthVec.GetNormal();
+                Vector3d heightDir = heightVec.GetNormal();
+
+                // Keep the local basis right-handed
+                double cross = widthDir.X * heightDir.Y - widthDir.Y * heightDir.X;
+                if (cross < 0)
+                {
+                    heightDir = new Vector3d(-heightDir.X, -heightDir.Y, -heightDir.Z);
+                }
+
+                // Ensure the vertical axis remains upward so the view is not flipped
+                if (heightDir.DotProduct(Vector3d.YAxis) < 0)
+                {
+                    widthDir = new Vector3d(-widthDir.X, -widthDir.Y, -widthDir.Z);
+                    heightDir = new Vector3d(-heightDir.X, -heightDir.Y, -heightDir.Z);
+                }
+
+                double width = widthVec.Length;
+                double height = heightVec.Length;
+                if (width < minLength || height < minLength) return;
+
+                double margin = Math.Max(width, height) * 0.05;
+                double widthWithMargin = width + 2.0 * margin;
+                double heightWithMargin = height + 2.0 * margin;
+
+                Point3d center = new Point3d(
+                    (p0.X + p2.X) * 0.5,
+                    (p0.Y + p2.Y) * 0.5,
+                    0);
+
+                using (var view = ed.GetCurrentView())
+                {
+                    double viewRatio = view.Width / view.Height;
+
+                    view.Target = center;
+                    view.ViewDirection = Vector3d.ZAxis;
+
+                    double angle = Math.Atan2(widthDir.Y, widthDir.X);
+                    view.ViewTwist = angle;
+
+                    Matrix3d wcs2dcs = Matrix3d.PlaneToWorld(view.ViewDirection);
+                    wcs2dcs = Matrix3d.Displacement(view.Target - Point3d.Origin) * wcs2dcs;
+                    wcs2dcs = Matrix3d.Rotation(-view.ViewTwist, view.ViewDirection, view.Target) * wcs2dcs;
+                    Matrix3d dcsMatrix = wcs2dcs.Inverse();
+
+                    Point3d centerDcs = center.TransformBy(dcsMatrix);
+                    var newCenter = new Point2d(centerDcs.X, centerDcs.Y);
+
+                    double adjustedWidth = widthWithMargin;
+                    double adjustedHeight = heightWithMargin;
+                    if (adjustedWidth > adjustedHeight * viewRatio)
+                    {
+                        adjustedHeight = adjustedWidth / viewRatio;
+                    }
+                    else
+                    {
+                        adjustedWidth = adjustedHeight * viewRatio;
+                    }
+
+                    view.Width = adjustedWidth;
+                    view.Height = adjustedHeight;
+                    view.CenterPoint = newCenter;
+
+                    ed.SetCurrentView(view);
+                }
+
+                try { ed.Regen(); } catch { }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("\nError during zoom: {ex.Message}");
+            }
+        }
+
+        private static Point3d[] ExpandTitleBlockPolygon(Point3d[] poly)
+        {
+            if (poly == null || poly.Length != 4)
+            {
+                return poly;
+            }
+
+            // Calculate the geometric center of the polygon.
+            var center = new Point3d(
+                (poly[0].X + poly[1].X + poly[2].X + poly[3].X) / 4.0,
+                (poly[0].Y + poly[1].Y + poly[2].Y + poly[3].Y) / 4.0,
+                0
+            );
+
+            // Robustly determine side lengths to calculate margin
+            double distSq01 = poly[0].DistanceTo(poly[1]) * poly[0].DistanceTo(poly[1]);
+            double distSq02 = poly[0].DistanceTo(poly[2]) * poly[0].DistanceTo(poly[2]);
+            double distSq03 = poly[0].DistanceTo(poly[3]) * poly[0].DistanceTo(poly[3]);
+
+            double side1Sq, side2Sq;
+            if (distSq01 > distSq02 && distSq01 > distSq03) { // 0-1 is diagonal
+                side1Sq = distSq02;
+                side2Sq = distSq03;
+            } else if (distSq02 > distSq01 && distSq02 > distSq03) { // 0-2 is diagonal
+                side1Sq = distSq01;
+                side2Sq = distSq03;
+            } else { // 0-3 is diagonal
+                side1Sq = distSq01;
+                side2Sq = distSq02;
+            }
+            // Margin is 0.5% of the smaller side
+            double margin = Math.Sqrt(Math.Min(side1Sq, side2Sq)) * 0.005;
+
+            var expandedPoly = new Point3d[4];
+            for (int i = 0; i < 4; i++)
+            {
+                // Create a vector from the center to the current vertex.
+                var vecFromCenter = poly[i] - center;
+                // Move the vertex outwards along this vector.
+                expandedPoly[i] = poly[i] + vecFromCenter.GetNormal() * margin;
+            }
+
+            return expandedPoly;
+        }
+
     }
 }
 

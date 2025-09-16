@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
+using System.Globalization;
 
 namespace AutoCADCleanupTool
 {
@@ -83,6 +84,11 @@ namespace AutoCADCleanupTool
         private static readonly HashSet<ObjectId> _imageDefsToPurge = new HashSet<ObjectId>();
         // Chain flag: when true, run FINALIZE after EMBEDFROMXREFS completes
         private static bool _chainFinalizeAfterEmbed = false;
+        // Track state for queuing paste insertion points
+        private static ImagePlacement _activePlacement = null;
+        private static Document _activePasteDocument = null;
+        private static bool _waitingForPasteStart = false;
+        private static bool _pastePointHandlerAttached = false;
 
         private static bool EnsurePowerPoint(Editor ed)
         {
@@ -266,6 +272,7 @@ namespace AutoCADCleanupTool
         {
             if (_handlersAttached) return;
             db.ObjectAppended += Db_ObjectAppended;
+            doc.CommandWillStart += Doc_CommandWillStart;
             doc.CommandEnded += Doc_CommandEnded;
             _handlersAttached = true;
         }
@@ -274,7 +281,16 @@ namespace AutoCADCleanupTool
         {
             if (!_handlersAttached) return;
             try { db.ObjectAppended -= Db_ObjectAppended; } catch { }
+            try { doc.CommandWillStart -= Doc_CommandWillStart; } catch { }
             try { doc.CommandEnded -= Doc_CommandEnded; } catch { }
+            if (_pastePointHandlerAttached)
+            {
+                try { Autodesk.AutoCAD.ApplicationServices.Application.Idle -= Application_OnIdleSendPastePoint; } catch { }
+                _pastePointHandlerAttached = false;
+            }
+            _activePlacement = null;
+            _activePasteDocument = null;
+            _waitingForPasteStart = false;
             _handlersAttached = false;
         }
 
@@ -284,14 +300,59 @@ namespace AutoCADCleanupTool
             if (_imageDefsToPurge.Count == 0) return;
             try
             {
+                var candidates = new HashSet<ObjectId>();
+                foreach (var defId in _imageDefsToPurge)
+                {
+                    try
+                    {
+                        if (!defId.IsNull && defId.Database == db)
+                        {
+                            candidates.Add(defId);
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore ids from prior drawings or disposed databases
+                    }
+                }
+
+                if (candidates.Count == 0)
+                {
+                    return;
+                }
+
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
-                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                    var refCounts = new Dictionary<ObjectId, int>();
-                    foreach (var defId in _imageDefsToPurge)
-                        refCounts[defId] = 0;
+                    var named = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+                    if (!named.Contains("ACAD_IMAGE_DICT"))
+                    {
+                        tr.Commit();
+                        return;
+                    }
 
-                    // Count remaining references to each image def across all block table records
+                    var imageDict = (DBDictionary)tr.GetObject(named.GetAt("ACAD_IMAGE_DICT"), OpenMode.ForWrite);
+                    var keysById = new Dictionary<ObjectId, string>();
+                    foreach (DBDictionaryEntry entry in imageDict)
+                    {
+                        if (candidates.Contains(entry.Value))
+                        {
+                            keysById[entry.Value] = entry.Key;
+                        }
+                    }
+
+                    if (keysById.Count == 0)
+                    {
+                        tr.Commit();
+                        return;
+                    }
+
+                    var imagesByDef = new Dictionary<ObjectId, List<ObjectId>>();
+                    foreach (var id in keysById.Keys)
+                    {
+                        imagesByDef[id] = new List<ObjectId>();
+                    }
+
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                     foreach (ObjectId btrId in bt)
                     {
                         var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
@@ -300,53 +361,78 @@ namespace AutoCADCleanupTool
                             if (entId.ObjectClass.DxfName != "IMAGE") continue;
                             var img = tr.GetObject(entId, OpenMode.ForRead) as RasterImage;
                             if (img == null || img.ImageDefId.IsNull) continue;
-                            if (refCounts.ContainsKey(img.ImageDefId))
-                                refCounts[img.ImageDefId] = refCounts[img.ImageDefId] + 1;
+                            if (imagesByDef.TryGetValue(img.ImageDefId, out var list))
+                            {
+                                list.Add(entId);
+                            }
                         }
                     }
 
-                    // Open the image dictionary to remove entries
-                    var named = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
-                    if (!named.Contains("ACAD_IMAGE_DICT"))
+                    int erasedImages = 0;
+                    foreach (var kvp in imagesByDef)
                     {
-                        tr.Commit();
-                        _imageDefsToPurge.Clear();
-                        return;
+                        foreach (var entId in kvp.Value)
+                        {
+                            try
+                            {
+                                var img = tr.GetObject(entId, OpenMode.ForWrite, false) as RasterImage;
+                                if (img == null) continue;
+                                var layer = (LayerTableRecord)tr.GetObject(img.LayerId, OpenMode.ForRead);
+                                bool relock = false;
+                                if (layer.IsLocked)
+                                {
+                                    layer.UpgradeOpen();
+                                    layer.IsLocked = false;
+                                    relock = true;
+                                }
+                                img.Erase();
+                                if (relock)
+                                {
+                                    layer.IsLocked = true;
+                                }
+                                erasedImages++;
+                            }
+                            catch (System.Exception ex)
+                            {
+                                ed.WriteMessage($"\nFailed to erase leftover raster image {entId}: {ex.Message}");
+                            }
+                        }
                     }
-                    var imageDict = (DBDictionary)tr.GetObject(named.GetAt("ACAD_IMAGE_DICT"), OpenMode.ForWrite);
 
                     int purged = 0;
-                    foreach (var kvp in refCounts)
+                    foreach (var defId in keysById.Keys)
                     {
-                        if (kvp.Value > 0) continue; // still referenced somewhere
-
-                        // Find the dictionary key for this def id
-                        string keyToRemove = null;
-                        foreach (DBDictionaryEntry entry in imageDict)
+                        if (keysById.TryGetValue(defId, out var key) && !string.IsNullOrEmpty(key))
                         {
-                            if (entry.Value == kvp.Key)
+                            try
                             {
-                                keyToRemove = entry.Key;
-                                break;
+                                imageDict.Remove(key);
+                            }
+                            catch (System.Exception ex)
+                            {
+                                ed.WriteMessage($"\nFailed to remove image dictionary entry '{key}': {ex.Message}");
                             }
                         }
 
-                        // Remove dict entry and erase the def
-                        if (!string.IsNullOrEmpty(keyToRemove))
-                        {
-                            try { imageDict.Remove(keyToRemove); } catch { }
-                        }
                         try
                         {
-                            var defObj = tr.GetObject(kvp.Key, OpenMode.ForWrite, false);
-                            defObj?.Erase();
-                            purged++;
+                            var defObj = tr.GetObject(defId, OpenMode.ForWrite, false);
+                            if (defObj != null && !defObj.IsErased)
+                            {
+                                defObj.Erase();
+                                purged++;
+                            }
                         }
-                        catch { }
+                        catch (System.Exception ex)
+                        {
+                            ed.WriteMessage($"\nFailed to erase image definition {defId}: {ex.Message}");
+                        }
                     }
 
-                    if (purged > 0)
-                        ed.WriteMessage($"\nPurged {purged} unused image definition(s).");
+                    if (erasedImages > 0 || purged > 0)
+                    {
+                        ed.WriteMessage($"\nRemoved {erasedImages} leftover raster image(s) and purged {purged} image definition(s).");
+                    }
 
                     tr.Commit();
                 }
@@ -373,6 +459,61 @@ namespace AutoCADCleanupTool
             catch { }
         }
 
+
+        private static void Doc_CommandWillStart(object sender, Autodesk.AutoCAD.ApplicationServices.CommandEventArgs e)
+        {
+            try
+            {
+                if (!string.Equals(e.GlobalCommandName, "PASTECLIP", StringComparison.OrdinalIgnoreCase)) return;
+                if (!_waitingForPasteStart || _activePlacement == null) return;
+                if (_pastePointHandlerAttached) return;
+
+                if (_activePasteDocument == null)
+                {
+                    _activePasteDocument = Application.DocumentManager.MdiActiveDocument;
+                }
+
+                Autodesk.AutoCAD.ApplicationServices.Application.Idle += Application_OnIdleSendPastePoint;
+                _pastePointHandlerAttached = true;
+            }
+            catch { }
+        }
+
+        private static void Application_OnIdleSendPastePoint(object sender, EventArgs e)
+        {
+            try
+            {
+                Autodesk.AutoCAD.ApplicationServices.Application.Idle -= Application_OnIdleSendPastePoint;
+                _pastePointHandlerAttached = false;
+
+                var doc = _activePasteDocument ?? Application.DocumentManager.MdiActiveDocument;
+                var placement = _activePlacement;
+                if (doc == null || placement == null)
+                {
+                    return;
+                }
+
+                string active = null;
+                try { active = doc.CommandInProgress; } catch { }
+                if (!string.Equals(active, "PASTECLIP", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                string x = placement.Pos.X.ToString("G17", CultureInfo.InvariantCulture);
+                string y = placement.Pos.Y.ToString("G17", CultureInfo.InvariantCulture);
+
+                doc.SendStringToExecute($"{x},{y}\n1\n0\n", true, false, false);
+            }
+            catch
+            {
+            }
+            finally
+            {
+                _waitingForPasteStart = false;
+            }
+        }
+
         private static void Doc_CommandEnded(object sender, Autodesk.AutoCAD.ApplicationServices.CommandEventArgs e)
         {
             try
@@ -384,12 +525,42 @@ namespace AutoCADCleanupTool
                 var db = doc.Database;
                 var ed = doc.Editor;
 
-                if (_lastPastedOle.IsNull || _pending.Count == 0)
+                _waitingForPasteStart = false;
+                if (_pastePointHandlerAttached)
                 {
+                    try { Autodesk.AutoCAD.ApplicationServices.Application.Idle -= Application_OnIdleSendPastePoint; } catch { }
+                    _pastePointHandlerAttached = false;
+                }
+
+                if (_pending.Count == 0)
+                {
+                    _activePlacement = null;
+                    _activePasteDocument = null;
+                    _lastPastedOle = ObjectId.Null;
+                    return;
+                }
+
+                if (_lastPastedOle.IsNull)
+                {
+                    _pending.Dequeue();
+                    _activePlacement = null;
+                    _activePasteDocument = null;
+                    ed.WriteMessage("\nSkipping a raster image because no OLE object was created.");
+
+                    if (_pending.Count > 0)
+                    {
+                        ProcessNextPaste(doc, ed);
+                    }
+                    else
+                    {
+                        FinishEmbeddingRun(doc, ed, db);
+                    }
                     return;
                 }
 
                 var target = _pending.Dequeue();
+                _activePlacement = null;
+                _activePasteDocument = doc;
 
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
@@ -463,31 +634,31 @@ namespace AutoCADCleanupTool
 
                 _lastPastedOle = ObjectId.Null;
 
-                // Continue with next pending image
                 if (_pending.Count > 0)
                 {
                     ProcessNextPaste(doc, ed);
                 }
                 else
                 {
-                    ed.WriteMessage("\nCompleted embedding over all raster images.");
-                    // Clean up handlers first, then purge unused image defs
-                    DetachHandlers(db, doc);
-                    PurgeEmbeddedImageDefs(db, ed);
-                    // Close PowerPoint for a clean state between runs (no save)
-                    ClosePowerPoint(ed);
-                    // Restore original current layer if we changed it
-                    try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
-                    _savedClayer = ObjectId.Null;
-                    // If requested, continue the chain by running FINALIZE
-                    if (_chainFinalizeAfterEmbed)
-                    {
-                        _chainFinalizeAfterEmbed = false;
-                        doc.SendStringToExecute("_.FINALIZE ", true, false, false);
-                    }
+                    FinishEmbeddingRun(doc, ed, db);
                 }
             }
             catch { }
+        }
+
+        private static void FinishEmbeddingRun(Document doc, Editor ed, Database db)
+        {
+            ed.WriteMessage("\nCompleted embedding over all raster images.");
+            DetachHandlers(db, doc);
+            PurgeEmbeddedImageDefs(db, ed);
+            ClosePowerPoint(ed);
+            try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
+            _savedClayer = ObjectId.Null;
+            if (_chainFinalizeAfterEmbed)
+            {
+                _chainFinalizeAfterEmbed = false;
+                doc.SendStringToExecute("_.FINALIZE ", true, false, false);
+            }
         }
 
         private static void ProcessNextPaste(Document doc, Editor ed)
@@ -498,34 +669,32 @@ namespace AutoCADCleanupTool
             if (!PrepareClipboardWithImageShared(target.Path, ed))
             {
                 _pending.Dequeue();
+                _activePlacement = null;
+
                 if (_pending.Count > 0)
                 {
                     ProcessNextPaste(doc, ed);
                 }
                 else
                 {
-                    // Nothing left to process; finalize and close PowerPoint between runs
-                    var db = doc.Database;
-                    ed.WriteMessage("\nCompleted embedding over all raster images.");
-                    DetachHandlers(db, doc);
-                    PurgeEmbeddedImageDefs(db, ed);
-                    ClosePowerPoint(ed);
-                    try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
-                    _savedClayer = ObjectId.Null;
-                    if (_chainFinalizeAfterEmbed)
-                    {
-                        _chainFinalizeAfterEmbed = false;
-                        doc.SendStringToExecute("_.FINALIZE ", true, false, false);
-                    }
+                    FinishEmbeddingRun(doc, ed, doc.Database);
                 }
                 return;
             }
 
             StartOleTextSizeDialogCloser(120);
 
-            string pt = $"{target.Pos.X},{target.Pos.Y}";
-            string cmd = $"_.PASTECLIP {pt} 1 0 ";
-            doc.SendStringToExecute(cmd, true, false, false);
+            _activePlacement = target;
+            _activePasteDocument = doc;
+            _waitingForPasteStart = true;
+
+            if (_pastePointHandlerAttached)
+            {
+                try { Autodesk.AutoCAD.ApplicationServices.Application.Idle -= Application_OnIdleSendPastePoint; } catch { }
+                _pastePointHandlerAttached = false;
+            }
+
+            doc.SendStringToExecute("_.PASTECLIP\n", true, false, false);
         }
 
     }

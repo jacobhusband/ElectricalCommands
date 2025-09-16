@@ -1,10 +1,11 @@
-﻿using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace AutoCADCleanupTool
@@ -35,24 +36,51 @@ namespace AutoCADCleanupTool
                     {
                         _blockIdsBeforeBind.Add(btrId);
                         var btr = trans.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
-                        if (btr != null && btr.IsFromExternalReference && btr.IsResolved &&
-                            !string.IsNullOrEmpty(btr.PathName) && btr.PathName.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase))
+                        if (btr == null || !btr.IsFromExternalReference || !btr.IsResolved)
+                        {
+                            continue;
+                        }
+
+                        bool isDwg = false;
+                        string pathName = btr.PathName ?? string.Empty;
+                        if (!string.IsNullOrEmpty(pathName))
+                        {
+                            try { isDwg = string.Equals(Path.GetExtension(pathName), ".dwg", StringComparison.OrdinalIgnoreCase); }
+                            catch { }
+                        }
+
+                        if (!isDwg)
+                        {
+                            string name = btr.Name ?? string.Empty;
+                            isDwg = name.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase);
+                        }
+
+                        if (isDwg)
                         {
                             _originalXrefIds.Add(btrId);
                         }
                     }
-                    ed.WriteMessage($"\nFound {_blockIdsBeforeBind.Count} total blocks and {_originalXrefIds.Count} DWG XREFs to bind.");
-        
-                    if (_originalXrefIds.Count > 0)
+
+                    trans.Commit();
+                }
+
+                ed.WriteMessage($"\nFound {_blockIdsBeforeBind.Count} total blocks and {_originalXrefIds.Count} DWG XREFs to bind.");
+
+                if (_originalXrefIds.Count > 0)
+                {
+                    var idsToBind = new ObjectIdCollection(_originalXrefIds.ToArray());
+                    if (!SkipBindDuringFinalize)
                     {
-                        var idsToBind = new ObjectIdCollection(_originalXrefIds.ToArray());
                         ed.WriteMessage($"\nBinding {idsToBind.Count} DWG reference(s)...");
                         db.BindXrefs(idsToBind, true);
                         bindCount = idsToBind.Count;
                     }
-                    trans.Commit();
+                    else
+                    {
+                        ed.WriteMessage("\nSkipping XREF binding per configuration; will detach originals only.");
+                    }
                 }
-        
+
                 if (bindCount > 0)
                 {
                     ed.WriteMessage("\nBind complete. Queueing cleanup process...");
@@ -66,6 +94,10 @@ namespace AutoCADCleanupTool
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nAn error occurred during bind: {ex.Message}");
+            }
+            finally
+            {
+                SkipBindDuringFinalize = false;
             }
         }
     }

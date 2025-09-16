@@ -36,7 +36,8 @@ namespace AutoCADCleanupTool
                         }
                     }
                     ed.WriteMessage($"\nFound {newBlockIds.Count} new block definition(s) created by bind.");
-        
+
+                    bool createdNewBlocks = newBlockIds.Count > 0;
                     int imagesErased = 0;
                     foreach (ObjectId newBtrId in newBlockIds)
                     {
@@ -56,19 +57,38 @@ namespace AutoCADCleanupTool
                         }
                     }
                     ed.WriteMessage($"\nErased {imagesErased} RasterImage entit(ies) and added {_imageDefsToPurge.Count} definitions to kill list.");
-        
+
                     int ghostsDetached = 0;
-                    foreach (ObjectId originalXrefId in _originalXrefIds)
+                    if (createdNewBlocks || ForceDetachOriginalXrefs)
                     {
-                        var obj = trans.GetObject(originalXrefId, OpenMode.ForRead, false, true);
-                        if (obj != null && !obj.IsErased)
+                        foreach (ObjectId originalXrefId in _originalXrefIds)
                         {
-                            db.DetachXref(originalXrefId);
-                            ghostsDetached++;
+                            var btr = trans.GetObject(originalXrefId, OpenMode.ForRead, false, true) as BlockTableRecord;
+                            if (btr == null || btr.IsErased)
+                            {
+                                continue;
+                            }
+                            if (!btr.IsFromExternalReference)
+                            {
+                                continue;
+                            }
+                            try
+                            {
+                                db.DetachXref(originalXrefId);
+                                ghostsDetached++;
+                            }
+                            catch (System.Exception exDetach)
+                            {
+                                ed.WriteMessage($"\nFailed to detach XREF '{btr.Name}': {exDetach.Message}");
+                            }
                         }
+                        ed.WriteMessage($"\nManually detached {ghostsDetached} old XREF block definition(s).");
                     }
-                    ed.WriteMessage($"\nManually detached {ghostsDetached} old XREF block definition(s).");
-                    
+                    else
+                    {
+                        ed.WriteMessage($"\nNo new block definitions were created during bind; skipping XREF detachment.");
+                    }
+
                     trans.Commit();
                 }
         
@@ -83,6 +103,7 @@ namespace AutoCADCleanupTool
             {
                 _blockIdsBeforeBind.Clear();
                 _originalXrefIds.Clear();
+                ForceDetachOriginalXrefs = false;
             }
         }
     }

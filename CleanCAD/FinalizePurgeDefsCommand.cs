@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -24,6 +24,7 @@ namespace AutoCADCleanupTool
             if (_imageDefsToPurge.Count == 0)
             {
                 ed.WriteMessage("\nNo orphaned image definitions were identified. Finalization complete.");
+                TriggerKeepOnlyTitleBlockIfRequested(doc, ed);
                 return;
             }
         
@@ -70,8 +71,22 @@ namespace AutoCADCleanupTool
             finally
             {
                 _imageDefsToPurge.Clear();
+                TriggerKeepOnlyTitleBlockIfRequested(doc, ed);
+            }
+        }
+
+        private static void TriggerKeepOnlyTitleBlockIfRequested(Document doc, Editor ed)
+        {
+            if (!RunKeepOnlyAfterFinalize) return;
+            RunKeepOnlyAfterFinalize = false;
+            try
+            {
+                doc.SendStringToExecute("_.KEEPONLYTITLEBLOCKMS ", true, false, false);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nFailed to queue KEEPONLYTITLEBLOCKMS: {ex.Message}");
             }
         }
     }
 }
-
