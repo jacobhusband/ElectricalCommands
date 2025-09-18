@@ -17,43 +17,43 @@ if (-not (Test-Path $dll))      { Write-Host "Plugin DLL not found: $dll"; Read-
 
 # Stage AutoLISP CLEANUP command so each drawing is tidied after ref paths are stripped
 $lisp = Join-Path $env:TEMP "cleanup_tmp.lsp"
-$lispContent = @"
+$lispContent = @'
 (defun c:CLEANUP (/ oldCMDECHO oldTab)
   ;; Remember current command echo setting, then turn it off:
-  (setq oldCMDECHO (getvar \"CMDECHO\")
-        oldTab     (getvar \"CTAB\"))
-  (setvar \"CMDECHO\" 0)
+  (setq oldCMDECHO (getvar "CMDECHO")
+        oldTab     (getvar "CTAB"))
+  (setvar "CMDECHO" 0)
 
   ;; Ensure commands run from Model space
-  (if (/= oldTab \"Model\")
-    (command \"_.MODEL\")
+  (if (/= oldTab "Model")
+    (command "_.MODEL")
   )
 
   ;; Use SETBYLAYER on everything in the current space
-  ;;   \"Y\" => Change ByBlock to ByLayer?
-  ;;   \"Y\" => Include blocks?
+  ;;   "Y" => Change ByBlock to ByLayer?
+  ;;   "Y" => Include blocks?
   (command
-    \"_.-SETBYLAYER\" \"All\" \"\" \"Y\" \"Y\")
+    "_.-SETBYLAYER" "All" "" "Y" "Y")
 
-  ;; Purge the entire drawing; \"All\", \"*\" (everything), \"No\" to confirm each
-  (command \"_.-PURGE\" \"All\" \"*\" \"N\")
+  ;; Purge the entire drawing; "All", "*" (everything), "No" to confirm each
+  (command "_.-PURGE" "All" "*" "N")
 
-  ;; Audit the drawing; \"Yes\" to fix errors
-  (command \"_.AUDIT\" \"Y\")
+  ;; Audit the drawing; "Yes" to fix errors
+  (command "_.AUDIT" "Y")
 
   ;; Restore layout/model state if it changed
-  (if (/= oldTab (getvar \"CTAB\"))
-    (if (= oldTab \"Model\")
-      (command \"_.MODEL\")
-      (command \"_.LAYOUT\" \"Set\" oldTab)
+  (if (/= oldTab (getvar "CTAB"))
+    (if (= oldTab "Model")
+      (command "_.MODEL")
+      (command "_.LAYOUT" "Set" oldTab)
     )
   )
 
   ;; Restore command echo setting
-  (setvar \"CMDECHO\" oldCMDECHO)
+  (setvar "CMDECHO" oldCMDECHO)
   (princ)
 )
-"@
+'@
 Set-Content -Encoding ASCII -Path $lisp -Value $lispContent
 
 # Make .scr that NETLOADs the DLL, strips refs, and then runs CLEANUP
@@ -124,3 +124,6 @@ if ($failed.Count) {
   Write-Host "`nPress Enter to close..."
   [void](Read-Host)
 }
+
+
+
