@@ -6,10 +6,9 @@
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
-  <!-- This now points to the correct subfolder -->
+  <!-- AutoCAD command sources -->
   <ItemGroup>
-    <Compile Include="CleanCAD\*.cs" />
-    <Compile Include="GeneralCommands\*.cs" />
+    <Compile Include="AutoCADCommands\**\*.cs" />
   </ItemGroup>
   <!-- AutoCAD API references -->
   <ItemGroup>

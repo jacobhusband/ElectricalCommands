@@ -1,1 +1,0 @@
-$env:PATH = "C:\Users\JacobH\OneDrive - ACIES Engineering\Documents\dotnet-sdk;" + $env:PATH
