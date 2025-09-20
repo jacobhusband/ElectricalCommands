@@ -26,7 +26,7 @@ namespace AutoCADCleanupTool
 
     {
 
-        [CommandMethod("LISTPSXREFS", CommandFlags.Modal)]
+        [CommandMethod("CLEANPS", CommandFlags.Modal)]
 
         public static void ListPaperSpaceXrefs()
 
@@ -144,7 +144,7 @@ namespace AutoCADCleanupTool
 
                             }
 
-                            entries.Add(new XrefReportEntry(layout.LayoutName, blockName, layer, status, absolutePath, footprint, extents));
+                            entries.Add(new XrefReportEntry(br.ObjectId, layout.LayoutName, blockName, layer, status, absolutePath, footprint, extents));
 
                         }
 
@@ -516,11 +516,27 @@ namespace AutoCADCleanupTool
 
             {
 
-                if (TryEraseOutsideEntry(doc, ed, db, target))
+                int erased = TryEraseOutsideEntry(doc, ed, db, target);
+
+                if (erased >= 0)
 
                 {
 
-                    ed.WriteMessage("\nRemoved paper space geometry outside the title block extents.");
+                    if (erased > 0)
+
+                    {
+
+                        ed.WriteMessage("\nRemoved paper space geometry outside the title block extents.");
+
+                    }
+
+                    else
+
+                    {
+
+                        ed.WriteMessage("\nNo paper space geometry outside the title block extents was detected.");
+
+                    }
 
                 }
 
@@ -530,7 +546,7 @@ namespace AutoCADCleanupTool
 
 
 
-        private static bool TryEraseOutsideEntry(Document doc, Editor ed, Database db, XrefReportItem target)
+        private static int TryEraseOutsideEntry(Document doc, Editor ed, Database db, XrefReportItem target)
 
         {
 
@@ -538,7 +554,7 @@ namespace AutoCADCleanupTool
 
             {
 
-                return false;
+                return -1;
 
             }
 
@@ -556,7 +572,7 @@ namespace AutoCADCleanupTool
 
                     {
 
-                        return false;
+                        return -1;
 
                     }
 
@@ -570,7 +586,7 @@ namespace AutoCADCleanupTool
 
                         ed.WriteMessage($"\nUnable to locate layout \"{target.Entry.LayoutName}\" for cleanup.");
 
-                        return false;
+                        return -1;
 
                     }
 
@@ -579,6 +595,14 @@ namespace AutoCADCleanupTool
                     Extents3d expanded = ExpandExtents(target.Entry.Extents.Value, 0.01);
 
                     var keepIds = new HashSet<ObjectId>();
+
+                    if (target.Entry.BlockReferenceId != ObjectId.Null)
+
+                    {
+
+                        keepIds.Add(target.Entry.BlockReferenceId);
+
+                    }
 
 
 
@@ -592,7 +616,7 @@ namespace AutoCADCleanupTool
 
                         {
 
-                            if (!entId.IsValid)
+                            if (!entId.IsValid || keepIds.Contains(entId))
 
                             {
 
@@ -628,7 +652,7 @@ namespace AutoCADCleanupTool
 
                             Extents3d? entExt = TryGetExtents(ent);
 
-                            if (entExt != null && ExtentsIntersectXY(expanded, entExt.Value))
+                            if (entExt != null && ExtentsContainsXY(expanded, entExt.Value))
 
                             {
 
@@ -647,40 +671,20 @@ namespace AutoCADCleanupTool
 
 
                     if (keepIds.Count == 0)
+
                     {
+
                         ed.WriteMessage("\nErase skipped; no geometry detected within the title block bounds.");
-                        return false;
+
+                        return -1;
+
                     }
 
-                    ObjectId[] selection = keepIds.ToArray();
 
-                    try
-                    {
-                        ed.SetImpliedSelection(selection);
-                    }
-                    catch
-                    {
-                    }
 
-                    try
-                    {
-                        SimplerCommands.EraseOtherCommand();
-                    }
-                    catch (System.Exception eraseEx)
-                    {
-                        ed.WriteMessage($"\nFailed to erase using EraseOther: {eraseEx.Message}");
-                        return false;
-                    }
+                    return EraseEntitiesExcept(db, ed, layoutBtrId, keepIds);
 
-                    try
-                    {
-                        ed.SetImpliedSelection(Array.Empty<ObjectId>());
-                    }
-                    catch
-                    {
-                    }
                 }
-                return true;
 
             }
 
@@ -690,7 +694,7 @@ namespace AutoCADCleanupTool
 
                 ed.WriteMessage($"\nFailed to erase geometry outside the title block: {ex.Message}");
 
-                return false;
+                return -1;
 
             }
 
@@ -1088,10 +1092,11 @@ namespace AutoCADCleanupTool
 
         {
 
-            public XrefReportEntry(string layoutName, string blockName, string layer, string status, string path, Point3d[] footprint, Extents3d? extents)
+            public XrefReportEntry(ObjectId blockId, string layoutName, string blockName, string layer, string status, string path, Point3d[] footprint, Extents3d? extents)
 
             {
 
+                BlockReferenceId = blockId;
                 LayoutName = layoutName;
 
                 BlockName = blockName;
@@ -1107,6 +1112,8 @@ namespace AutoCADCleanupTool
                 Extents = extents;
 
             }
+
+            public ObjectId BlockReferenceId { get; }
 
             public string LayoutName { get; }
 

@@ -56,7 +56,6 @@ namespace AutoCADCleanupTool
                 else
                 {
                     CleanupCommands.KeepOnlyTitleBlockInPaperSpaceFromXref();
-                    CleanupCommands.TrimModelSpaceToViewportBounds();
                 }
 
                 DetachSpecialXrefs();

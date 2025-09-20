@@ -119,119 +119,18 @@ namespace AutoCADCleanupTool
 
             return erasedCount;
         }
-
-        internal static void TrimModelSpaceToViewportBounds()
-        {
-            var doc = Application.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-            var db = doc.Database;
-            var ed = doc.Editor;
-
-            try
-            {
-                var viewportExtents = new List<Extents3d>();
-                HashSet<ObjectId> keepIds;
-
-                using (var tr = db.TransactionManager.StartTransaction())
-                {
-                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                    var modelId = bt[BlockTableRecord.ModelSpace];
-                    var model = (BlockTableRecord)tr.GetObject(modelId, OpenMode.ForRead);
-
-                    foreach (ObjectId btrId in bt)
-                    {
-                        var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
-                        if (!btr.IsLayout || btr.Name == BlockTableRecord.ModelSpace) continue;
-
-                        foreach (ObjectId entId in btr)
-                        {
-                            var vp = tr.GetObject(entId, OpenMode.ForRead) as Viewport;
-                            if (vp == null) continue;
-                            if (vp.Number == 1 || !vp.On) continue;
-
-                            double viewHeight = vp.ViewHeight;
-                            if (viewHeight <= 1e-9) continue;
-                            double aspect = vp.Height <= 1e-9 ? 1.0 : vp.Width / vp.Height;
-                            double viewWidth = viewHeight * aspect;
-
-                            double halfW = viewWidth / 2.0;
-                            double halfH = viewHeight / 2.0;
-                            double twist = vp.TwistAngle;
-                            double cos = Math.Cos(twist);
-                            double sin = Math.Sin(twist);
-                            var vx = new Vector3d(cos, sin, 0);
-                            var vy = new Vector3d(-sin, cos, 0);
-                            var center = vp.ViewTarget;
-
-                            var corners = new[]
-                            {
-                                center + vx * halfW + vy * halfH,
-                                center + vx * halfW - vy * halfH,
-                                center - vx * halfW - vy * halfH,
-                                center - vx * halfW + vy * halfH
-                            };
-
-                            double minX = corners.Min(c => c.X);
-                            double maxX = corners.Max(c => c.X);
-                            double minY = corners.Min(c => c.Y);
-                            double maxY = corners.Max(c => c.Y);
-
-                            viewportExtents.Add(new Extents3d(
-                                new Point3d(minX, minY, double.NegativeInfinity),
-                                new Point3d(maxX, maxY, double.PositiveInfinity)));
-                        }
-                    }
-
-                    if (viewportExtents.Count == 0)
-                    {
-                        tr.Commit();
-                        ed.WriteMessage("\nNo enabled paper space viewports were found; skipping viewport-based cleanup.");
-                        return;
-                    }
-
-                    keepIds = new HashSet<ObjectId>();
-                    foreach (ObjectId entId in model)
-                    {
-                        var ent = tr.GetObject(entId, OpenMode.ForRead) as Entity;
-                        if (ent == null) continue;
-                        var extOpt = TryGetExtents(ent);
-                        if (extOpt == null)
-                        {
-                            continue;
-                        }
-
-                        if (viewportExtents.Any(v => ExtentsIntersectXY(extOpt.Value, v)))
-                        {
-                            keepIds.Add(entId);
-                        }
-                    }
-
-                    tr.Commit();
-                }
-
-                if (viewportExtents.Count == 0)
-                {
-                    return;
-                }
-
-                if (keepIds is null)
-                {
-                    return;
-                }
-
-                var modelSpaceId = SymbolUtilityServices.GetBlockModelSpaceId(db);
-                EraseEntitiesExcept(db, ed, modelSpaceId, keepIds);
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nViewport clipping cleanup failed: {ex.Message}");
-            }
-        }
-
         private static bool ExtentsIntersectXY(Extents3d a, Extents3d b)
         {
             return a.MinPoint.X <= b.MaxPoint.X && a.MaxPoint.X >= b.MinPoint.X &&
                    a.MinPoint.Y <= b.MaxPoint.Y && a.MaxPoint.Y >= b.MinPoint.Y;
+        }
+
+        private static bool ExtentsContainsXY(Extents3d container, Extents3d item)
+        {
+            return container.MinPoint.X <= item.MinPoint.X &&
+                   container.MinPoint.Y <= item.MinPoint.Y &&
+                   container.MaxPoint.X >= item.MaxPoint.X &&
+                   container.MaxPoint.Y >= item.MaxPoint.Y;
         }
 
     }
