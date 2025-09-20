@@ -3,6 +3,7 @@ using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.GraphicsSystem;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -471,117 +472,142 @@ namespace AutoCADCleanupTool
         }
         private static void ZoomToTitleBlock(Editor ed, Point3d[] poly)
         {
+            if (ed == null || poly == null || poly.Length == 0) return;
+
             try
             {
-                if (ed == null || poly == null || poly.Length != 4) return;
-
-                const double minLength = 1e-6;
-
-                var centroid = new Point3d(
-                    poly.Average(p => p.X),
-                    poly.Average(p => p.Y),
-                    0);
-
-                var ordered = poly
-                    .OrderBy(p => Math.Atan2(p.Y - centroid.Y, p.X - centroid.X))
-                    .ToArray();
-                if (ordered.Length != 4) return;
-
-                Point3d p0 = ordered[0];
-                Point3d p1 = ordered[1];
-                Point3d p2 = ordered[2];
-                Point3d p3 = ordered[3];
-
-                Vector3d edge0 = p1 - p0;
-                Vector3d edge1 = p2 - p1;
-                Vector3d edge2 = p3 - p2;
-                Vector3d edge3 = p0 - p3;
-
-                if (edge0.Length < minLength || edge1.Length < minLength || edge2.Length < minLength || edge3.Length < minLength)
+                var ext = new Extents3d(poly[0], poly[0]);
+                for (int i = 1; i < poly.Length; i++)
                 {
-                    return;
+                    ext.AddPoint(poly[i]);
                 }
 
-                Vector3d widthVec = edge0;
-                Vector3d heightVec = edge1;
-                if (heightVec.Length > widthVec.Length)
-                {
-                    var tmp = widthVec;
-                    widthVec = heightVec;
-                    heightVec = tmp;
-                }
+                double width = System.Math.Abs(ext.MaxPoint.X - ext.MinPoint.X);
+                double height = System.Math.Abs(ext.MaxPoint.Y - ext.MinPoint.Y);
+                double margin = System.Math.Max(width, height) * 0.05;
 
-                Vector3d widthDir = widthVec.GetNormal();
-                Vector3d heightDir = heightVec.GetNormal();
+                Point3d pMin = new Point3d(ext.MinPoint.X - margin, ext.MinPoint.Y - margin, ext.MinPoint.Z);
+                Point3d pMax = new Point3d(ext.MaxPoint.X + margin, ext.MaxPoint.Y + margin, ext.MaxPoint.Z);
 
-                // Keep the local basis right-handed
-                double cross = widthDir.X * heightDir.Y - widthDir.Y * heightDir.X;
-                if (cross < 0)
-                {
-                    heightDir = new Vector3d(-heightDir.X, -heightDir.Y, -heightDir.Z);
-                }
-
-                // Ensure the vertical axis remains upward so the view is not flipped
-                if (heightDir.DotProduct(Vector3d.YAxis) < 0)
-                {
-                    widthDir = new Vector3d(-widthDir.X, -widthDir.Y, -widthDir.Z);
-                    heightDir = new Vector3d(-heightDir.X, -heightDir.Y, -heightDir.Z);
-                }
-
-                double width = widthVec.Length;
-                double height = heightVec.Length;
-                if (width < minLength || height < minLength) return;
-
-                double margin = Math.Max(width, height) * 0.05;
-                double widthWithMargin = width + 2.0 * margin;
-                double heightWithMargin = height + 2.0 * margin;
-
-                Point3d center = new Point3d(
-                    (p0.X + p2.X) * 0.5,
-                    (p0.Y + p2.Y) * 0.5,
-                    0);
-
-                using (var view = ed.GetCurrentView())
-                {
-                    double viewRatio = view.Width / view.Height;
-
-                    view.Target = center;
-                    view.ViewDirection = Vector3d.ZAxis;
-
-                    double angle = Math.Atan2(widthDir.Y, widthDir.X);
-                    view.ViewTwist = angle;
-
-                    Matrix3d wcs2dcs = Matrix3d.PlaneToWorld(view.ViewDirection);
-                    wcs2dcs = Matrix3d.Displacement(view.Target - Point3d.Origin) * wcs2dcs;
-                    wcs2dcs = Matrix3d.Rotation(-view.ViewTwist, view.ViewDirection, view.Target) * wcs2dcs;
-                    Matrix3d dcsMatrix = wcs2dcs.Inverse();
-
-                    Point3d centerDcs = center.TransformBy(dcsMatrix);
-                    var newCenter = new Point2d(centerDcs.X, centerDcs.Y);
-
-                    double adjustedWidth = widthWithMargin;
-                    double adjustedHeight = heightWithMargin;
-                    if (adjustedWidth > adjustedHeight * viewRatio)
-                    {
-                        adjustedHeight = adjustedWidth / viewRatio;
-                    }
-                    else
-                    {
-                        adjustedWidth = adjustedHeight * viewRatio;
-                    }
-
-                    view.Width = adjustedWidth;
-                    view.Height = adjustedHeight;
-                    view.CenterPoint = newCenter;
-
-                    ed.SetCurrentView(view);
-                }
-
-                try { ed.Regen(); } catch { }
+                Zoom(pMin, pMax, Point3d.Origin, 1.0);
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nError during zoom: {ex.Message}");
+            }
+        }
+
+        private static void Zoom(Point3d pMin, Point3d pMax, Point3d pCenter, double dFactor)
+        {
+            Document acDoc = Application.DocumentManager.MdiActiveDocument;
+            Database acCurDb = acDoc.Database;
+
+            int nCurVport = System.Convert.ToInt32(Application.GetSystemVariable("CVPORT"));
+
+            if (acCurDb.TileMode == true)
+            {
+                if (pMin.Equals(new Point3d()) == true &&
+                    pMax.Equals(new Point3d()) == true)
+                {
+                    pMin = acCurDb.Extmin;
+                    pMax = acCurDb.Extmax;
+                }
+            }
+            else
+            {
+                if (nCurVport == 1)
+                {
+                    if (pMin.Equals(new Point3d()) == true &&
+                        pMax.Equals(new Point3d()) == true)
+                    {
+                        pMin = acCurDb.Pextmin;
+                        pMax = acCurDb.Pextmax;
+                    }
+                }
+                else
+                {
+                    if (pMin.Equals(new Point3d()) == true &&
+                        pMax.Equals(new Point3d()) == true)
+                    {
+                        pMin = acCurDb.Extmin;
+                        pMax = acCurDb.Extmax;
+                    }
+                }
+            }
+
+            using (Transaction acTrans = acCurDb.TransactionManager.StartTransaction())
+            {
+                using (ViewTableRecord acView = acDoc.Editor.GetCurrentView())
+                {
+                    Extents3d eExtents;
+
+                    Matrix3d matWCS2DCS;
+                    matWCS2DCS = Matrix3d.PlaneToWorld(acView.ViewDirection);
+                    matWCS2DCS = Matrix3d.Displacement(acView.Target - Point3d.Origin) * matWCS2DCS;
+                    matWCS2DCS = Matrix3d.Rotation(-acView.ViewTwist,
+                                                    acView.ViewDirection,
+                                                    acView.Target) * matWCS2DCS;
+
+                    if (pCenter.DistanceTo(Point3d.Origin) != 0)
+                    {
+                        pMin = new Point3d(pCenter.X - (acView.Width / 2),
+                                            pCenter.Y - (acView.Height / 2), 0);
+
+                        pMax = new Point3d((acView.Width / 2) + pCenter.X,
+                                            (acView.Height / 2) + pCenter.Y, 0);
+                    }
+
+                    using (Line acLine = new Line(pMin, pMax))
+                    {
+                        eExtents = new Extents3d(acLine.Bounds.Value.MinPoint,
+                                                    acLine.Bounds.Value.MaxPoint);
+                    }
+
+                    double dViewRatio;
+                    dViewRatio = (acView.Width / acView.Height);
+
+                    matWCS2DCS = matWCS2DCS.Inverse();
+                    eExtents.TransformBy(matWCS2DCS);
+
+                    double dWidth;
+                    double dHeight;
+                    Point2d pNewCentPt;
+
+                    if (pCenter.DistanceTo(Point3d.Origin) != 0)
+                    {
+                        dWidth = acView.Width;
+                        dHeight = acView.Height;
+
+                        if (dFactor == 0)
+                        {
+                            pCenter = pCenter.TransformBy(matWCS2DCS);
+                        }
+
+                        pNewCentPt = new Point2d(pCenter.X, pCenter.Y);
+                    }
+                    else
+                    {
+                        dWidth = eExtents.MaxPoint.X - eExtents.MinPoint.X;
+                        dHeight = eExtents.MaxPoint.Y - eExtents.MinPoint.Y;
+
+                        pNewCentPt = new Point2d(((eExtents.MaxPoint.X + eExtents.MinPoint.X) * 0.5),
+                                                    ((eExtents.MaxPoint.Y + eExtents.MinPoint.Y) * 0.5));
+                    }
+
+                    if (dWidth > (dHeight * dViewRatio)) dHeight = dWidth / dViewRatio;
+
+                    if (dFactor != 0)
+                    {
+                        acView.Height = dHeight * dFactor;
+                        acView.Width = dWidth * dFactor;
+                    }
+
+                    acView.CenterPoint = pNewCentPt;
+
+                    acDoc.Editor.SetCurrentView(acView);
+                }
+
+                acTrans.Commit();
             }
         }
 
