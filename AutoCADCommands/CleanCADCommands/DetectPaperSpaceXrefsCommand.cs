@@ -56,7 +56,7 @@ namespace AutoCADCleanupTool
 
                     {
 
-                        ed.WriteMessage("\nLayout manager is unavailable; cannot inspect paper space.");
+                        ed.WriteMessage("\r\nLayout manager is unavailable; cannot inspect paper space.");
 
                         tr.Commit();
 
@@ -70,7 +70,7 @@ namespace AutoCADCleanupTool
 
                     {
 
-                        ed.WriteMessage("\nLayout dictionary is unavailable; cannot inspect paper space.");
+                        ed.WriteMessage("\r\nLayout dictionary is unavailable; cannot inspect paper space.");
 
                         tr.Commit();
 
@@ -158,154 +158,81 @@ namespace AutoCADCleanupTool
 
                 {
 
-                    ed.WriteMessage("\nNo external references were detected in paper space layouts.");
+                    ed.WriteMessage("\r\nNo external references were detected in paper space layouts.");
 
                     return;
 
                 }
 
-                ed.WriteMessage($"\nDetected {entries.Count} external reference insertion(s) in paper space.");
+                ed.WriteMessage($"\r\nDetected {entries.Count} external reference insertion(s) in paper space.");
 
                 var indexedEntries = entries
-
                     .Select((entry, idx) => new XrefReportItem(entry, idx + 1))
-
                     .ToList();
 
-                foreach (var group in indexedEntries
-
+                var groupedByLayout = indexedEntries
                     .GroupBy(i => i.Entry.LayoutName, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
-                    .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+                int autoCleanedLayouts = 0;
 
+                foreach (var group in groupedByLayout)
                 {
-
-                    ed.WriteMessage($"\n  Layout: {group.Key} ({group.Count()} XREF(s))");
+                    ed.WriteMessage("\r\n  Layout: {group.Key} ({group.Count()} XREF(s))");
 
                     foreach (var item in group)
-
                     {
-
                         string pathInfo = string.IsNullOrWhiteSpace(item.Entry.Path) ? "<no saved path>" : item.Entry.Path;
-
                         string zoomNote = item.Entry.HasZoomTarget ? string.Empty : " (no extents available)";
-
-                        ed.WriteMessage($"\n    [{item.Index}] Block \"{item.Entry.BlockName}\" on layer \"{item.Entry.Layer}\" | Status: {item.Entry.Status} | Path: {pathInfo}{zoomNote}");
+                        ed.WriteMessage($"\r\n    [{item.Index}] Block \"{item.Entry.BlockName}\" on layer \"{item.Entry.Layer}\" | Status: {item.Entry.Status} | Path: {pathInfo}{zoomNote}");
 
                         if (item.Entry.Extents != null)
-
                         {
-
-                            ed.WriteMessage($"\n      Extents: {DescribeExtents2D(item.Entry.Extents.Value)}");
-
+                            ed.WriteMessage($"\r\n      Extents: {DescribeExtents2D(item.Entry.Extents.Value)}");
                         }
-
                         else
-
                         {
+                            ed.WriteMessage("\r\n      Extents: <not available>");
+                        }
+                    }
 
-                            ed.WriteMessage("\n      Extents: <not available>");
-
+                    if (group.Count() == 1)
+                    {
+                        var target = group.First();
+                        if (target.Entry.Extents == null)
+                        {
+                            ed.WriteMessage("\r\n    Skipping automatic cleanup; extents not available for this XREF.");
+                            continue;
                         }
 
+                        int erased = TryEraseOutsideEntry(doc, ed, db, target);
+                        if (erased >= 0)
+                        {
+                            autoCleanedLayouts++;
+                            if (erased > 0)
+                            {
+                                ed.WriteMessage("\r\n    Removed paper space geometry outside the title block extents.");
+                            }
+                            else
+                            {
+                                ed.WriteMessage("\r\n    No paper space geometry outside the title block extents was detected.");
+                            }
+                        }
                     }
-
+                    else
+                    {
+                        ed.WriteMessage("\r\n    Skipping automatic cleanup; multiple XREF block references detected on this layout.");
+                    }
                 }
 
-                if (indexedEntries.Count == 1)
-
+                if (autoCleanedLayouts > 0)
                 {
-
-                    var only = indexedEntries[0];
-
-                    if (!only.Entry.HasZoomTarget)
-
-                    {
-
-                        ed.WriteMessage("\nNo extents available to zoom for the lone XREF.");
-
-                        return;
-
-                    }
-
-                    if (TryZoomToEntry(doc, ed, only))
-
-                    {
-
-                        ed.WriteMessage($"\nZoomed to XREF [{only.Index}] \"{only.Entry.BlockName}\".");
-
-                        PromptEraseOutside(doc, ed, db, only);
-
-                    }
-
-                    return;
-
+                    ed.WriteMessage($"\r\nAutomatically cleaned {autoCleanedLayouts} layout(s) containing a single XREF.");
                 }
-
-                var zoomableIndices = new HashSet<int>(indexedEntries
-
-                    .Where(i => i.Entry.HasZoomTarget)
-
-                    .Select(i => i.Index));
-
-                if (zoomableIndices.Count == 0)
-
+                else
                 {
-
-                    ed.WriteMessage("\nNo zoomable XREFs were found.");
-
-                    return;
-
-                }
-
-                var prompt = new PromptIntegerOptions("\nEnter XREF number to zoom (Enter to finish): ")
-
-                {
-
-                    AllowNone = true,
-
-                    LowerLimit = 1,
-
-                    UpperLimit = indexedEntries.Count
-
-                };
-
-                while (true)
-
-                {
-
-                    PromptIntegerResult selection = ed.GetInteger(prompt);
-
-                    if (selection.Status != PromptStatus.OK)
-
-                    {
-
-                        break;
-
-                    }
-
-                    if (!zoomableIndices.Contains(selection.Value))
-
-                    {
-
-                        ed.WriteMessage("\nSelected XREF does not have extents available for zoom.");
-
-                        continue;
-
-                    }
-
-                    XrefReportItem target = indexedEntries.First(i => i.Index == selection.Value);
-
-                    if (TryZoomToEntry(doc, ed, target))
-
-                    {
-
-                        ed.WriteMessage($"\nZoomed to XREF [{target.Index}] \"{target.Entry.BlockName}\".");
-
-                        PromptEraseOutside(doc, ed, db, target);
-
-                    }
-
+                    ed.WriteMessage("\r\nNo layouts were automatically cleaned.");
                 }
 
             }
@@ -314,7 +241,7 @@ namespace AutoCADCleanupTool
 
             {
 
-                ed.WriteMessage($"\nFailed to enumerate paper space XREFs: {ex.Message}");
+                ed.WriteMessage($"\r\nFailed to enumerate paper space XREFs: {ex.Message}");
 
             }
 
@@ -376,7 +303,7 @@ namespace AutoCADCleanupTool
 
             {
 
-                ed.WriteMessage($"\nFailed to zoom to XREF [{target.Index}]: {ex.Message}");
+                ed.WriteMessage($"\r\nFailed to zoom to XREF [{target.Index}]: {ex.Message}");
 
                 return false;
 
@@ -400,7 +327,7 @@ namespace AutoCADCleanupTool
 
                 {
 
-                    ed.WriteMessage("\nLayout manager is unavailable; cannot activate paper space.");
+                    ed.WriteMessage("\r\nLayout manager is unavailable; cannot activate paper space.");
 
                     return false;
 
@@ -460,7 +387,7 @@ namespace AutoCADCleanupTool
 
             {
 
-                ed.WriteMessage($"\nUnable to activate layout \"{layoutName}\": {ex.Message}");
+                ed.WriteMessage($"\r\nUnable to activate layout \"{layoutName}\": {ex.Message}");
 
                 return false;
 
@@ -469,82 +396,30 @@ namespace AutoCADCleanupTool
         }
 
         private static void PromptEraseOutside(Document doc, Editor ed, Database db, XrefReportItem target)
-
         {
-
             if (doc == null || ed == null || db == null || target == null)
-
             {
-
                 return;
-
             }
-
-
 
             if (target.Entry.Extents == null)
-
             {
-
                 return;
-
             }
 
-
-
-            var prompt = new PromptKeywordOptions("\nErase all paper space geometry outside this title block? [Yes/No] ")
-
+            int erased = TryEraseOutsideEntry(doc, ed, db, target);
+            if (erased >= 0)
             {
-
-                AllowNone = true
-
-            };
-
-            prompt.Keywords.Add("Yes");
-
-            prompt.Keywords.Add("No");
-
-            prompt.Keywords.Default = "No";
-
-
-
-            PromptResult result = ed.GetKeywords(prompt);
-
-            if (result.Status == PromptStatus.Keyword &&
-
-                string.Equals(result.StringResult, "Yes", StringComparison.OrdinalIgnoreCase))
-
-            {
-
-                int erased = TryEraseOutsideEntry(doc, ed, db, target);
-
-                if (erased >= 0)
-
+                if (erased > 0)
                 {
-
-                    if (erased > 0)
-
-                    {
-
-                        ed.WriteMessage("\nRemoved paper space geometry outside the title block extents.");
-
-                    }
-
-                    else
-
-                    {
-
-                        ed.WriteMessage("\nNo paper space geometry outside the title block extents was detected.");
-
-                    }
-
+                    ed.WriteMessage("\r\nRemoved paper space geometry outside the title block extents.");
                 }
-
+                else
+                {
+                    ed.WriteMessage("\r\nNo paper space geometry outside the title block extents was detected.");
+                }
             }
-
         }
-
-
 
         private static int TryEraseOutsideEntry(Document doc, Editor ed, Database db, XrefReportItem target)
 
@@ -584,7 +459,7 @@ namespace AutoCADCleanupTool
 
                     {
 
-                        ed.WriteMessage($"\nUnable to locate layout \"{target.Entry.LayoutName}\" for cleanup.");
+                        ed.WriteMessage($"\r\nUnable to locate layout \"{target.Entry.LayoutName}\" for cleanup.");
 
                         return -1;
 
@@ -674,7 +549,7 @@ namespace AutoCADCleanupTool
 
                     {
 
-                        ed.WriteMessage("\nErase skipped; no geometry detected within the title block bounds.");
+                        ed.WriteMessage("\r\nErase skipped; no geometry detected within the title block bounds.");
 
                         return -1;
 
@@ -692,7 +567,7 @@ namespace AutoCADCleanupTool
 
             {
 
-                ed.WriteMessage($"\nFailed to erase geometry outside the title block: {ex.Message}");
+                ed.WriteMessage($"\r\nFailed to erase geometry outside the title block: {ex.Message}");
 
                 return -1;
 
