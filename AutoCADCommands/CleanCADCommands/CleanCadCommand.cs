@@ -1,9 +1,7 @@
-
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
-using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
-using System;
+using Autodesk.AutoCAD.DatabaseServices;
 
 namespace AutoCADCleanupTool
 {
@@ -18,22 +16,46 @@ namespace AutoCADCleanupTool
         [CommandMethod("CLEANTBLK", CommandFlags.Modal)]
         public static void RunCleanTitleBlock()
         {
+            // Leave the title-block workflow as-is.
             RunCleanWorkflow(CleanWorkflowKind.TitleBlock);
         }
 
+        // NEW: Make CLEANSHEET completely separate from CLEANTBLK / RunCleanWorkflow.
+        // It simply runs CLEANPS, then VP2PL, then FINALIZE.
         [CommandMethod("CLEANSHEET", CommandFlags.Modal)]
         public static void RunCleanSheet()
         {
-            RunCleanWorkflow(CleanWorkflowKind.Sheet);
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            try
+            {
+                // Ensure FINALIZE runs with default behavior (bind, etc.)
+                CleanupCommands.SkipBindDuringFinalize = false;
+                CleanupCommands.ForceDetachOriginalXrefs = false;
+                CleanupCommands.RunKeepOnlyAfterFinalize = false;
+
+                ed.WriteMessage("\nCLEANSHEET: running CLEANPS → VP2PL → FINALIZE ...");
+
+                // Queue the three commands in-order. Using a single SendStringToExecute
+                // ensures they execute sequentially after this command returns.
+                doc.SendStringToExecute("_.CLEANPS _.VP2PL _.FINALIZE ", true, false, false);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nCLEANSHEET failed to queue commands: {ex.Message}");
+            }
         }
 
-        // Temporary alias to preserve legacy command name.
+        // Legacy alias should map to the new CLEANSHEET behavior (not the shared workflow).
         [CommandMethod("CLEANCAD", CommandFlags.Modal)]
         public static void RunCleanCad()
         {
-            RunCleanWorkflow(CleanWorkflowKind.Sheet);
+            RunCleanSheet();
         }
 
+        // Existing shared workflow remains for CLEANTBLK only.
         private static void RunCleanWorkflow(CleanWorkflowKind kind)
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -52,16 +74,19 @@ namespace AutoCADCleanupTool
                 if (kind == CleanWorkflowKind.TitleBlock)
                 {
                     CleanupCommands.KeepOnlyTitleBlockInModelSpace();
+                    DetachSpecialXrefs();
+                    _chainFinalizeAfterEmbed = true;
+                    EmbedFromXrefs();
                 }
                 else
                 {
-                    CleanupCommands.KeepOnlyTitleBlockInPaperSpaceFromXref();
+                    // No longer used by CLEANSHEET — left intact for compatibility.
+                    CleanupCommands.ListPaperSpaceXrefs();
+                    CleanupCommands.ViewportToPolyline_AllLayouts();
+                    DetachSpecialXrefs();
+                    _chainFinalizeAfterEmbed = true;
+                    EmbedFromXrefs();
                 }
-
-                DetachSpecialXrefs();
-
-                _chainFinalizeAfterEmbed = true;
-                EmbedFromXrefs();
             }
             catch (System.Exception ex)
             {
