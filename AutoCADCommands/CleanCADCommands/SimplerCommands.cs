@@ -693,7 +693,6 @@ namespace AutoCADCleanupTool
                 try { Autodesk.AutoCAD.ApplicationServices.Application.Idle -= Application_OnIdleSendPastePoint; } catch { }
                 _pastePointHandlerAttached = false;
             }
-
             doc.SendStringToExecute("_.PASTECLIP\n", true, false, false);
         }
 

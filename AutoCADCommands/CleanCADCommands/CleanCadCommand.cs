@@ -40,12 +40,14 @@ namespace AutoCADCleanupTool
 
                 // Queue the three commands in-order. Using a single SendStringToExecute
                 // ensures they execute sequentially after this command returns.
-                doc.SendStringToExecute("_.CLEANPS _.VP2PL _.FINALIZE ", true, false, false);
+                doc.SendStringToExecute("_.CLEANPS _.VP2PL _.FINALIZE", true, false, false);
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nCLEANSHEET failed to queue commands: {ex.Message}");
             }
+
+            EmbedFromXrefs();
         }
 
         // Legacy alias should map to the new CLEANSHEET behavior (not the shared workflow).

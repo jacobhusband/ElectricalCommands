@@ -341,7 +341,7 @@ namespace AutoCADCleanupTool
                 new Point3d(ext.MaxPoint.X + dx, ext.MaxPoint.Y + dy, ext.MaxPoint.Z));
         }
 
-        private static void ZoomToTitleBlock(Editor ed, Point3d[] poly)
+        public static void ZoomToTitleBlock(Editor ed, Point3d[] poly)
         {
             if (ed == null || poly == null || poly.Length == 0) return;
 
@@ -368,7 +368,7 @@ namespace AutoCADCleanupTool
             }
         }
 
-        private static void Zoom(Point3d pMin, Point3d pMax, Point3d pCenter, double dFactor)
+        public static void Zoom(Point3d pMin, Point3d pMax, Point3d pCenter, double dFactor)
         {
             Document acDoc = Application.DocumentManager.MdiActiveDocument;
             Database acCurDb = acDoc.Database;

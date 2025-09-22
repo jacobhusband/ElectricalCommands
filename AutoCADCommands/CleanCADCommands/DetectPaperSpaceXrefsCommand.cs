@@ -190,33 +190,6 @@ namespace AutoCADCleanupTool
             }
         }
 
-        private static bool TryZoomToEntry(Document doc, Editor ed, XrefReportItem target)
-        {
-            if (doc == null || ed == null || target == null)
-                return false;
-
-            if (!target.Entry.HasZoomTarget)
-                return false;
-
-            try
-            {
-                using (doc.LockDocument())
-                {
-                    if (!EnsurePaperSpaceLayoutActive(doc, ed, target.Entry.LayoutName))
-                        return false;
-
-                    ZoomToTitleBlock(ed, target.Entry.Footprint);
-                }
-
-                return true;
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\r\nFailed to zoom to XREF [{target.Index}]: {ex.Message}");
-                return false;
-            }
-        }
-
         private static bool EnsurePaperSpaceLayoutActive(Document doc, Editor ed, string layoutName)
         {
             try
@@ -295,7 +268,7 @@ namespace AutoCADCleanupTool
                             }
 
                             Extents3d? entExt = TryGetExtents(ent);
-                            if (entExt != null && ExtentsContainsXY(expanded, entExt.Value))
+                            if (entExt != null && ExtentsIntersectsXY(expanded, entExt.Value, includeTouch: true))
                                 keepIds.Add(entId);
                         }
 
@@ -549,6 +522,33 @@ namespace AutoCADCleanupTool
             }
             return new Extents3d(new Point3d(minX, minY, 0), new Point3d(maxX, maxY, 0));
         }
+
+        // Keep if the two AABBs overlap in XY (touching counts as overlap)
+        private static bool ExtentsIntersectsXY(Extents3d a, Extents3d b, bool includeTouch = true, double tol = 1e-6)
+        {
+            // Flatten Z (defensive; your extents are already flattened elsewhere)
+            var aMinX = Math.Min(a.MinPoint.X, a.MaxPoint.X);
+            var aMaxX = Math.Max(a.MinPoint.X, a.MaxPoint.X);
+            var aMinY = Math.Min(a.MinPoint.Y, a.MaxPoint.Y);
+            var aMaxY = Math.Max(a.MinPoint.Y, a.MaxPoint.Y);
+
+            var bMinX = Math.Min(b.MinPoint.X, b.MaxPoint.X);
+            var bMaxX = Math.Max(b.MinPoint.X, b.MaxPoint.X);
+            var bMinY = Math.Min(b.MinPoint.Y, b.MaxPoint.Y);
+            var bMaxY = Math.Max(b.MinPoint.Y, b.MaxPoint.Y);
+
+            if (includeTouch)
+            {
+                return (aMinX <= bMaxX + tol) && (aMaxX + tol >= bMinX) &&
+                       (aMinY <= bMaxY + tol) && (aMaxY + tol >= bMinY);
+            }
+            else
+            {
+                return (aMinX < bMaxX - tol) && (aMaxX - tol > bMinX) &&
+                       (aMinY < bMaxY - tol) && (aMaxY - tol > bMinY);
+            }
+        }
+
 
         private static Extents3d? TryGetBlockDefExtents(BlockTableRecord def, Transaction tr)
         {
