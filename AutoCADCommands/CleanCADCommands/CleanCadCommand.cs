@@ -20,8 +20,6 @@ namespace AutoCADCleanupTool
             RunCleanWorkflow(CleanWorkflowKind.TitleBlock);
         }
 
-        // NEW: Make CLEANSHEET completely separate from CLEANTBLK / RunCleanWorkflow.
-        // It simply runs CLEANPS, then VP2PL, then FINALIZE.
         [CommandMethod("CLEANSHEET", CommandFlags.Modal)]
         public static void RunCleanSheet()
         {
@@ -31,23 +29,23 @@ namespace AutoCADCleanupTool
 
             try
             {
-                // Ensure FINALIZE runs with default behavior (bind, etc.)
+                // Set necessary flags for the entire workflow before starting.
                 CleanupCommands.SkipBindDuringFinalize = false;
                 CleanupCommands.ForceDetachOriginalXrefs = false;
                 CleanupCommands.RunKeepOnlyAfterFinalize = false;
+                _chainFinalizeAfterEmbed = false; // Ensure EMBEDFROMXREFS doesn't chain a command on its own.
 
-                ed.WriteMessage("\nCLEANSHEET: running CLEANPS → VP2PL → FINALIZE ...");
+                ed.WriteMessage("\nCLEANSHEET: Queuing EMBEDFROMXREFS → CLEANPS → VP2PL → FINALIZE ...");
 
-                // Queue the three commands in-order. Using a single SendStringToExecute
-                // ensures they execute sequentially after this command returns.
-                doc.SendStringToExecute("_.CLEANPS _.VP2PL _.FINALIZE", true, false, false);
+                // Queue the entire sequence of commands in a single string.
+                // AutoCAD will execute them one by one after the current command scope ends.
+                // The space at the end ensures the last command is executed.
+                doc.SendStringToExecute("_.EMBEDFROMXREFS _.CLEANPS _.VP2PL _.FINALIZE ", true, false, false);
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nCLEANSHEET failed to queue commands: {ex.Message}");
             }
-
-            EmbedFromXrefs();
         }
 
         // Legacy alias should map to the new CLEANSHEET behavior (not the shared workflow).

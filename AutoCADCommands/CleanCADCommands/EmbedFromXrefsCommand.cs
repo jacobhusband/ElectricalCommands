@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Runtime.InteropServices; // Recommended for releasing COM objects
 
 namespace AutoCADCleanupTool
 {
@@ -21,25 +22,39 @@ namespace AutoCADCleanupTool
             var db = doc.Database;
             var ed = doc.Editor;
 
-            // try to focus the title block area (best-effort)
+            ed.WriteMessage("\n--- Starting EMBEDFROMXREFS ---");
+
+            // --- Phase 1: Preparation ---
             try
             {
                 if (TryGetTitleBlockOutlinePointsForEmbed(db, out var tbPoly) && tbPoly != null && tbPoly.Length > 0)
+                {
+                    ed.WriteMessage("\nTitle block found, zooming in...");
                     ZoomToTitleBlockForEmbed(ed, tbPoly);
+                }
             }
-            catch { /* ignore */ }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\n[Warning] Could not zoom to title block: {ex.Message}");
+            }
 
             _pending.Clear();
             _lastPastedOle = ObjectId.Null;
 
-            // NEW: purge old temp files from previous runs (best effort)
-            try { DeleteOldEmbedTemps(daysOld: 7); } catch { }
-
-            // --- collect raster images from current space ---
-            int queued = 0;
             try
             {
-                // Ensure layer "0" is thawed and current
+                DeleteOldEmbedTemps(daysOld: 7);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\n[Warning] Could not delete old temp files: {ex.Message}");
+            }
+
+            // --- Phase 2: Image Collection and Processing ---
+            ObjectId originalClayer = ObjectId.Null;
+            try
+            {
+                // Ensure layer "0" is thawed and set current, saving the original layer
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
@@ -47,79 +62,35 @@ namespace AutoCADCleanupTool
                     {
                         var zeroId = lt["0"];
                         var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
-                        if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
-                        if (_savedClayer.IsNull) _savedClayer = db.Clayer;
+                        if (zeroLtr.IsFrozen)
+                        {
+                            ed.WriteMessage("\nThawing layer '0'.");
+                            zeroLtr.IsFrozen = false;
+                        }
+                        originalClayer = db.Clayer; // Save original layer
+                        if (_savedClayer.IsNull) _savedClayer = originalClayer; // Assuming _savedClayer is part of your class
                         db.Clayer = zeroId;
                     }
                     tr.Commit();
                 }
 
-                using (var tr = db.TransactionManager.StartTransaction())
-                {
-                    var space = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForRead);
-
-                    int index = 0;
-                    foreach (ObjectId id in space)
-                    {
-                        var img = tr.GetObject(id, OpenMode.ForRead) as RasterImage;
-                        if (img == null) continue;
-                        if (img.ImageDefId.IsNull) continue;
-
-                        var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead) as RasterImageDef;
-                        if (def == null) continue;
-
-                        string resolved = ResolveImagePath(db, def.SourceFileName);
-                        if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
-                        {
-                            ed.WriteMessage($"\nSkipping missing image: {def?.SourceFileName}");
-                            continue;
-                        }
-
-                        // NEW: preflight & sanitize the raster to something PPT/clipboard will reliably accept
-                        string safePath = null;
-                        try
-                        {
-                            safePath = PreflightRasterForPpt(resolved);
-                        }
-                        catch (System.Exception pex)
-                        {
-                            ed.WriteMessage($"\n[!] Preflight failed for “{Path.GetFileName(resolved)}”: {pex.Message} — skipping this image.");
-                            continue; // isolation: do not crash the whole run on a single bad file
-                        }
-
-                        var cs = img.Orientation;
-                        var placement = new ImagePlacement
-                        {
-                            Path = safePath ?? resolved, // fall back to original if preflight returned null
-                            Pos = cs.Origin,
-                            U = cs.Xaxis,
-                            V = cs.Yaxis,
-                            ImageId = img.ObjectId,
-                            // Optional: only if your type has this property/field
-                            // Index   = ++index
-                        };
-
-                        _pending.Enqueue(placement);
-                        queued++;
-                        ed.WriteMessage($"\nQueued [{++index}]: {Path.GetFileName(placement.Path)}");
-                    }
-                    tr.Commit();
-                }
+                // Collect and pre-process all raster images
+                CollectAndPreflightImages(doc);
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\nFailed to collect raster images: {ex.Message}");
-                try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
-                _savedClayer = ObjectId.Null;
+                ed.WriteMessage($"\n[!] A critical error occurred during image collection: {ex.Message}");
+                // On failure, restore state and exit
+                RestoreOriginalLayer(db, originalClayer);
                 return;
             }
 
-            if (queued == 0)
+            // --- Phase 3: Embedding Logic ---
+            if (_pending.Count == 0)
             {
-                ed.WriteMessage("\nNo raster images found in current space.");
-                ClosePowerPoint(ed);
-                try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
-                _savedClayer = ObjectId.Null;
+                ed.WriteMessage("\nNo valid raster images found to embed.");
+                ClosePowerPoint(ed); // Ensure PPT is closed if not needed
+                RestoreOriginalLayer(db, originalClayer);
 
                 if (_chainFinalizeAfterEmbed)
                 {
@@ -129,25 +100,114 @@ namespace AutoCADCleanupTool
                 return;
             }
 
-            if (!EnsurePowerPoint(ed))
+            ed.WriteMessage($"\nSuccessfully queued {_pending.Count} image(s).");
+
+            try
             {
-                try { if (!_savedClayer.IsNull && db.Clayer != _savedClayer) db.Clayer = _savedClayer; } catch { }
-                _savedClayer = ObjectId.Null;
-                return;
-            }
+                if (!EnsurePowerPoint(ed))
+                {
+                    ed.WriteMessage("\n[!] Failed to start or connect to PowerPoint. Aborting.");
+                    RestoreOriginalLayer(db, originalClayer);
+                    return;
+                }
 
-            if (WindowOrchestrator.TryGetPowerPointHwnd(out var pptHwnd /*, pptAppHwndHint: new IntPtr(pptApp.HWND)*/))
+                if (WindowOrchestrator.TryGetPowerPointHwnd(out var pptHwnd))
+                {
+                    WindowOrchestrator.EnsureSeparationOrSafeOverlap(ed, pptHwnd, preferDifferentMonitor: true);
+                }
+
+                AttachHandlers(db, doc);
+                ed.WriteMessage($"\nStarting paste process for {_pending.Count} raster image(s)...");
+                ProcessNextPaste(doc, ed);
+            }
+            catch (System.Exception ex)
             {
-                WindowOrchestrator.EnsureSeparationOrSafeOverlap(ed, pptHwnd, preferDifferentMonitor: true);
+                ed.WriteMessage($"\n[!] An error occurred during the PowerPoint embedding process: {ex.Message}");
+                ClosePowerPoint(ed);
+                RestoreOriginalLayer(db, originalClayer);
             }
-
-
-            AttachHandlers(db, doc);
-            ed.WriteMessage($"\nEmbedding over {_pending.Count} raster image(s)...");
-            ProcessNextPaste(doc, ed);
         }
 
-        // --- helpers (unique names to avoid collisions) ---
+        private static void CollectAndPreflightImages(Document doc)
+        {
+            var db = doc.Database;
+            var ed = doc.Editor;
+            int queuedCount = 0;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var space = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForRead);
+
+                foreach (ObjectId id in space)
+                {
+                    if (id.ObjectClass.DxfName.ToUpperInvariant() != "IMAGE") continue;
+
+                    var img = tr.GetObject(id, OpenMode.ForRead) as RasterImage;
+                    if (img == null || img.ImageDefId.IsNull) continue;
+
+                    var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead) as RasterImageDef;
+                    if (def == null) continue;
+
+                    string resolved = ResolveImagePath(db, def.SourceFileName);
+                    if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
+                    {
+                        ed.WriteMessage($"\nSkipping missing image: {def.SourceFileName}");
+                        continue;
+                    }
+
+                    string safePath = null;
+                    try
+                    {
+                        ed.WriteMessage($"\nProcessing: {Path.GetFileName(resolved)}...");
+                        safePath = PreflightRasterForPpt(resolved);
+                    }
+                    catch (System.Exception pex)
+                    {
+                        ed.WriteMessage($"\n[!] PREFLIGHT FAILED for '{Path.GetFileName(resolved)}': {pex.Message} — skipping this image.");
+                        continue;
+                    }
+
+                    if (string.IsNullOrEmpty(safePath))
+                    {
+                        ed.WriteMessage($"\n[!] Preflight returned an empty path for '{Path.GetFileName(resolved)}'. Skipping.");
+                        continue;
+                    }
+
+                    var cs = img.Orientation;
+                    var placement = new ImagePlacement
+                    {
+                        Path = safePath,
+                        Pos = cs.Origin,
+                        U = cs.Xaxis,
+                        V = cs.Yaxis,
+                        ImageId = img.ObjectId,
+                    };
+
+                    _pending.Enqueue(placement);
+                    queuedCount++;
+                    ed.WriteMessage($"\nQueued [{queuedCount}]: {Path.GetFileName(placement.Path)}");
+                }
+                tr.Commit();
+            }
+        }
+
+        /// <summary>
+        /// Safely restores the original current layer.
+        /// </summary>
+        private static void RestoreOriginalLayer(Database db, ObjectId originalClayer)
+        {
+            if (db != null && !originalClayer.IsNull && db.Clayer != originalClayer)
+            {
+                try
+                {
+                    db.Clayer = originalClayer;
+                }
+                catch (System.Exception ex)
+                {
+                    Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage($"\nCould not restore original layer: {ex.Message}");
+                }
+            }
+        }
 
         private static bool TryGetTitleBlockOutlinePointsForEmbed(Database db, out Point3d[] poly)
         {
@@ -165,7 +225,6 @@ namespace AutoCADCleanupTool
                     var psId = layout.BlockTableRecordId;
                     var psBtr = (BlockTableRecord)tr.GetObject(psId, OpenMode.ForRead);
 
-                    // common name hints; pick largest match
                     string[] hints = { "x-tb", "title", "tblock", "border", "sheet" };
                     BlockReference best = null;
                     double bestArea = 0;
@@ -185,7 +244,8 @@ namespace AutoCADCleanupTool
                             }
                             else
                             {
-                                name = br.Name;
+                                var btr = (BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead);
+                                name = btr?.Name;
                             }
                         }
                         catch { }
@@ -216,23 +276,18 @@ namespace AutoCADCleanupTool
 
                         poly = new[]
                         {
-                            new Point3d(pmin.X, pmin.Y, 0),
-                            new Point3d(pmax.X, pmin.Y, 0),
-                            new Point3d(pmax.X, pmax.Y, 0),
-                            new Point3d(pmin.X, pmax.Y, 0)
+                            new Point3d(pmin.X, pmin.Y, 0), new Point3d(pmax.X, pmin.Y, 0),
+                            new Point3d(pmax.X, pmax.Y, 0), new Point3d(pmin.X, pmax.Y, 0)
                         };
                         return true;
                     }
 
-                    // fallback: paper extents
                     var pMin = db.Pextmin;
                     var pMax = db.Pextmax;
                     poly = new[]
                     {
-                        new Point3d(pMin.X, pMin.Y, 0),
-                        new Point3d(pMax.X, pMin.Y, 0),
-                        new Point3d(pMax.X, pMax.Y, 0),
-                        new Point3d(pMin.X, pMax.Y, 0)
+                        new Point3d(pMin.X, pMin.Y, 0), new Point3d(pMax.X, pMin.Y, 0),
+                        new Point3d(pMax.X, pMax.Y, 0), new Point3d(pMin.X, pMax.Y, 0)
                     };
                     return true;
                 }
@@ -242,22 +297,25 @@ namespace AutoCADCleanupTool
 
         private static void ZoomToTitleBlockForEmbed(Editor ed, Point3d[] poly)
         {
-            if (ed == null || poly == null || poly.Length == 0) return;
-
+            if (ed == null || poly == null || poly.Length < 2) return;
             try
             {
-                var ext = new Extents3d(poly[0], poly[0]);
-                for (int i = 1; i < poly.Length; i++) ext.AddPoint(poly[i]);
+                var ext = new Extents3d(poly[0], poly[1]);
+                for (int i = 2; i < poly.Length; i++) ext.AddPoint(poly[i]);
 
-                double width = Math.Abs(ext.MaxPoint.X - ext.MinPoint.X);
-                double height = Math.Abs(ext.MaxPoint.Y - ext.MinPoint.Y);
-                double margin = Math.Max(width, height) * 0.05;
+                double margin = Math.Max(ext.MaxPoint.X - ext.MinPoint.X, ext.MaxPoint.Y - ext.MinPoint.Y) * 0.05;
 
-                Point3d pMin = new Point3d(ext.MinPoint.X - margin, ext.MinPoint.Y - margin, ext.MinPoint.Z);
-                Point3d pMax = new Point3d(ext.MaxPoint.X + margin, ext.MaxPoint.Y + margin, ext.MaxPoint.Z);
+                Point3d pMin = new Point3d(ext.MinPoint.X - margin, ext.MinPoint.Y - margin, 0);
+                Point3d pMax = new Point3d(ext.MaxPoint.X + margin, ext.MaxPoint.Y + margin, 0);
 
-                CleanupCommands.Zoom(pMin, pMax, Point3d.Origin, 1.0);
-                try { ed.Regen(); } catch { }
+                using (var view = ed.GetCurrentView())
+                {
+                    view.Width = pMax.X - pMin.X;
+                    view.Height = pMax.Y - pMin.Y;
+                    view.CenterPoint = new Point2d((pMin.X + pMax.X) / 2.0, (pMin.Y + pMax.Y) / 2.0);
+                    ed.SetCurrentView(view);
+                }
+                ed.Regen();
             }
             catch (System.Exception ex)
             {
@@ -265,23 +323,18 @@ namespace AutoCADCleanupTool
             }
         }
 
-        /// <summary>
-        /// Load the raster safely for PPT/clipboard: flatten multipage TIFFs, convert indexed/CMYK/1bpp
-        /// to 24bpp RGB, and optionally downscale very large images. Returns a temp file path (PNG).
-        /// </summary>
         private static string PreflightRasterForPpt(string srcPath)
         {
-            // Always normalize to PNG in %TEMP%\AutoCADCleanupTool\embed\
             string tempDir = Path.Combine(Path.GetTempPath(), "AutoCADCleanupTool", "embed");
             Directory.CreateDirectory(tempDir);
+            // Add a unique identifier to prevent file collisions from different drawings with same image name
             string outPath = Path.Combine(
                 tempDir,
-                Path.GetFileNameWithoutExtension(srcPath) + "_ppt.png"
+                Path.GetFileNameWithoutExtension(srcPath) + "_ppt_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".png"
             );
 
             using (var orig = System.Drawing.Image.FromFile(srcPath))
             {
-                // pick first frame if multi-page (e.g., TIFF)
                 try
                 {
                     var fd = new FrameDimension(orig.FrameDimensionsList[0]);
@@ -290,11 +343,8 @@ namespace AutoCADCleanupTool
                 }
                 catch { /* not multi-frame; ignore */ }
 
-                int maxSide = 8000; // safety cap to avoid huge clipboard COM allocations
-
+                int maxSide = 8000;
                 int w = orig.Width, h = orig.Height;
-
-                // Compute downscale if necessary
                 double scale = 1.0;
                 if (Math.Max(w, h) > maxSide)
                     scale = (double)maxSide / Math.Max(w, h);
@@ -302,17 +352,14 @@ namespace AutoCADCleanupTool
                 int targetW = Math.Max(1, (int)Math.Round(w * scale));
                 int targetH = Math.Max(1, (int)Math.Round(h * scale));
 
-                // Render to 24bpp RGB bitmap
-                using (var bmp = new Bitmap(targetW, targetH, PixelFormat.Format24bppRgb))
+                using (var bmp = new Bitmap(targetW, targetH, PixelFormat.Format32bppArgb))
                 using (var g = Graphics.FromImage(bmp))
                 {
-                    g.Clear(System.Drawing.Color.White);
+                    g.Clear(System.Drawing.Color.Transparent);
                     g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
                     g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
                     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
                     g.DrawImage(orig, new Rectangle(0, 0, targetW, targetH));
-
-                    // PNG encoder (lossless, safe for linework/scans)
                     bmp.Save(outPath, ImageFormat.Png);
                 }
             }
@@ -320,9 +367,6 @@ namespace AutoCADCleanupTool
             return outPath;
         }
 
-        /// <summary>
-        /// Clean up stale temp files to keep %TEMP% tidy.
-        /// </summary>
         private static void DeleteOldEmbedTemps(int daysOld = 7)
         {
             string tempDir = Path.Combine(Path.GetTempPath(), "AutoCADCleanupTool", "embed");
@@ -336,7 +380,7 @@ namespace AutoCADCleanupTool
                     var info = new FileInfo(f);
                     if (info.LastWriteTime < cutoff) info.Delete();
                 }
-                catch { /* ignore */ }
+                catch { /* ignore; file might be in use */ }
             }
         }
     }
