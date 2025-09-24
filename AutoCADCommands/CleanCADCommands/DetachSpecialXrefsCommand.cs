@@ -19,7 +19,7 @@ namespace AutoCADCleanupTool
 
             // Case-insensitive tokens
             var imageTokens = new[] { "wl-sig", "christian" };
-            var dwgTokens = new[] { "acieslogo", "cdstamp" };
+            var dwgTokens = new[] { "acieslogo", "cdstamp", "acies", "stamp", "logo" };
 
             int dwgDetached = 0;
             int imagesErased = 0;
@@ -69,6 +69,44 @@ namespace AutoCADCleanupTool
                         if (match)
                         {
                             toDetach.Add(btrId);
+                        }
+                    }
+
+                    // Erase all block references to the XREFs before detaching
+                    var refsToErase = new List<ObjectId>();
+                    var blockTable = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    foreach (ObjectId btrId in blockTable)
+                    {
+                        var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
+                        if (btr.IsLayout) continue;
+
+                        foreach (ObjectId entId in btr)
+                        {
+                            if (entId.ObjectClass.DxfName != "INSERT") continue;
+                            var br = tr.GetObject(entId, OpenMode.ForRead) as BlockReference;
+                            if (br == null) continue;
+
+                            if (toDetach.Contains(br.BlockTableRecord))
+                            {
+                                refsToErase.Add(entId);
+                            }
+                        }
+                    }
+
+                    foreach (var entId in refsToErase)
+                    {
+                        try
+                        {
+                            var br = tr.GetObject(entId, OpenMode.ForWrite, false) as BlockReference;
+                            if (br != null)
+                            {
+                                br.Erase();
+                                blockRefsErased++;
+                            }
+                        }
+                        catch (System.Exception ex)
+                        {
+                            ed.WriteMessage($"\nFailed erasing block reference {entId}: {ex.Message}");
                         }
                     }
 

@@ -89,6 +89,9 @@ namespace AutoCADCleanupTool
         private static Document _activePasteDocument = null;
         private static bool _waitingForPasteStart = false;
         private static bool _pastePointHandlerAttached = false;
+        // State management to prevent re-entrancy and zoom to the final image
+        private static bool _isEmbeddingProcessActive = false;
+        private static ObjectId _finalPastedOleForZoom = ObjectId.Null;
 
         private static bool EnsurePowerPoint(Editor ed)
         {
@@ -518,7 +521,7 @@ namespace AutoCADCleanupTool
         {
             try
             {
-                if (!string.Equals(e.GlobalCommandName, "PASTECLIP", StringComparison.OrdinalIgnoreCase)) return;
+                if (!_isEmbeddingProcessActive || !string.Equals(e.GlobalCommandName, "PASTECLIP", StringComparison.OrdinalIgnoreCase)) return;
 
                 var doc = Application.DocumentManager.MdiActiveDocument;
                 if (doc == null) return;
@@ -632,22 +635,28 @@ namespace AutoCADCleanupTool
                     tr.Commit();
                 }
 
-                _lastPastedOle = ObjectId.Null;
-
                 if (_pending.Count > 0)
                 {
                     ProcessNextPaste(doc, ed);
                 }
                 else
                 {
+                    _finalPastedOleForZoom = _lastPastedOle; // This was the last image, save for zoom
                     FinishEmbeddingRun(doc, ed, db);
                 }
+                _lastPastedOle = ObjectId.Null;
             }
             catch { }
         }
 
         private static void FinishEmbeddingRun(Document doc, Editor ed, Database db)
         {
+            if (!_isEmbeddingProcessActive) return; // Prevent re-entry
+            _isEmbeddingProcessActive = false;      // Deactivate process immediately
+
+            
+            _finalPastedOleForZoom = ObjectId.Null; // Clean up
+
             ed.WriteMessage("\nCompleted embedding over all raster images.");
             DetachHandlers(db, doc);
             PurgeEmbeddedImageDefs(db, ed);
@@ -663,7 +672,7 @@ namespace AutoCADCleanupTool
 
         private static void ProcessNextPaste(Document doc, Editor ed)
         {
-            if (_pending.Count == 0) return;
+            if (!_isEmbeddingProcessActive || _pending.Count == 0) return;
             var target = _pending.Peek();
 
             if (!PrepareClipboardWithImageShared(target.Path, ed))
@@ -698,4 +707,3 @@ namespace AutoCADCleanupTool
 
     }
 }
-

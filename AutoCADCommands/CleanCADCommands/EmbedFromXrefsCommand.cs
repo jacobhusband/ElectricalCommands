@@ -9,7 +9,6 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices; // Recommended for releasing COM objects
-
 namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
@@ -28,6 +27,8 @@ namespace AutoCADCleanupTool
 
             _pending.Clear();
             _lastPastedOle = ObjectId.Null;
+            _isEmbeddingProcessActive = false; // Reset state management flag
+            _finalPastedOleForZoom = ObjectId.Null; // Reset zoom target
 
             try
             {
@@ -106,6 +107,7 @@ namespace AutoCADCleanupTool
 
                 AttachHandlers(db, doc);
                 ed.WriteMessage($"\nStarting paste process for {_pending.Count} raster image(s)...");
+                _isEmbeddingProcessActive = true; // Activate the process
                 ProcessNextPaste(doc, ed);
             }
             catch (System.Exception ex)
@@ -113,6 +115,7 @@ namespace AutoCADCleanupTool
                 ed.WriteMessage($"\n[!] An error occurred during the PowerPoint embedding process: {ex.Message}");
                 ClosePowerPoint(ed);
                 RestoreOriginalLayer(db, originalClayer);
+                _isEmbeddingProcessActive = false; // Deactivate on error
             }
         }
 
@@ -264,9 +267,9 @@ namespace AutoCADCleanupTool
 
                         poly = new[]
                         {
-                            new Point3d(pmin.X, pmin.Y, 0), new Point3d(pmax.X, pmin.Y, 0),
-                            new Point3d(pmax.X, pmax.Y, 0), new Point3d(pmin.X, pmax.Y, 0)
-                        };
+                        new Point3d(pmin.X, pmin.Y, 0), new Point3d(pmax.X, pmin.Y, 0),
+                        new Point3d(pmax.X, pmax.Y, 0), new Point3d(pmin.X, pmax.Y, 0)
+                    };
                         return true;
                     }
 
@@ -274,9 +277,9 @@ namespace AutoCADCleanupTool
                     var pMax = db.Pextmax;
                     poly = new[]
                     {
-                        new Point3d(pMin.X, pMin.Y, 0), new Point3d(pMax.X, pMin.Y, 0),
-                        new Point3d(pMax.X, pMax.Y, 0), new Point3d(pMin.X, pMax.Y, 0)
-                    };
+                    new Point3d(pMin.X, pMin.Y, 0), new Point3d(pMax.X, pMin.Y, 0),
+                    new Point3d(pMax.X, pMax.Y, 0), new Point3d(pMin.X, pMax.Y, 0)
+                };
                     return true;
                 }
             }

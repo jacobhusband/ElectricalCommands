@@ -24,6 +24,9 @@ namespace AutoCADCleanupTool
             _blockIdsBeforeBind.Clear();
             _originalXrefIds.Clear();
             _imageDefsToPurge.Clear();
+            // Detach special XREFs before binding
+            SimplerCommands.DetachSpecialXrefs();
+
             ed.WriteMessage("\n--- Stage 1: Analyzing and Binding... ---");
         
             try
