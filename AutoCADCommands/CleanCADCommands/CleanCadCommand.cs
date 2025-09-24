@@ -26,6 +26,21 @@ namespace AutoCADCleanupTool
             var doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var ed = doc.Editor;
+            var db = doc.Database;
+
+
+            try
+            {
+                if (TryGetTitleBlockOutlinePointsForEmbed(db, out var tbPoly) && tbPoly != null && tbPoly.Length > 0)
+                {
+                    ed.WriteMessage("\nTitle block found, zooming in...");
+                    ZoomToTitleBlockForEmbed(ed, tbPoly);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\n[Warning] Could not zoom to title block: {ex.Message}");
+            }
 
             try
             {
