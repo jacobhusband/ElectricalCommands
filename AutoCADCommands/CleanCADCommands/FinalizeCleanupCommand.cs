@@ -6,6 +6,7 @@ using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 
 namespace AutoCADCleanupTool
 {
@@ -19,9 +20,11 @@ namespace AutoCADCleanupTool
             if (doc == null) return;
             Database db = doc.Database;
             Editor ed = doc.Editor;
-        
-            ed.WriteMessage("\n--- Stage 2: Erasing images and detaching ghost XREF blocks... ---");
-        
+
+            LogTitleBlockReferenceStatus(db, ed, "CLEANUP - Start");
+
+            ed.WriteMessage("\n--- Stage 2: Cleaning up bound blocks and detaching remaining XREFs... ---");
+
             try
             {
                 using (Transaction trans = db.TransactionManager.StartTransaction())
@@ -37,7 +40,6 @@ namespace AutoCADCleanupTool
                     }
                     ed.WriteMessage($"\nFound {newBlockIds.Count} new block definition(s) created by bind.");
 
-                    bool createdNewBlocks = newBlockIds.Count > 0;
                     int imagesErased = 0;
                     foreach (ObjectId newBtrId in newBlockIds)
                     {
@@ -49,7 +51,7 @@ namespace AutoCADCleanupTool
                                 RasterImage image = trans.GetObject(entId, OpenMode.ForWrite) as RasterImage;
                                 if (image != null && !image.ImageDefId.IsNull)
                                 {
-                                    _imageDefsToPurge.Add(image.ImageDefId); // Add the definition to our kill list
+                                    _imageDefsToPurge.Add(image.ImageDefId);
                                 }
                                 image.Erase();
                                 imagesErased++;
@@ -59,55 +61,73 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage($"\nErased {imagesErased} RasterImage entit(ies) and added {_imageDefsToPurge.Count} definitions to kill list.");
 
                     int ghostsDetached = 0;
-                    if (createdNewBlocks || ForceDetachOriginalXrefs)
+                    ed.WriteMessage($"\n--- Scanning for remaining XREFs to detach ---");
+
+                    var xrefsToDetach = new List<ObjectId>();
+                    var blockTable = (BlockTable)trans.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    string[] titleBlockHints = { "x-tb", "title", "tblock", "border", "sheet" };
+
+                    foreach (ObjectId btrId in blockTable)
                     {
-                        ed.WriteMessage($"\n--- XREFs considered for detachment ---");
-                        foreach (ObjectId originalXrefId in _originalXrefIds)
+                        var btr = trans.GetObject(btrId, OpenMode.ForRead, false, true) as BlockTableRecord;
+                        if (btr == null || btr.IsErased) continue;
+
+                        if (btr.IsFromExternalReference)
                         {
-                            var btr = trans.GetObject(originalXrefId, OpenMode.ForRead, false, true) as BlockTableRecord;
-                            if (btr == null || btr.IsErased)
+                            ed.WriteMessage($"\n[LOG] Checking if XREF '{btr.Name}' should be detached...");
+                            string btrNameLower = (btr.Name ?? string.Empty).ToLowerInvariant();
+                            string path = (btr.PathName ?? string.Empty);
+                            string fileNoExt = string.Empty;
+                            try { fileNoExt = Path.GetFileNameWithoutExtension(path)?.ToLowerInvariant() ?? string.Empty; } catch { }
+
+                            bool nameMatch = titleBlockHints.Any(h => btrNameLower.Contains(h));
+                            bool pathMatch = !string.IsNullOrEmpty(fileNoExt) && titleBlockHints.Any(h => fileNoExt.Contains(h));
+                            bool isTitleBlock = nameMatch || pathMatch;
+
+                            ed.WriteMessage($"[LOG]   - Name: '{btr.Name}', Path: '{path}'");
+                            ed.WriteMessage($"[LOG]   - Name check match: {nameMatch}");
+                            ed.WriteMessage($"[LOG]   - Path check match: {pathMatch}");
+                            ed.WriteMessage($"[LOG]   - Is Title Block?: {isTitleBlock}");
+
+                            if (isTitleBlock)
                             {
-                                ed.WriteMessage($"\n- Skipping null or erased BTR for XREF id {originalXrefId}");
+                                ed.WriteMessage($"\n  - RESULT: SKIPPING detachment of XREF '{btr.Name}'.");
                                 continue;
                             }
-
-                            ed.WriteMessage($"\n- Considering XREF: '{btr.Name}' (IsFromExternalReference: {btr.IsFromExternalReference})");
-
-                            if (!btr.IsFromExternalReference)
+                            else
                             {
-                                ed.WriteMessage($"\n  - Skipping because it is no longer an XREF (probably bound).");
-                                continue;
-                            }
-
-                            // Do not detach the title block XREF
-                            if (btr.Name.ToLowerInvariant().Contains("x-tb"))
-                            {
-                                ed.WriteMessage($"\n  - Skipping detachment of XREF '{btr.Name}' because it is a title block.");
-                                continue;
-                            }
-
-                            try
-                            {
-                                ed.WriteMessage($"\n  - Detaching XREF: '{btr.Name}'");
-                                db.DetachXref(originalXrefId);
-                                ghostsDetached++;
-                            }
-                            catch (System.Exception exDetach)
-                            {
-                                ed.WriteMessage($"\n  - Failed to detach XREF '{btr.Name}': {exDetach.Message}");
+                                ed.WriteMessage($"\n  - RESULT: QUEUING leftover XREF '{btr.Name}' for detachment.");
+                                xrefsToDetach.Add(btrId);
                             }
                         }
-                        ed.WriteMessage($"\n--- End of XREF detachment ---");
-                        ed.WriteMessage($"\nManually detached {ghostsDetached} old XREF block definition(s).");
                     }
-                    else
+
+                    foreach (var xrefId in xrefsToDetach)
                     {
-                        ed.WriteMessage($"\nNo new block definitions were created during bind; skipping XREF detachment.");
+                        try
+                        {
+                            var btrToDetach = trans.GetObject(xrefId, OpenMode.ForRead, false, true) as BlockTableRecord;
+                            if (btrToDetach != null)
+                            {
+                                ed.WriteMessage($"\n[LOG] CALLING db.DetachXref() on '{btrToDetach.Name}' (Handle: {btrToDetach.Handle})...");
+                                db.DetachXref(xrefId);
+                                ed.WriteMessage($"\n[LOG] RETURNED from db.DetachXref() on '{btrToDetach.Name}'.");
+                                ghostsDetached++;
+                                LogTitleBlockReferenceStatus(db, ed, $"CLEANUP - After Detaching '{btrToDetach.Name}'");
+                            }
+                        }
+                        catch (System.Exception exDetach)
+                        {
+                            ed.WriteMessage($"\n  - Failed to detach XREF {xrefId}: {exDetach.Message}");
+                            LogTitleBlockReferenceStatus(db, ed, $"CLEANUP - After Detach FAILED for {xrefId}");
+                        }
                     }
+                    ed.WriteMessage($"\n--- End of XREF detachment ---");
+                    ed.WriteMessage($"\nDetached {ghostsDetached} remaining XREF definition(s).");
 
                     trans.Commit();
                 }
-        
+
                 ed.WriteMessage("\nIntermediate cleanup complete. Queueing final surgical purge...");
                 doc.SendStringToExecute("_-FINALIZE-PURGEDEFS ", true, false, false);
             }
@@ -117,6 +137,7 @@ namespace AutoCADCleanupTool
             }
             finally
             {
+                LogTitleBlockReferenceStatus(db, ed, "CLEANUP - End");
                 _blockIdsBeforeBind.Clear();
                 _originalXrefIds.Clear();
                 ForceDetachOriginalXrefs = false;
@@ -124,4 +145,3 @@ namespace AutoCADCleanupTool
         }
     }
 }
-

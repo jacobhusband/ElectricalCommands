@@ -113,7 +113,7 @@ namespace AutoCADCleanupTool
             }
         }
 
-        private static void PrepareXrefLayersForCleanup(Database db, Editor ed)
+        public static void PrepareXrefLayersForCleanup(Database db, Editor ed)
         {
             try
             {

@@ -19,60 +19,64 @@ namespace AutoCADCleanupTool
             if (doc == null) return;
             Database db = doc.Database;
             Editor ed = doc.Editor;
-        
+
+            LogTitleBlockReferenceStatus(db, ed, "PURGEDEFS - Start");
+
             ed.WriteMessage("\n--- Stage 3: Surgically removing orphaned image definitions... ---");
             if (_imageDefsToPurge.Count == 0)
             {
-                ed.WriteMessage("\nNo orphaned image definitions were identified. Finalization complete.");
+                ed.WriteMessage("\nNo orphaned image definitions were identified.");
                 TriggerKeepOnlyTitleBlockIfRequested(doc, ed);
-                return;
+                // No return, proceed to final logging
             }
-        
-            try
+            else
             {
-                using (Transaction trans = db.TransactionManager.StartTransaction())
+                try
                 {
-                    int defsPurged = 0;
-                    DBDictionary namedObjectsDict = trans.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead) as DBDictionary;
-                    if (namedObjectsDict.Contains("ACAD_IMAGE_DICT"))
+                    using (Transaction trans = db.TransactionManager.StartTransaction())
                     {
-                        DBDictionary imageDict = trans.GetObject(namedObjectsDict.GetAt("ACAD_IMAGE_DICT"), OpenMode.ForWrite) as DBDictionary;
-                        var entriesToRemove = new Dictionary<string, ObjectId>();
-        
-                        // Find the dictionary keys for the defs on our kill list
-                        foreach (DBDictionaryEntry entry in imageDict)
+                        int defsPurged = 0;
+                        DBDictionary namedObjectsDict = trans.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead) as DBDictionary;
+                        if (namedObjectsDict.Contains("ACAD_IMAGE_DICT"))
                         {
-                            if (_imageDefsToPurge.Contains(entry.Value))
+                            DBDictionary imageDict = trans.GetObject(namedObjectsDict.GetAt("ACAD_IMAGE_DICT"), OpenMode.ForWrite) as DBDictionary;
+                            var entriesToRemove = new Dictionary<string, ObjectId>();
+
+                            foreach (DBDictionaryEntry entry in imageDict)
                             {
-                                entriesToRemove.Add(entry.Key, entry.Value);
+                                if (_imageDefsToPurge.Contains(entry.Value))
+                                {
+                                    entriesToRemove.Add(entry.Key, entry.Value);
+                                }
+                            }
+
+                            ed.WriteMessage($"\nFound {entriesToRemove.Count} dictionary entr(ies) to remove.");
+                            foreach (var item in entriesToRemove)
+                            {
+                                ed.WriteMessage($"\n  - Detaching and Erasing: {item.Key}");
+                                imageDict.Remove(item.Key);
+                                DBObject imageDef = trans.GetObject(item.Value, OpenMode.ForWrite);
+                                imageDef.Erase();
+                                defsPurged++;
                             }
                         }
-                        
-                        ed.WriteMessage($"\nFound {entriesToRemove.Count} dictionary entr(ies) to remove.");
-                        foreach (var item in entriesToRemove)
-                        {
-                            ed.WriteMessage($"\n  - Detaching and Erasing: {item.Key}");
-                            imageDict.Remove(item.Key);
-                            DBObject imageDef = trans.GetObject(item.Value, OpenMode.ForWrite);
-                            imageDef.Erase();
-                            defsPurged++;
-                        }
+                        ed.WriteMessage($"\nSuccessfully purged {defsPurged} image definition(s).");
+                        trans.Commit();
                     }
-                    ed.WriteMessage($"\nSuccessfully purged {defsPurged} image definition(s).");
-                    trans.Commit();
                 }
-                ed.WriteMessage("\n-------------------------------------------------");
-                ed.WriteMessage("\nFinalization Complete. Please save the drawing.");
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nAn error occurred during final purge: {ex.Message}\n{ex.StackTrace}");
+                }
             }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nAn error occurred during final purge: {ex.Message}\n{ex.StackTrace}");
-            }
-            finally
-            {
-                _imageDefsToPurge.Clear();
-                TriggerKeepOnlyTitleBlockIfRequested(doc, ed);
-            }
+
+            ed.WriteMessage("\n-------------------------------------------------");
+            ed.WriteMessage("\nFinalization Complete. Please save the drawing.");
+            LogTitleBlockReferenceStatus(db, ed, "PURGEDEFS - End");
+
+            // Cleanup logic is now at the very end
+            _imageDefsToPurge.Clear();
+            TriggerKeepOnlyTitleBlockIfRequested(doc, ed);
         }
 
         private static void TriggerKeepOnlyTitleBlockIfRequested(Document doc, Editor ed)

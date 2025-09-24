@@ -119,6 +119,91 @@ namespace AutoCADCleanupTool
 
             return erasedCount;
         }
+
+        /// <summary>
+        /// Scans all spaces for block references matching title block names and logs their status.
+        /// </summary>
+        public static void LogTitleBlockReferenceStatus(Database db, Editor ed, string stage)
+        {
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    string[] titleBlockHints = { "x-tb", "title", "tblock", "border", "sheet" };
+                    var tbDefIds = new HashSet<ObjectId>();
+
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+
+                    // Find all block definitions that look like a title block
+                    foreach (ObjectId btrId in bt)
+                    {
+                        var btr = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
+                        if (btr == null || btr.IsErased) continue;
+
+                        string nameLower = (btr.Name ?? string.Empty).ToLowerInvariant();
+                        string pathLower = string.Empty;
+                        if (btr.IsFromExternalReference)
+                        {
+                            try { pathLower = System.IO.Path.GetFileNameWithoutExtension(btr.PathName ?? string.Empty).ToLowerInvariant(); } catch { }
+                        }
+
+                        if (titleBlockHints.Any(h => nameLower.Contains(h) || (!string.IsNullOrEmpty(pathLower) && pathLower.Contains(h))))
+                        {
+                            tbDefIds.Add(btrId);
+                        }
+                    }
+
+                    if (tbDefIds.Count == 0)
+                    {
+                        ed.WriteMessage($"\n[LOG @ {stage}] No title block DEFINITION found.");
+                        tr.Commit();
+                        return;
+                    }
+
+                    ed.WriteMessage($"\n[LOG @ {stage}] Found {tbDefIds.Count} possible title block definition(s). Checking for references...");
+
+                    int refCount = 0;
+                    // Now search all spaces for references to these definitions
+                    foreach (ObjectId btrId in bt)
+                    {
+                        var space = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
+                        // *** FIX IS HERE: Correctly check if the BTR is a layout (Model or Paper) ***
+                        if (space == null || !space.IsLayout) continue;
+
+                        foreach (ObjectId entId in space)
+                        {
+                            if (entId.IsErased) continue;
+                            var br = tr.GetObject(entId, OpenMode.ForRead) as BlockReference;
+                            if (br == null) continue;
+
+                            ObjectId effectiveDefId = br.BlockTableRecord;
+                            if (br.IsDynamicBlock)
+                            {
+                                try { effectiveDefId = br.DynamicBlockTableRecord; } catch { }
+                            }
+
+                            if (tbDefIds.Contains(effectiveDefId))
+                            {
+                                refCount++;
+                                var def = (BlockTableRecord)tr.GetObject(effectiveDefId, OpenMode.ForRead);
+                                ed.WriteMessage($"\n[LOG @ {stage}]   -> FOUND Title Block Reference. Handle: {br.Handle}, Definition: '{def.Name}', IsXref: {def.IsFromExternalReference}, Space: '{space.Name}'.");
+                            }
+                        }
+                    }
+
+                    if (refCount == 0)
+                    {
+                        ed.WriteMessage($"\n[LOG @ {stage}]   -> !!! NO Title Block Reference FOUND in any space. !!!");
+                    }
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\n[LOG @ {stage}] Error during logging: {ex.Message}");
+            }
+        }
+
         private static bool ExtentsIntersectXY(Extents3d a, Extents3d b)
         {
             return a.MinPoint.X <= b.MaxPoint.X && a.MaxPoint.X >= b.MinPoint.X &&
@@ -135,6 +220,3 @@ namespace AutoCADCleanupTool
 
     }
 }
-
-
-

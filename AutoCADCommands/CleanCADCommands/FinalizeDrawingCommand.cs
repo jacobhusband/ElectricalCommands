@@ -20,15 +20,22 @@ namespace AutoCADCleanupTool
             if (doc == null) return;
             Database db = doc.Database;
             Editor ed = doc.Editor;
-        
+
+            // Ensure all layers are on, thawed, and unlocked before any operations begin.
+            SimplerCommands.EnsureAllLayersVisibleAndUnlocked(db, ed);
+
+            // Move all XREF block references to layer "0".
+            SimplerCommands.PrepareXrefLayersForCleanup(db, ed);
+
             _blockIdsBeforeBind.Clear();
             _originalXrefIds.Clear();
             _imageDefsToPurge.Clear();
-            // Detach special XREFs before binding
+
+            // This command freezes layers, so it must run AFTER the layer preparations.
             SimplerCommands.DetachSpecialXrefs();
 
             ed.WriteMessage("\n--- Stage 1: Analyzing and Binding... ---");
-        
+
             try
             {
                 int bindCount = 0;
@@ -84,9 +91,9 @@ namespace AutoCADCleanupTool
                     }
                 }
 
-                if (bindCount > 0)
+                if (bindCount > 0 || ForceDetachOriginalXrefs || _originalXrefIds.Count > 0)
                 {
-                    ed.WriteMessage("\nBind complete. Queueing cleanup process...");
+                    ed.WriteMessage("\nBind complete or skipped. Queueing cleanup process...");
                     doc.SendStringToExecute("_-FINALIZE-CLEANUP ", true, false, false);
                 }
                 else
@@ -105,4 +112,3 @@ namespace AutoCADCleanupTool
         }
     }
 }
-

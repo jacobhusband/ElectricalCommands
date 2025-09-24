@@ -28,6 +28,80 @@ namespace AutoCADCleanupTool
         private const uint WM_COMMAND = 0x0111;
         private const int IDOK = 1;
 
+        /// <summary>
+        /// Unlocks, thaws, and turns on all layers in the drawing to ensure visibility and editability.
+        /// </summary>
+        internal static void EnsureAllLayersVisibleAndUnlocked(Database db, Editor ed)
+        {
+            ed.WriteMessage("\nEnsuring all layers are visible and unlocked...");
+            int unlocked = 0;
+            int thawed = 0;
+            int turnedOn = 0;
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                    ObjectId originalClayerId = db.Clayer;
+
+                    // Temporarily switch to a safe layer (like "0") to avoid issues with modifying the current layer.
+                    if (lt.Has("0") && db.Clayer != lt["0"])
+                    {
+                        db.Clayer = lt["0"];
+                    }
+
+                    foreach (ObjectId layerId in lt)
+                    {
+                        if (layerId.IsErased) continue;
+                        try
+                        {
+                            var ltr = (LayerTableRecord)tr.GetObject(layerId, OpenMode.ForWrite);
+
+                            if (ltr.IsLocked)
+                            {
+                                ltr.IsLocked = false;
+                                unlocked++;
+                            }
+                            if (ltr.IsFrozen)
+                            {
+                                // This is safe because we are not on a frozen layer.
+                                ltr.IsFrozen = false;
+                                thawed++;
+                            }
+                            if (ltr.IsOff)
+                            {
+                                ltr.IsOff = false;
+                                turnedOn++;
+                            }
+                        }
+                        catch (System.Exception ex)
+                        {
+                            ed.WriteMessage($"\nCould not modify layer {layerId}: {ex.Message}");
+                        }
+                    }
+
+                    // Attempt to restore the original current layer.
+                    try
+                    {
+                        var originalLtr = (LayerTableRecord)tr.GetObject(originalClayerId, OpenMode.ForRead);
+                        if (!originalLtr.IsErased && !originalLtr.IsFrozen)
+                        {
+                            db.Clayer = originalClayerId;
+                        }
+                    }
+                    catch { }
+
+                    tr.Commit();
+                }
+                ed.WriteMessage($"\nUnlocked: {unlocked}, Thawed: {thawed}, Turned On: {turnedOn} layer(s).");
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nAn error occurred while modifying layers: {ex.Message}");
+            }
+        }
+
         private static void StartOleTextSizeDialogCloser(double seconds = 120)
         {
             Task.Run(() =>
@@ -654,7 +728,7 @@ namespace AutoCADCleanupTool
             if (!_isEmbeddingProcessActive) return; // Prevent re-entry
             _isEmbeddingProcessActive = false;      // Deactivate process immediately
 
-            
+
             _finalPastedOleForZoom = ObjectId.Null; // Clean up
 
             ed.WriteMessage("\nCompleted embedding over all raster images.");
