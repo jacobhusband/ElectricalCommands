@@ -161,11 +161,10 @@ namespace AutoCADCleanupTool
             ed.WriteMessage("\n--- Starting EMBEDFROMXREFS ---");
 
             // --- Phase 1: Preparation ---
-
             _pending.Clear();
             _lastPastedOle = ObjectId.Null;
-            _isEmbeddingProcessActive = false; // Reset state management flag
-            _finalPastedOleForZoom = ObjectId.Null; // Reset zoom target
+            _isEmbeddingProcessActive = false;
+            _finalPastedOleForZoom = ObjectId.Null;
 
             try
             {
@@ -176,64 +175,62 @@ namespace AutoCADCleanupTool
                 ed.WriteMessage($"\n[Warning] Could not delete old temp files: {ex.Message}");
             }
 
-            // --- Phase 2: Image Collection and Processing ---
-            ObjectId originalClayer = ObjectId.Null;
+            ObjectId originalClayer = db.Clayer;
+            // *** MODIFICATION START ***
+            // Save the current UCS and switch to WCS to ensure predictable geometry for pasted objects.
+            // This is critical for the transformation logic to work correctly and prevents freezes.
+            Matrix3d originalUcs = ed.CurrentUserCoordinateSystem;
+
             try
             {
-                // Ensure layer "0" is thawed and set current, saving the original layer
-                using (var tr = db.TransactionManager.StartTransaction())
+                ed.CurrentUserCoordinateSystem = Matrix3d.Identity; // Set UCS to World
+
+                // --- Phase 2: Image Collection and Processing ---
+                try
                 {
-                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-                    if (lt.Has("0"))
+                    using (var tr = db.TransactionManager.StartTransaction())
                     {
-                        var zeroId = lt["0"];
-                        var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
-                        if (zeroLtr.IsFrozen)
+                        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                        if (lt.Has("0"))
                         {
-                            ed.WriteMessage("\nThawing layer '0'.");
-                            zeroLtr.IsFrozen = false;
+                            var zeroId = lt["0"];
+                            var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
+                            if (zeroLtr.IsFrozen)
+                            {
+                                ed.WriteMessage("\nThawing layer '0'.");
+                                zeroLtr.IsFrozen = false;
+                            }
+                            if (_savedClayer.IsNull) _savedClayer = originalClayer;
+                            db.Clayer = zeroId;
                         }
-                        originalClayer = db.Clayer; // Save original layer
-                        if (_savedClayer.IsNull) _savedClayer = originalClayer; // Assuming _savedClayer is part of your class
-                        db.Clayer = zeroId;
+                        tr.Commit();
                     }
-                    tr.Commit();
+
+                    CollectAndPreflightImages(doc);
                 }
-
-                // Collect and pre-process all raster images
-                CollectAndPreflightImages(doc);
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\n[!] A critical error occurred during image collection: {ex.Message}");
-                // On failure, restore state and exit
-                RestoreOriginalLayer(db, originalClayer);
-                return;
-            }
-
-            // --- Phase 3: Embedding Logic ---
-            if (_pending.Count == 0)
-            {
-                ed.WriteMessage("\nNo valid raster images found to embed.");
-                ClosePowerPoint(ed); // Ensure PPT is closed if not needed
-                RestoreOriginalLayer(db, originalClayer);
-
-                if (_chainFinalizeAfterEmbed)
+                catch (System.Exception ex)
                 {
-                    _chainFinalizeAfterEmbed = false;
-                    doc.SendStringToExecute("_.FINALIZE ", true, false, false);
+                    ed.WriteMessage($"\n[!] A critical error occurred during image collection: {ex.Message}");
+                    return; // Exit before starting the paste process
                 }
-                return;
-            }
 
-            ed.WriteMessage($"\nSuccessfully queued {_pending.Count} image(s).");
+                // --- Phase 3: Embedding Logic ---
+                if (_pending.Count == 0)
+                {
+                    ed.WriteMessage("\nNo valid raster images found to embed.");
+                    if (_chainFinalizeAfterEmbed)
+                    {
+                        _chainFinalizeAfterEmbed = false;
+                        doc.SendStringToExecute("_.FINALIZE ", true, false, false);
+                    }
+                    return; // Return here, finally block will handle cleanup
+                }
 
-            try
-            {
+                ed.WriteMessage($"\nSuccessfully queued {_pending.Count} image(s).");
+
                 if (!EnsurePowerPoint(ed))
                 {
                     ed.WriteMessage("\n[!] Failed to start or connect to PowerPoint. Aborting.");
-                    RestoreOriginalLayer(db, originalClayer);
                     return;
                 }
 
@@ -244,16 +241,37 @@ namespace AutoCADCleanupTool
 
                 AttachHandlers(db, doc);
                 ed.WriteMessage($"\nStarting paste process for {_pending.Count} raster image(s)...");
-                _isEmbeddingProcessActive = true; // Activate the process
+                _isEmbeddingProcessActive = true;
                 ProcessNextPaste(doc, ed);
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\n[!] An error occurred during the PowerPoint embedding process: {ex.Message}");
-                ClosePowerPoint(ed);
-                RestoreOriginalLayer(db, originalClayer);
-                _isEmbeddingProcessActive = false; // Deactivate on error
+                // The finally block will handle cleanup
             }
+            finally
+            {
+                // *** MODIFICATION: Ensure robust cleanup occurs in all scenarios ***
+                if (!_isEmbeddingProcessActive && _pending.Count == 0)
+                {
+                    // This block runs if the process completed successfully or found no images
+                    ClosePowerPoint(ed);
+                    RestoreOriginalLayer(db, originalClayer);
+                }
+                else if (!_isEmbeddingProcessActive && _pending.Count > 0)
+                {
+                    // This block runs if an error occurred before the process could complete
+                    ed.WriteMessage("\nAborting embedding process due to an earlier error.");
+                    DetachHandlers(db, doc);
+                    ClosePowerPoint(ed);
+                    RestoreOriginalLayer(db, originalClayer);
+                    _pending.Clear();
+                }
+                // If _isEmbeddingProcessActive is true, the async handlers will call FinishEmbeddingRun later
+
+                ed.CurrentUserCoordinateSystem = originalUcs; // ALWAYS restore original UCS
+            }
+            // *** MODIFICATION END ***
         }
 
         private static void CollectAndPreflightImages(Document doc)
@@ -328,7 +346,16 @@ namespace AutoCADCleanupTool
             {
                 try
                 {
-                    db.Clayer = originalClayer;
+                    // Check if the original layer is valid and not frozen before restoring
+                    using (var tr = db.TransactionManager.StartOpenCloseTransaction())
+                    {
+                        var ltr = (LayerTableRecord)tr.GetObject(originalClayer, OpenMode.ForRead);
+                        if (ltr != null && !ltr.IsErased && !ltr.IsFrozen)
+                        {
+                            db.Clayer = originalClayer;
+                        }
+                        tr.Commit();
+                    }
                 }
                 catch (System.Exception ex)
                 {
