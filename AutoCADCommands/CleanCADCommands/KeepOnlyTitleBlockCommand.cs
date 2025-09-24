@@ -123,7 +123,7 @@ namespace AutoCADCleanupTool
                             if (len > 1e-6) lines.Add((ln, p0, p1, v / len, len, ln.Layer));
                         }
                     }
-                    if (lines.Count > 0)
+                    if (lines.Count >= 4)
                     {
                         var hinted = lines.Where(l => layerTokens.Any(t => l.Layer.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0)).ToList();
                         var poolSet = new HashSet<ObjectId>(hinted.Select(h => h.L.ObjectId));
@@ -155,24 +155,22 @@ namespace AutoCADCleanupTool
                             ip = default;
                             var r = a1 - a0; var s = b1 - b0;
                             double rxs = r.X * s.Y - r.Y * s.X;
-                            double qpxr = (b0.X - a0.X) * r.Y - (b0.Y - a0.Y) * r.X;
-                            double EPS = 1e-7;
+                            var qp = b0 - a0;
+                            double qpxr = qp.X * r.Y - qp.Y * r.X;
+                            double EPS = 1e-9;
                             if (Math.Abs(rxs) < EPS) return false;
-                            double t = ((b0.X - a0.X) * s.Y - (b0.Y - a0.Y) * s.X) / rxs;
+                            double t = (qp.X * s.Y - qp.Y * s.X) / rxs;
                             double u = qpxr / rxs;
                             if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return false;
-                            ip = new Point2d(a0.X + t * r.X, a0.Y + t * r.Y);
+                            ip = a0 + t * r;
                             return true;
                         }
 
                         foreach (var kvA in groups)
                         {
                             int bins90 = (int)Math.Round(90.0 / 0.5);
-                            int perpKeyCenter = (kvA.Key + bins90) % totalBins; if (perpKeyCenter < 0) perpKeyCenter += totalBins;
-                            int k0 = perpKeyCenter - 1; if (k0 < 0) k0 += totalBins;
-                            int k1 = perpKeyCenter;
-                            int k2 = perpKeyCenter + 1; if (k2 >= totalBins) k2 -= totalBins;
-                            var perpKeys = new int[] { k0, k1, k2 };
+                            int perpKeyCenter = (kvA.Key + bins90) % totalBins;
+                            var perpKeys = new int[] { (perpKeyCenter - 1 + totalBins) % totalBins, perpKeyCenter, (perpKeyCenter + 1) % totalBins };
 
                             if (!kvA.Value.Any()) continue;
                             var idxA = kvA.Value.OrderByDescending(i => pool[i].Len).Take(12).ToArray();
@@ -186,15 +184,14 @@ namespace AutoCADCleanupTool
                                     for (int i2 = i1 + 1; i2 < idxA.Length; i2++)
                                     {
                                         var A1 = pool[idxA[i1]]; var A2 = pool[idxA[i2]];
-                                        var sepDeltaA = A2.P0 - A1.P0; var nA = new Vector2d(-A1.V.Y, A1.V.X);
-                                        double sepA = Math.Abs(sepDeltaA.DotProduct(nA)); if (sepA < 1e-4) continue;
+                                        var nA = new Vector2d(-A1.V.Y, A1.V.X);
+                                        if (Math.Abs(A1.V.DotProduct(A2.V)) < 0.98) continue; // Ensure lines are parallel
 
                                         for (int j1 = 0; j1 < idxBBest.Length; j1++)
                                             for (int j2 = j1 + 1; j2 < idxBBest.Length; j2++)
                                             {
                                                 var B1 = pool[idxBBest[j1]]; var B2 = pool[idxBBest[j2]];
-                                                var sepDeltaB = B2.P0 - B1.P0; var nB = new Vector2d(-B1.V.Y, B1.V.X);
-                                                double sepB = Math.Abs(sepDeltaB.DotProduct(nB)); if (sepB < 1e-4) continue;
+                                                if (Math.Abs(B1.V.DotProduct(B2.V)) < 0.98) continue; // Ensure lines are parallel
 
                                                 if (!SegIntersect(A1.P0, A1.P1, B1.P0, B1.P1, out var C00)) continue;
                                                 if (!SegIntersect(A1.P0, A1.P1, B2.P0, B2.P1, out var C01)) continue;
@@ -207,29 +204,24 @@ namespace AutoCADCleanupTool
                                                 double norm = wLen * hLen; if (norm <= 0) continue;
                                                 double sinTheta = dotArea / norm; if (Math.Abs(sinTheta - 1.0) > 0.02) continue;
                                                 double wOpp = (C11 - C10).Length, hOpp = (C11 - C01).Length;
-                                                if (Math.Abs(wLen - wOpp) > 0.01 * Math.Max(wLen, wOpp)) continue;
-                                                if (Math.Abs(hLen - hOpp) > 0.01 * Math.Max(hLen, hOpp)) continue;
+                                                if (Math.Abs(wLen - wOpp) > 0.015 * Math.Max(wLen, wOpp)) continue;
+                                                if (Math.Abs(hLen - hOpp) > 0.015 * Math.Max(hLen, hOpp)) continue;
 
-                                                double minX = new[] { C00.X, C01.X, C10.X, C11.X }.Min();
-                                                double minY = new[] { C00.Y, C01.Y, C10.Y, C11.Y }.Min();
-                                                double maxX = new[] { C00.X, C01.X, C10.X, C11.X }.Max();
-                                                double maxY = new[] { C00.Y, C01.Y, C10.Y, C11.Y }.Max();
-                                                var ext = new Extents3d(new Point3d(minX, minY, 0), new Point3d(maxX, maxY, 0));
+                                                var ext = new Extents3d();
+                                                ext.AddPoint(new Point3d(C00.X, C00.Y, 0));
+                                                ext.AddPoint(new Point3d(C01.X, C01.Y, 0));
+                                                ext.AddPoint(new Point3d(C10.X, C10.Y, 0));
+                                                ext.AddPoint(new Point3d(C11.X, C11.Y, 0));
 
                                                 double angle = Math.Atan2(u.Y, u.X);
                                                 double ratio = Math.Max(wLen, hLen) / Math.Min(wLen, hLen);
                                                 double score = 0.0; if (IsSheetRatio(ratio)) score += 3.0;
                                                 double area = wLen * hLen; if (area > 1) score += Math.Log10(area);
-                                                int hintHits = 0;
-                                                if (layerTokens.Any(t => A1.Layer.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0)) hintHits++;
-                                                if (layerTokens.Any(t => A2.Layer.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0)) hintHits++;
-                                                if (layerTokens.Any(t => B1.Layer.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0)) hintHits++;
-                                                if (layerTokens.Any(t => B2.Layer.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0)) hintHits++;
+                                                int hintHits = (new[] { A1, A2, B1, B2 }).Count(l => layerTokens.Any(t => l.Layer.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0));
                                                 score += 0.2 * hintHits;
                                                 if (attDefs.Count > 0)
                                                 {
-                                                    int inside = 0;
-                                                    foreach (var a in attDefs) if (PointInExtents2D(a.Pos, ext)) inside++;
+                                                    int inside = attDefs.Count(a => PointInExtents2D(a.Pos, ext));
                                                     score += Math.Min(2.0, inside * 0.3);
                                                     int tagHits = attDefs.Count(a => PointInExtents2D(a.Pos, ext) && attrTags.Contains(a.Tag));
                                                     score += Math.Min(2.0, tagHits * 0.5);
@@ -238,9 +230,9 @@ namespace AutoCADCleanupTool
                                                 {
                                                     var poly = new[]
                                                     {
-                                                new Point3d(C00.X, C00.Y, 0), new Point3d(C01.X, C01.Y, 0),
-                                                new Point3d(C11.X, C11.Y, 0), new Point3d(C10.X, C10.Y, 0)
-                                            };
+                                                        new Point3d(C00.X, C00.Y, 0), new Point3d(C01.X, C01.Y, 0),
+                                                        new Point3d(C11.X, C11.Y, 0), new Point3d(C10.X, C10.Y, 0)
+                                                    };
                                                     var boundary = new[] { A1.L.ObjectId, A2.L.ObjectId, B1.L.ObjectId, B2.L.ObjectId };
                                                     candidates.Add((ext, score, angle, poly, boundary));
                                                 }
@@ -253,15 +245,15 @@ namespace AutoCADCleanupTool
                     // 3) Fallback to ATTDEF cluster extents
                     if (candidates.Count == 0 && attDefs.Count >= 3)
                     {
-                        double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
-                        double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
-                        foreach (var a in attDefs)
-                        {
-                            minX = Math.Min(minX, a.Pos.X); minY = Math.Min(minY, a.Pos.Y);
-                            maxX = Math.Max(maxX, a.Pos.X); maxY = Math.Max(maxY, a.Pos.Y);
-                        }
-                        double dx = (maxX - minX) * 0.2; double dy = (maxY - minY) * 0.2;
-                        var ext = new Extents3d(new Point3d(minX - dx, minY - dy, 0), new Point3d(maxX + dx, maxY + dy, 0));
+                        var extentsBuilder = new Extents3d();
+                        attDefs.ForEach(a => extentsBuilder.AddPoint(a.Pos));
+                        var ext = extentsBuilder;
+
+                        double minWidth = 10.0; // Minimum reasonable width
+                        double minHeight = 7.5; // Minimum reasonable height
+                        double dx = Math.Max((ext.MaxPoint.X - ext.MinPoint.X) * 0.25, minWidth);
+                        double dy = Math.Max((ext.MaxPoint.Y - ext.MinPoint.Y) * 0.25, minHeight);
+                        ext = new Extents3d(new Point3d(ext.MinPoint.X - dx, ext.MinPoint.Y - dy, 0), new Point3d(ext.MaxPoint.X + dx, ext.MaxPoint.Y + dy, 0));
                         var poly = new[]
                         {
                             new Point3d(ext.MinPoint.X, ext.MinPoint.Y, 0),
@@ -281,7 +273,7 @@ namespace AutoCADCleanupTool
 
                     var best = candidates.OrderByDescending(c => c.Score).First();
 
-                    // Transform polygon from UCS to WCS
+                    // *** FIX: Use ed.CurrentUserCoordinateSystem which is a Matrix3d and has .Inverse() ***
                     var ucs = ed.CurrentUserCoordinateSystem;
                     var wcs_poly = best.Poly.Select(p => p.TransformBy(ucs.Inverse())).ToArray();
 
@@ -290,7 +282,7 @@ namespace AutoCADCleanupTool
 
                     // Select objects strictly inside the found polygon
                     var polyColl = new Point3dCollection(expandedPoly ?? best.Poly);
-                    var selRes = ed.SelectWindowPolygon(polyColl);
+                    var selRes = ed.SelectCrossingPolygon(polyColl);
                     if (selRes.Status != PromptStatus.OK)
                     {
                         ed.WriteMessage("\nNothing found inside the detected titleblock region.");
@@ -302,18 +294,16 @@ namespace AutoCADCleanupTool
                     // Ensure the border entities themselves are also kept
                     foreach (var bid in best.Boundary) if (!bid.IsNull) keepIds.Add(bid);
 
-                    // Record ids to keep; removal happens after the transaction
-
                     tr.Commit();
                 }
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\nError in KEEPONLYTITLEBLOCKMS: {ex.Message}");
+                ed.WriteMessage($"\nError in KEEPONLYTITLEBLOCKMS: {ex.Message}\n{ex.StackTrace}");
                 return;
             }
 
-            if (keepIds == null)
+            if (keepIds == null || keepIds.Count == 0)
             {
                 return;
             }
@@ -321,7 +311,7 @@ namespace AutoCADCleanupTool
             try
             {
                 var modelSpaceId = SymbolUtilityServices.GetBlockModelSpaceId(db);
-                CleanupCommands.EraseEntitiesExcept(db, ed, modelSpaceId, keepIds);
+                EraseEntitiesExcept(db, ed, modelSpaceId, keepIds);
             }
             catch (System.Exception ex)
             {
@@ -343,7 +333,7 @@ namespace AutoCADCleanupTool
 
         public static void ZoomToTitleBlock(Editor ed, Point3d[] poly)
         {
-            if (ed == null || poly == null || poly.Length == 0) return;
+            if (ed == null || poly == null || poly.Length < 3) return;
 
             try
             {
@@ -353,9 +343,16 @@ namespace AutoCADCleanupTool
                     ext.AddPoint(poly[i]);
                 }
 
-                double width = System.Math.Abs(ext.MaxPoint.X - ext.MinPoint.X);
-                double height = System.Math.Abs(ext.MaxPoint.Y - ext.MinPoint.Y);
-                double margin = System.Math.Max(width, height) * 0.05;
+                double width = Math.Abs(ext.MaxPoint.X - ext.MinPoint.X);
+                double height = Math.Abs(ext.MaxPoint.Y - ext.MinPoint.Y);
+
+                if (width < 1e-4 || height < 1e-4)
+                {
+                    ed.WriteMessage("\nDetected title block area is too small, skipping zoom.");
+                    return;
+                }
+
+                double margin = Math.Max(width, height) * 0.05;
 
                 Point3d pMin = new Point3d(ext.MinPoint.X - margin, ext.MinPoint.Y - margin, ext.MinPoint.Z);
                 Point3d pMax = new Point3d(ext.MaxPoint.X + margin, ext.MaxPoint.Y + margin, ext.MaxPoint.Z);
@@ -371,113 +368,49 @@ namespace AutoCADCleanupTool
         public static void Zoom(Point3d pMin, Point3d pMax, Point3d pCenter, double dFactor)
         {
             Document acDoc = Application.DocumentManager.MdiActiveDocument;
+            if (acDoc == null) return;
             Database acCurDb = acDoc.Database;
-
-            int nCurVport = System.Convert.ToInt32(Application.GetSystemVariable("CVPORT"));
-
-            if (acCurDb.TileMode == true)
-            {
-                if (pMin.Equals(new Point3d()) == true &&
-                    pMax.Equals(new Point3d()) == true)
-                {
-                    pMin = acCurDb.Extmin;
-                    pMax = acCurDb.Extmax;
-                }
-            }
-            else
-            {
-                if (nCurVport == 1)
-                {
-                    if (pMin.Equals(new Point3d()) == true &&
-                        pMax.Equals(new Point3d()) == true)
-                    {
-                        pMin = acCurDb.Pextmin;
-                        pMax = acCurDb.Pextmax;
-                    }
-                }
-                else
-                {
-                    if (pMin.Equals(new Point3d()) == true &&
-                        pMax.Equals(new Point3d()) == true)
-                    {
-                        pMin = acCurDb.Extmin;
-                        pMax = acCurDb.Extmax;
-                    }
-                }
-            }
+            Editor ed = acDoc.Editor;
 
             using (Transaction acTrans = acCurDb.TransactionManager.StartTransaction())
             {
-                using (ViewTableRecord acView = acDoc.Editor.GetCurrentView())
+                using (ViewTableRecord acView = ed.GetCurrentView())
                 {
-                    Extents3d eExtents;
-
-                    Matrix3d matWCS2DCS;
-                    matWCS2DCS = Matrix3d.PlaneToWorld(acView.ViewDirection);
-                    matWCS2DCS = Matrix3d.Displacement(acView.Target - Point3d.Origin) * matWCS2DCS;
-                    matWCS2DCS = Matrix3d.Rotation(-acView.ViewTwist,
-                                                    acView.ViewDirection,
-                                                    acView.Target) * matWCS2DCS;
-
-                    if (pCenter.DistanceTo(Point3d.Origin) != 0)
-                    {
-                        pMin = new Point3d(pCenter.X - (acView.Width / 2),
-                                            pCenter.Y - (acView.Height / 2), 0);
-
-                        pMax = new Point3d((acView.Width / 2) + pCenter.X,
-                                            (acView.Height / 2) + pCenter.Y, 0);
-                    }
-
-                    using (Line acLine = new Line(pMin, pMax))
-                    {
-                        eExtents = new Extents3d(acLine.Bounds.Value.MinPoint,
-                                                    acLine.Bounds.Value.MaxPoint);
-                    }
-
-                    double dViewRatio;
-                    dViewRatio = (acView.Width / acView.Height);
-
-                    matWCS2DCS = matWCS2DCS.Inverse();
-                    eExtents.TransformBy(matWCS2DCS);
-
-                    double dWidth;
-                    double dHeight;
                     Point2d pNewCentPt;
+                    double dWidth, dHeight;
+
+                    Matrix3d matWCS2DCS = Matrix3d.PlaneToWorld(acView.ViewDirection);
+                    matWCS2DCS = Matrix3d.Displacement(acView.Target - Point3d.Origin) * matWCS2DCS;
+                    matWCS2DCS = Matrix3d.Rotation(-acView.ViewTwist, acView.ViewDirection, acView.Target) * matWCS2DCS;
+                    matWCS2DCS = matWCS2DCS.Inverse();
 
                     if (pCenter.DistanceTo(Point3d.Origin) != 0)
                     {
+                        pNewCentPt = new Point2d(pCenter.X, pCenter.Y);
                         dWidth = acView.Width;
                         dHeight = acView.Height;
-
-                        if (dFactor == 0)
-                        {
-                            pCenter = pCenter.TransformBy(matWCS2DCS);
-                        }
-
-                        pNewCentPt = new Point2d(pCenter.X, pCenter.Y);
                     }
                     else
                     {
-                        dWidth = eExtents.MaxPoint.X - eExtents.MinPoint.X;
-                        dHeight = eExtents.MaxPoint.Y - eExtents.MinPoint.Y;
-
-                        pNewCentPt = new Point2d(((eExtents.MaxPoint.X + eExtents.MinPoint.X) * 0.5),
-                                                    ((eExtents.MaxPoint.Y + eExtents.MinPoint.Y) * 0.5));
+                        var extents = new Extents3d(pMin, pMax);
+                        extents.TransformBy(matWCS2DCS);
+                        dWidth = extents.MaxPoint.X - extents.MinPoint.X;
+                        dHeight = extents.MaxPoint.Y - extents.MinPoint.Y;
+                        pNewCentPt = new Point2d((extents.MinPoint.X + extents.MaxPoint.X) / 2.0, (extents.MinPoint.Y + extents.MaxPoint.Y) / 2.0);
                     }
 
-                    if (dWidth > (dHeight * dViewRatio)) dHeight = dWidth / dViewRatio;
-
-                    if (dFactor != 0)
+                    double dViewRatio = acView.Width / acView.Height;
+                    if (dWidth > (dHeight * dViewRatio))
                     {
-                        acView.Height = dHeight * dFactor;
-                        acView.Width = dWidth * dFactor;
+                        dHeight = dWidth / dViewRatio;
                     }
 
                     acView.CenterPoint = pNewCentPt;
+                    acView.Width = dWidth * dFactor;
+                    acView.Height = dHeight * dFactor;
 
-                    acDoc.Editor.SetCurrentView(acView);
+                    ed.SetCurrentView(acView);
                 }
-
                 acTrans.Commit();
             }
         }
@@ -489,48 +422,27 @@ namespace AutoCADCleanupTool
                 return poly;
             }
 
-            // Calculate the geometric center of the polygon.
             var center = new Point3d(
                 (poly[0].X + poly[1].X + poly[2].X + poly[3].X) / 4.0,
                 (poly[0].Y + poly[1].Y + poly[2].Y + poly[3].Y) / 4.0,
                 0
             );
 
-            // Robustly determine side lengths to calculate margin
-            double distSq01 = poly[0].DistanceTo(poly[1]) * poly[0].DistanceTo(poly[1]);
-            double distSq02 = poly[0].DistanceTo(poly[2]) * poly[0].DistanceTo(poly[2]);
-            double distSq03 = poly[0].DistanceTo(poly[3]) * poly[0].DistanceTo(poly[3]);
+            // *** FIX: Changed GetDistanceTo to DistanceTo ***
+            double side1 = poly[0].DistanceTo(poly[1]);
+            double side2 = poly[0].DistanceTo(poly[3]);
 
-            double side1Sq, side2Sq;
-            if (distSq01 > distSq02 && distSq01 > distSq03)
-            { // 0-1 is diagonal
-                side1Sq = distSq02;
-                side2Sq = distSq03;
-            }
-            else if (distSq02 > distSq01 && distSq02 > distSq03)
-            { // 0-2 is diagonal
-                side1Sq = distSq01;
-                side2Sq = distSq03;
-            }
-            else
-            { // 0-3 is diagonal
-                side1Sq = distSq01;
-                side2Sq = distSq02;
-            }
-            // Margin is 0.5% of the smaller side
-            double margin = Math.Sqrt(Math.Min(side1Sq, side2Sq)) * 0.005;
+            double margin = Math.Max(0.01, Math.Min(side1, side2) * 0.005);
 
             var expandedPoly = new Point3d[4];
             for (int i = 0; i < 4; i++)
             {
-                // Create a vector from the center to the current vertex.
                 var vecFromCenter = poly[i] - center;
-                // Move the vertex outwards along this vector.
+                if (vecFromCenter.Length < 1e-6) return poly;
                 expandedPoly[i] = poly[i] + vecFromCenter.GetNormal() * margin;
             }
 
             return expandedPoly;
         }
-
     }
 }
