@@ -24,6 +24,20 @@ namespace AutoCADCleanupTool
 
             ed.WriteMessage("\n--- Starting EMBEDFROMXREFS ---");
 
+            // --- Phase 1: Preparation ---
+            try
+            {
+                if (TryGetTitleBlockOutlinePointsForEmbed(db, out var tbPoly) && tbPoly != null && tbPoly.Length > 0)
+                {
+                    ed.WriteMessage("\nTitle block found, zooming in...");
+                    ZoomToTitleBlockForEmbed(ed, tbPoly);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\n[Warning] Could not zoom to title block: {ex.Message}");
+            }
+
             _pending.Clear();
             _lastPastedOle = ObjectId.Null;
 
@@ -36,7 +50,7 @@ namespace AutoCADCleanupTool
                 ed.WriteMessage($"\n[Warning] Could not delete old temp files: {ex.Message}");
             }
 
-            // --- Phase 1: Image Collection and Processing ---
+            // --- Phase 2: Image Collection and Processing ---
             ObjectId originalClayer = ObjectId.Null;
             try
             {
