@@ -61,27 +61,43 @@ namespace AutoCADCleanupTool
                     int ghostsDetached = 0;
                     if (createdNewBlocks || ForceDetachOriginalXrefs)
                     {
+                        ed.WriteMessage($"\n--- XREFs considered for detachment ---");
                         foreach (ObjectId originalXrefId in _originalXrefIds)
                         {
                             var btr = trans.GetObject(originalXrefId, OpenMode.ForRead, false, true) as BlockTableRecord;
                             if (btr == null || btr.IsErased)
                             {
+                                ed.WriteMessage($"\n- Skipping null or erased BTR for XREF id {originalXrefId}");
                                 continue;
                             }
+
+                            ed.WriteMessage($"\n- Considering XREF: '{btr.Name}' (IsFromExternalReference: {btr.IsFromExternalReference})");
+
                             if (!btr.IsFromExternalReference)
                             {
+                                ed.WriteMessage($"\n  - Skipping because it is no longer an XREF (probably bound).");
                                 continue;
                             }
+
+                            // Do not detach the title block XREF
+                            if (btr.Name.ToLowerInvariant().Contains("x-tb"))
+                            {
+                                ed.WriteMessage($"\n  - Skipping detachment of XREF '{btr.Name}' because it is a title block.");
+                                continue;
+                            }
+
                             try
                             {
+                                ed.WriteMessage($"\n  - Detaching XREF: '{btr.Name}'");
                                 db.DetachXref(originalXrefId);
                                 ghostsDetached++;
                             }
                             catch (System.Exception exDetach)
                             {
-                                ed.WriteMessage($"\nFailed to detach XREF '{btr.Name}': {exDetach.Message}");
+                                ed.WriteMessage($"\n  - Failed to detach XREF '{btr.Name}': {exDetach.Message}");
                             }
                         }
+                        ed.WriteMessage($"\n--- End of XREF detachment ---");
                         ed.WriteMessage($"\nManually detached {ghostsDetached} old XREF block definition(s).");
                     }
                     else
