@@ -13,6 +13,143 @@ namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
     {
+        /// <summary>
+        /// Finds a likely title block reference in the Model Space and explodes it.
+        /// This is used to "unpack" a composite title block so that nested images can be found for embedding.
+        /// </summary>
+        public static void FindAndExplodeTitleBlockReference()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    // Target the Model Space for the search.
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    var modelSpace = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                    string[] hints = { "title sheet", "_wm_border", "border", "tblock", "title", "sheet", "x-tb" };
+                    BlockReference bestCandidate = null;
+                    string matchedName = "";
+                    double maxArea = 0;
+
+                    // Find the largest block reference in Model Space that looks like a title block.
+                    foreach (ObjectId id in modelSpace)
+                    {
+                        var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
+                        if (br == null) continue;
+
+                        var potentialNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                        // Defensively gather all possible names associated with the block reference.
+                        // 1. Get name from main BlockTableRecord.
+                        try
+                        {
+                            var btr = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
+                            if (btr != null)
+                            {
+                                if (!string.IsNullOrEmpty(btr.Name))
+                                {
+                                    potentialNames.Add(btr.Name);
+                                }
+                                // 2. Get XREF filename if applicable.
+                                if (btr.IsFromExternalReference && !string.IsNullOrEmpty(btr.PathName))
+                                {
+                                    potentialNames.Add(Path.GetFileNameWithoutExtension(btr.PathName));
+                                }
+                            }
+                        }
+                        catch { /* Ignore errors reading primary BTR */ }
+
+                        // 3. Get name from Dynamic BlockTableRecord if it's a dynamic block.
+                        if (br.IsDynamicBlock)
+                        {
+                            try
+                            {
+                                var dynBtr = tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
+                                if (dynBtr != null && !string.IsNullOrEmpty(dynBtr.Name))
+                                {
+                                    potentialNames.Add(dynBtr.Name);
+                                }
+                            }
+                            catch { /* Ignore errors reading dynamic BTR */ }
+                        }
+
+                        // Now, check all gathered names against the hints.
+                        bool isMatch = false;
+                        string currentMatch = "";
+                        foreach (var name in potentialNames)
+                        {
+                            foreach (var hint in hints)
+                            {
+                                if (name.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    isMatch = true;
+                                    currentMatch = name;
+                                    break;
+                                }
+                            }
+                            if (isMatch) break;
+                        }
+
+                        if (isMatch)
+                        {
+                            try
+                            {
+                                var ext = br.GeometricExtents;
+                                double area = (ext.MaxPoint.X - ext.MinPoint.X) * (ext.MaxPoint.Y - ext.MinPoint.Y);
+                                if (area > maxArea)
+                                {
+                                    maxArea = area;
+                                    bestCandidate = br;
+                                    matchedName = currentMatch;
+                                }
+                            }
+                            catch { /* Ignore blocks that fail to get extents */ }
+                        }
+                    }
+
+                    if (bestCandidate != null)
+                    {
+                        ed.WriteMessage($"\nFound title block reference in Model Space matching name '{matchedName}'. Exploding it...");
+
+                        var explodedEntities = new DBObjectCollection();
+                        bestCandidate.UpgradeOpen();
+                        bestCandidate.Explode(explodedEntities);
+
+                        foreach (DBObject obj in explodedEntities)
+                        {
+                            var ent = obj as Entity;
+                            if (ent != null)
+                            {
+                                // Add the exploded entities to Model Space.
+                                modelSpace.AppendEntity(ent);
+                                tr.AddNewlyCreatedDBObject(ent, true);
+                            }
+                        }
+
+                        bestCandidate.Erase();
+                        ed.WriteMessage("\nExplode complete.");
+                    }
+                    else
+                    {
+                        ed.WriteMessage("\nNo composite title block reference found to explode in Model Space.");
+                    }
+
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nError while trying to find and explode title block: {ex.Message}");
+            }
+        }
+
+
         [CommandMethod("EMBEDFROMXREFS", CommandFlags.Modal)]
         public static void EmbedFromXrefs()
         {

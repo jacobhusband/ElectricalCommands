@@ -16,6 +16,9 @@ namespace AutoCADCleanupTool
         [CommandMethod("CLEANTBLK", CommandFlags.Modal)]
         public static void RunCleanTitleBlock()
         {
+            // New: Explode the main title block reference if it exists, to expose nested images.
+            FindAndExplodeTitleBlockReference();
+
             // Leave the title-block workflow as-is.
             RunCleanWorkflow(CleanWorkflowKind.TitleBlock);
         }
