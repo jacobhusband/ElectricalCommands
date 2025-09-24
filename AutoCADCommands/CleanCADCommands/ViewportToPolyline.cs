@@ -38,10 +38,8 @@ namespace AutoCADCleanupTool
 
                             var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
 
-                            // Robust title block extents (union) in Paper/WCS
                             var tbUnion = GetTitleBlockUnionExtentsInPaper_Robust(btr, tr);
 
-                            // Collect all viewports on this layout (skip special #1)
                             var vpIds = new List<ObjectId>();
                             foreach (ObjectId id in btr)
                             {
@@ -53,7 +51,6 @@ namespace AutoCADCleanupTool
                             }
                             if (vpIds.Count == 0) continue;
 
-                            // First pass: require overlap with TB (if we found a TB)
                             int added = 0;
                             bool haveTb = tbUnion.HasValue;
 
@@ -66,7 +63,7 @@ namespace AutoCADCleanupTool
                                 {
                                     var vpEx = GetViewportRectExtentsInPaper(vp);
                                     include = ExtentsOverlap2d(
-                                        ExpandExtents2(tbUnion.Value, margin: 2.0), // generous margin
+                                        ExpandExtents2(tbUnion.Value, margin: 2.0),
                                         ExpandExtents2(vpEx, margin: 0.0)
                                     );
                                 }
@@ -83,7 +80,6 @@ namespace AutoCADCleanupTool
                                 }
                             }
 
-                            // Fallback: if TB overlap filter produced nothing, include ALL viewports on this layout
                             if (added == 0)
                             {
                                 foreach (var vpId in vpIds)
@@ -102,15 +98,26 @@ namespace AutoCADCleanupTool
                         tr.Commit();
                     }
 
+                    SwitchToModelSpaceViewSafe(db, ed);
+                    var msId = SymbolUtilityServices.GetBlockModelSpaceId(db);
+
                     if (modelPolys.Count == 0)
                     {
-                        ed.WriteMessage("\nNo eligible viewport regions found on any paper space layout.");
+                        ed.WriteMessage("\nNo eligible viewport regions found on any paper space layout. Erasing all objects in Model Space.");
+                        // Erase everything by providing an empty "keep" set
+                        int erased = EraseEntitiesExcept(db, msId, new HashSet<ObjectId>());
+                        if (erased > 0)
+                        {
+                            ed.WriteMessage($"\nErased all {erased} object(s) from Model Space.");
+                        }
+                        else
+                        {
+                            ed.WriteMessage("\nModel Space was already empty.");
+                        }
                         return;
                     }
 
                     // ---- Select + Keep in Model space, erase everything else ----
-                    SwitchToModelSpaceViewSafe(db, ed);
-
                     var keepIds = new HashSet<ObjectId>();
                     var originalUcs = ed.CurrentUserCoordinateSystem;
                     try
@@ -135,13 +142,14 @@ namespace AutoCADCleanupTool
 
                     if (keepIds.Count == 0)
                     {
-                        ed.WriteMessage("\nNothing found inside any viewport regions. Aborting without erasing.");
+                        ed.WriteMessage("\nNothing found inside any viewport regions. Erasing all objects in Model Space.");
+                        int erased = EraseEntitiesExcept(db, msId, new HashSet<ObjectId>());
+                        ed.WriteMessage($"\nErased all {erased} object(s) from Model Space.");
                         return;
                     }
 
-                    var msId = SymbolUtilityServices.GetBlockModelSpaceId(db);
-                    int erased = EraseEntitiesExcept(db, msId, keepIds);
-                    ed.WriteMessage($"\nVP2PL: Kept {keepIds.Count} object(s) inside/crossing all viewport regions; erased {erased} others.");
+                    int erasedCount = EraseEntitiesExcept(db, msId, keepIds);
+                    ed.WriteMessage($"\nVP2PL: Kept {keepIds.Count} object(s) inside/crossing all viewport regions; erased {erasedCount} others.");
                 }
             }
             catch (System.Exception ex)
@@ -160,22 +168,55 @@ namespace AutoCADCleanupTool
             {
                 var btr = (BlockTableRecord)tr.GetObject(spaceId, OpenMode.ForRead);
                 var toErase = new List<Entity>();
+                var layersToUnlock = new Dictionary<ObjectId, bool>();
 
+                // First pass: identify what to erase and what layers to unlock
                 foreach (ObjectId id in btr)
                 {
-                    if (!id.IsValid) continue;
-                    if (keep.Contains(id)) continue;
+                    if (!id.IsValid || keep.Contains(id)) continue;
 
-                    var ent = tr.GetObject(id, OpenMode.ForWrite, false) as Entity;
+                    var ent = tr.GetObject(id, OpenMode.ForRead, false) as Entity;
                     if (ent == null) continue;
 
-                    try { toErase.Add(ent); } catch { }
+                    toErase.Add(ent);
+
+                    if (!layersToUnlock.ContainsKey(ent.LayerId))
+                    {
+                        var layer = (LayerTableRecord)tr.GetObject(ent.LayerId, OpenMode.ForRead);
+                        if (layer.IsLocked)
+                        {
+                            layersToUnlock[ent.LayerId] = true;
+                        }
+                    }
                 }
 
+                // Unlock layers
+                foreach (var layerId in layersToUnlock.Keys)
+                {
+                    var layer = (LayerTableRecord)tr.GetObject(layerId, OpenMode.ForWrite);
+                    layer.IsLocked = false;
+                }
+
+                // Erase entities
                 foreach (var ent in toErase)
                 {
-                    try { if (!keep.Contains(ent.ObjectId) && !ent.IsErased) { ent.Erase(); erased++; } }
+                    try
+                    {
+                        if (!ent.IsErased)
+                        {
+                            ent.UpgradeOpen();
+                            ent.Erase();
+                            erased++;
+                        }
+                    }
                     catch { /* keep going */ }
+                }
+
+                // Re-lock layers
+                foreach (var layerId in layersToUnlock.Keys)
+                {
+                    var layer = (LayerTableRecord)tr.GetObject(layerId, OpenMode.ForWrite);
+                    layer.IsLocked = true;
                 }
 
                 tr.Commit();
