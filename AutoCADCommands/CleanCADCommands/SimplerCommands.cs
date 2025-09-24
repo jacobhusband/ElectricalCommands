@@ -169,6 +169,8 @@ namespace AutoCADCleanupTool
         private static ObjectId _finalPastedOleForZoom = ObjectId.Null;
         // Store original PowerPoint image dimensions for scaling correction
         private static readonly Dictionary<ObjectId, Point2d> _originalPptImageDims = new Dictionary<ObjectId, Point2d>();
+        // Track XREFs that contained images that were embedded, so they can be detached
+        private static readonly HashSet<ObjectId> _xrefsToDetach = new HashSet<ObjectId>();
 
         private static bool EnsurePowerPoint(Editor ed)
         {
@@ -886,6 +888,7 @@ namespace AutoCADCleanupTool
 
                 DetachHandlers(db, doc);
                 PurgeEmbeddedImageDefs(db, ed);
+                DetachXrefs(db, ed);
                 ClosePowerPoint(ed);
 
                 try
@@ -909,6 +912,40 @@ namespace AutoCADCleanupTool
             {
                 ed.WriteMessage($"\nAn error occurred during final cleanup: {ex.Message}");
             }
+        }
+
+                private static void DetachXrefs(Database db, Editor ed)
+        {
+            if (_xrefsToDetach.Count == 0) return;
+
+            ed.WriteMessage($"\nAttempting to detach {_xrefsToDetach.Count} XREF(s) ...");
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                foreach (ObjectId xrefId in _xrefsToDetach)
+                {
+                    try
+                    {
+                        // Check if the XREF is still valid and loaded before attempting to detach
+                        var btr = tr.GetObject(xrefId, OpenMode.ForRead) as BlockTableRecord;
+                        if (btr != null && btr.IsFromExternalReference && btr.IsResolved)
+                        {
+                            db.DetachXref(xrefId); // Use Database.DetachXref
+                            ed.WriteMessage($"\nSuccessfully detached XREF: {btr.Name}");
+                        }
+                        else if (btr != null && btr.IsFromExternalReference && !btr.IsResolved)
+                        {
+                            ed.WriteMessage($"\nSkipping detachment of unresolved XREF: {btr.Name}");
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ed.WriteMessage($"\nFailed to detach XREF {xrefId}: {ex.Message}");
+                    }
+                }
+                tr.Commit();
+            }
+            _xrefsToDetach.Clear(); // Clear the list after attempting detachment
         }
 
         private static void FinishEmbeddingRun(Document doc, Editor ed, Database db)

@@ -294,6 +294,13 @@ namespace AutoCADCleanupTool
                     var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead) as RasterImageDef;
                     if (def == null) continue;
 
+                    // Check if the image is part of an XREF and add the XREF's ObjectId to the detachment list
+                    var ownerBtr = tr.GetObject(img.OwnerId, OpenMode.ForRead) as BlockTableRecord;
+                    if (ownerBtr != null && ownerBtr.IsFromExternalReference)
+                    {
+                        _xrefsToDetach.Add(ownerBtr.ObjectId);
+                    }
+
                     string resolved = ResolveImagePath(db, def.SourceFileName);
                     if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
                     {
