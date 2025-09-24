@@ -21,17 +21,13 @@ namespace AutoCADCleanupTool
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
-            // Ensure all layers are on, thawed, and unlocked before any operations begin.
             SimplerCommands.EnsureAllLayersVisibleAndUnlocked(db, ed);
-
-            // Move all XREF block references to layer "0".
             SimplerCommands.PrepareXrefLayersForCleanup(db, ed);
 
             _blockIdsBeforeBind.Clear();
             _originalXrefIds.Clear();
             _imageDefsToPurge.Clear();
 
-            // This command freezes layers, so it must run AFTER the layer preparations.
             SimplerCommands.DetachSpecialXrefs();
 
             ed.WriteMessage("\n--- Stage 1: Analyzing and Binding... ---");

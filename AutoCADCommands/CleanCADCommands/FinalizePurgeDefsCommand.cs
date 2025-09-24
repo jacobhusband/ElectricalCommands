@@ -20,14 +20,10 @@ namespace AutoCADCleanupTool
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
-            LogTitleBlockReferenceStatus(db, ed, "PURGEDEFS - Start");
-
             ed.WriteMessage("\n--- Stage 3: Surgically removing orphaned image definitions... ---");
             if (_imageDefsToPurge.Count == 0)
             {
                 ed.WriteMessage("\nNo orphaned image definitions were identified.");
-                TriggerKeepOnlyTitleBlockIfRequested(doc, ed);
-                // No return, proceed to final logging
             }
             else
             {
@@ -42,6 +38,7 @@ namespace AutoCADCleanupTool
                             DBDictionary imageDict = trans.GetObject(namedObjectsDict.GetAt("ACAD_IMAGE_DICT"), OpenMode.ForWrite) as DBDictionary;
                             var entriesToRemove = new Dictionary<string, ObjectId>();
 
+                            // Find the dictionary keys for the defs on our kill list
                             foreach (DBDictionaryEntry entry in imageDict)
                             {
                                 if (_imageDefsToPurge.Contains(entry.Value))
@@ -50,10 +47,8 @@ namespace AutoCADCleanupTool
                                 }
                             }
 
-                            ed.WriteMessage($"\nFound {entriesToRemove.Count} dictionary entr(ies) to remove.");
                             foreach (var item in entriesToRemove)
                             {
-                                ed.WriteMessage($"\n  - Detaching and Erasing: {item.Key}");
                                 imageDict.Remove(item.Key);
                                 DBObject imageDef = trans.GetObject(item.Value, OpenMode.ForWrite);
                                 imageDef.Erase();
@@ -72,9 +67,7 @@ namespace AutoCADCleanupTool
 
             ed.WriteMessage("\n-------------------------------------------------");
             ed.WriteMessage("\nFinalization Complete. Please save the drawing.");
-            LogTitleBlockReferenceStatus(db, ed, "PURGEDEFS - End");
 
-            // Cleanup logic is now at the very end
             _imageDefsToPurge.Clear();
             TriggerKeepOnlyTitleBlockIfRequested(doc, ed);
         }

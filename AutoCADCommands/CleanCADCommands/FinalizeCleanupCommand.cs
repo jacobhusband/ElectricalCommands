@@ -21,8 +21,6 @@ namespace AutoCADCleanupTool
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
-            LogTitleBlockReferenceStatus(db, ed, "CLEANUP - Start");
-
             ed.WriteMessage("\n--- Stage 2: Cleaning up bound blocks and detaching remaining XREFs... ---");
 
             try
@@ -58,11 +56,9 @@ namespace AutoCADCleanupTool
                             }
                         }
                     }
-                    ed.WriteMessage($"\nErased {imagesErased} RasterImage entit(ies) and added {_imageDefsToPurge.Count} definitions to kill list.");
+                    if (imagesErased > 0) ed.WriteMessage($"\nErased {imagesErased} RasterImage entit(ies) from within new blocks.");
 
                     int ghostsDetached = 0;
-                    ed.WriteMessage($"\n--- Scanning for remaining XREFs to detach ---");
-
                     var xrefsToDetach = new List<ObjectId>();
                     var blockTable = (BlockTable)trans.GetObject(db.BlockTableId, OpenMode.ForRead);
                     string[] titleBlockHints = { "x-tb", "title", "tblock", "border", "sheet" };
@@ -70,35 +66,18 @@ namespace AutoCADCleanupTool
                     foreach (ObjectId btrId in blockTable)
                     {
                         var btr = trans.GetObject(btrId, OpenMode.ForRead, false, true) as BlockTableRecord;
-                        if (btr == null || btr.IsErased) continue;
+                        if (btr == null || btr.IsErased || !btr.IsFromExternalReference) continue;
 
-                        if (btr.IsFromExternalReference)
+                        string btrNameLower = (btr.Name ?? string.Empty).ToLowerInvariant();
+                        string path = (btr.PathName ?? string.Empty);
+                        string fileNoExt = string.Empty;
+                        try { fileNoExt = Path.GetFileNameWithoutExtension(path)?.ToLowerInvariant() ?? string.Empty; } catch { }
+
+                        bool isTitleBlock = titleBlockHints.Any(h => btrNameLower.Contains(h) || (!string.IsNullOrEmpty(fileNoExt) && fileNoExt.Contains(h)));
+
+                        if (!isTitleBlock)
                         {
-                            ed.WriteMessage($"\n[LOG] Checking if XREF '{btr.Name}' should be detached...");
-                            string btrNameLower = (btr.Name ?? string.Empty).ToLowerInvariant();
-                            string path = (btr.PathName ?? string.Empty);
-                            string fileNoExt = string.Empty;
-                            try { fileNoExt = Path.GetFileNameWithoutExtension(path)?.ToLowerInvariant() ?? string.Empty; } catch { }
-
-                            bool nameMatch = titleBlockHints.Any(h => btrNameLower.Contains(h));
-                            bool pathMatch = !string.IsNullOrEmpty(fileNoExt) && titleBlockHints.Any(h => fileNoExt.Contains(h));
-                            bool isTitleBlock = nameMatch || pathMatch;
-
-                            ed.WriteMessage($"[LOG]   - Name: '{btr.Name}', Path: '{path}'");
-                            ed.WriteMessage($"[LOG]   - Name check match: {nameMatch}");
-                            ed.WriteMessage($"[LOG]   - Path check match: {pathMatch}");
-                            ed.WriteMessage($"[LOG]   - Is Title Block?: {isTitleBlock}");
-
-                            if (isTitleBlock)
-                            {
-                                ed.WriteMessage($"\n  - RESULT: SKIPPING detachment of XREF '{btr.Name}'.");
-                                continue;
-                            }
-                            else
-                            {
-                                ed.WriteMessage($"\n  - RESULT: QUEUING leftover XREF '{btr.Name}' for detachment.");
-                                xrefsToDetach.Add(btrId);
-                            }
+                            xrefsToDetach.Add(btrId);
                         }
                     }
 
@@ -109,21 +88,16 @@ namespace AutoCADCleanupTool
                             var btrToDetach = trans.GetObject(xrefId, OpenMode.ForRead, false, true) as BlockTableRecord;
                             if (btrToDetach != null)
                             {
-                                ed.WriteMessage($"\n[LOG] CALLING db.DetachXref() on '{btrToDetach.Name}' (Handle: {btrToDetach.Handle})...");
                                 db.DetachXref(xrefId);
-                                ed.WriteMessage($"\n[LOG] RETURNED from db.DetachXref() on '{btrToDetach.Name}'.");
                                 ghostsDetached++;
-                                LogTitleBlockReferenceStatus(db, ed, $"CLEANUP - After Detaching '{btrToDetach.Name}'");
                             }
                         }
                         catch (System.Exception exDetach)
                         {
                             ed.WriteMessage($"\n  - Failed to detach XREF {xrefId}: {exDetach.Message}");
-                            LogTitleBlockReferenceStatus(db, ed, $"CLEANUP - After Detach FAILED for {xrefId}");
                         }
                     }
-                    ed.WriteMessage($"\n--- End of XREF detachment ---");
-                    ed.WriteMessage($"\nDetached {ghostsDetached} remaining XREF definition(s).");
+                    if (ghostsDetached > 0) ed.WriteMessage($"\nDetached {ghostsDetached} remaining XREF definition(s).");
 
                     trans.Commit();
                 }
@@ -137,7 +111,6 @@ namespace AutoCADCleanupTool
             }
             finally
             {
-                LogTitleBlockReferenceStatus(db, ed, "CLEANUP - End");
                 _blockIdsBeforeBind.Clear();
                 _originalXrefIds.Clear();
                 ForceDetachOriginalXrefs = false;
