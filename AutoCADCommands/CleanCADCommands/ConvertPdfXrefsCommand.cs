@@ -13,11 +13,8 @@ using System.Linq;
 using System.Drawing;
 using System.Drawing.Imaging;
 
-// *** NEW USING DIRECTIVE FOR GHOSTSCRIPT.NET ***
-using Ghostscript.NET;
-using Ghostscript.NET.Rasterizer;
-
-// REMOVE: using ImageMagick; // Removed ImageMagick dependency
+// *** NEW USING DIRECTIVE FOR Magick.NET ***
+using ImageMagick;
 
 namespace AutoCADCleanupTool
 {
@@ -125,7 +122,7 @@ namespace AutoCADCleanupTool
                         ed.WriteMessage($"\nProcessing {Path.GetFileName(resolvedPdfPath)}...");
 
                         // 2. Convert PDF to PNG image
-                        // *** UPDATED CALL TO NEW GHOSTSCRIPT-BASED CONVERTER ***
+                        // *** UPDATED CALL TO NEW Magick.NET-BASED CONVERTER ***
                         string pngPath = ConvertPdfToPng(resolvedPdfPath, ed);
                         if (string.IsNullOrEmpty(pngPath))
                         {
@@ -287,7 +284,7 @@ namespace AutoCADCleanupTool
         }
 
         /// <summary>
-        /// Converts the first page of a PDF to a PNG image file using Ghostscript.NET.
+        /// Converts the first page of a PDF to a PNG image file using Magick.NET.
         /// </summary>
         private static string ConvertPdfToPng(string pdfPath, Editor ed)
         {
@@ -298,40 +295,39 @@ namespace AutoCADCleanupTool
                 Directory.CreateDirectory(tempDir);
                 string pngPath = Path.Combine(tempDir, Path.GetFileNameWithoutExtension(pdfPath) + "_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".png");
 
-                // 2. Find the Ghostscript Native DLL
-                GhostscriptVersionInfo gv = GhostscriptVersionInfo.GetLastInstalledVersion();
-                if (gv == null)
+                // 2. Configure Magick.NET to read the first page of the PDF at a specific DPI.
+                var settings = new MagickReadSettings
                 {
-                    ed.WriteMessage("\n[ERROR] Ghostscript native library not found. Please ensure the native Ghostscript application is installed (e.g., from ghostscript.com).");
-                    return null;
-                }
+                    // Set the density (DPI) for rasterizing the PDF. 300 is a good balance of quality and size.
+                    Density = new Density(300, 300)
+                };
 
-                ed.WriteMessage($"\n[INFO] Converting PDF to PNG using Ghostscript.NET at 300 DPI...");
+                ed.WriteMessage($"\n[INFO] Converting PDF to PNG using Magick.NET at 300 DPI...");
 
-                // 3. Use GhostscriptRasterizer to perform the conversion
-                using (var rasterizer = new GhostscriptRasterizer())
+                // 3. Use MagickImageCollection to read the PDF.
+                // To read only the first page, we append '[0]' to the filename.
+                using (var images = new MagickImageCollection())
                 {
-                    int dpi = 300;
-                    int pageNumber = 1; // Rasterize the first page
+                    images.Read(pdfPath + "[0]", settings);
 
-                    // Open the PDF using the resolved Ghostscript version info
-                    rasterizer.Open(pdfPath, gv, false);
-
-                    if (rasterizer.PageCount < pageNumber)
+                    if (images.Count == 0)
                     {
-                        ed.WriteMessage($"\nCould not read page {pageNumber} from PDF: {pdfPath}. File seems empty.");
+                        ed.WriteMessage($"\nCould not read page 1 from PDF: {pdfPath}. File may be empty or corrupt.");
                         return null;
                     }
 
-                    // Rasterize the first page to a System.Drawing.Image object
-                    using (var pageImage = rasterizer.GetPage(dpi, pageNumber))
+                    // 4. Get the first page, set its format, ensure transparency, and write to file.
+                    using (var firstPageImage = images.First())
                     {
-                        // Save the image as PNG
-                        pageImage.Save(pngPath, System.Drawing.Imaging.ImageFormat.Png);
+                        firstPageImage.Format = MagickFormat.Png;
+                        // Ensure the background is transparent.
+                        firstPageImage.BackgroundColor = MagickColors.None;
+                        firstPageImage.Alpha(AlphaOption.Set);
+                        firstPageImage.Write(pngPath);
                     }
                 }
 
-                // Return the path if the file exists and is valid
+                // 5. Return the path if the file exists and is valid.
                 if (File.Exists(pngPath) && new FileInfo(pngPath).Length > 0)
                 {
                     return pngPath;
@@ -340,9 +336,10 @@ namespace AutoCADCleanupTool
                 ed.WriteMessage($"\nConversion failed: Output PNG file is empty or missing.");
                 return null;
             }
-            catch (GhostscriptLibraryNotInstalledException)
+            catch (MagickException ex)
             {
-                ed.WriteMessage("\n[ERROR] Ghostscript native library not found. Ensure 32-bit or 64-bit Ghostscript is installed.");
+                ed.WriteMessage($"\n[ERROR] PDF to PNG conversion failed with Magick.NET: {ex.Message}");
+                ed.WriteMessage("\n[HINT] Magick.NET requires Ghostscript to be installed for PDF processing. Please ensure Ghostscript is installed and its 'bin' directory is in your system's PATH environment variable.");
                 return null;
             }
             catch (System.Exception ex)
