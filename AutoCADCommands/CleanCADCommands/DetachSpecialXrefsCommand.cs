@@ -260,19 +260,17 @@ namespace AutoCADCleanupTool
                         if (btr == null) continue;
                         if (btr.IsLayout || btr.IsDependent || btr.IsFromExternalReference) continue;
 
-                        // Case-insensitive match for specific block name tokens
+                        // Case-insensitive match for block name containing "STAMP"
                         string bname = (btr.Name ?? string.Empty).ToLowerInvariant();
-                        bool match =
-                            bname.Contains("acieslogo") ||
-                            bname.Contains("wlstamp") ||
-                            bname.Contains("christian") ||
-                            (bname.Contains("wl") && bname.Contains("sig")); // keep old heuristic
-                        if (match) matchedDefs.Add(btrId);
+                        if (bname.Contains("stamp"))
+                        {
+                            matchedDefs.Add(btrId);
+                        }
                     }
 
                     if (matchedDefs.Count > 0)
                     {
-                        // Collect all block references to these definitions (including dynamic base)
+                        // Collect all block references to these definitions
                         var refsToErase = new List<ObjectId>();
                         foreach (ObjectId spaceId in bt)
                         {
@@ -283,19 +281,21 @@ namespace AutoCADCleanupTool
                                 var br = tr.GetObject(entId, OpenMode.ForRead) as BlockReference;
                                 if (br == null) continue;
 
-                                bool refMatch = matchedDefs.Contains(br.BlockTableRecord);
-                                if (!refMatch && br.IsDynamicBlock)
+                                ObjectId blockId = br.BlockTableRecord;
+                                if (br.IsDynamicBlock)
                                 {
-                                    try { refMatch = matchedDefs.Contains(br.DynamicBlockTableRecord); } catch { }
+                                    try { blockId = br.DynamicBlockTableRecord; }
+                                    catch { }
                                 }
-                                if (refMatch)
+
+                                if (matchedDefs.Contains(blockId))
                                 {
                                     refsToErase.Add(entId);
                                 }
                             }
                         }
 
-                        // Erase all matching references (unlock layer temporarily if needed)
+                        // Erase all matching references
                         foreach (var entId in refsToErase)
                         {
                             try
@@ -303,17 +303,8 @@ namespace AutoCADCleanupTool
                                 var br = tr.GetObject(entId, OpenMode.ForWrite, false) as BlockReference;
                                 if (br != null)
                                 {
-                                    var layer = (LayerTableRecord)tr.GetObject(br.LayerId, OpenMode.ForRead);
-                                    bool relock = false;
-                                    if (layer.IsLocked)
-                                    {
-                                        layer.UpgradeOpen();
-                                        layer.IsLocked = false;
-                                        relock = true;
-                                    }
                                     br.Erase();
                                     blockRefsErased++;
-                                    if (relock) layer.IsLocked = true;
                                 }
                             }
                             catch (System.Exception ex)
@@ -322,13 +313,13 @@ namespace AutoCADCleanupTool
                             }
                         }
 
-                        // Try to erase the block definitions now that refs are gone
+                        // Erase the block definitions now that refs are gone
                         foreach (var defId in matchedDefs)
                         {
                             try
                             {
                                 var btr = (BlockTableRecord)tr.GetObject(defId, OpenMode.ForWrite, false);
-                                if (btr != null && !btr.IsErased && !btr.IsLayout && !btr.IsDependent && !btr.IsFromExternalReference)
+                                if (btr != null)
                                 {
                                     btr.Erase();
                                     blockDefsErased++;
@@ -409,4 +400,3 @@ namespace AutoCADCleanupTool
         }
     }
 }
-
