@@ -2,16 +2,15 @@ using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.Geometry;
+using System;
 
 namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
     {
-        private enum CleanWorkflowKind
-        {
-            TitleBlock,
-            Sheet
-        }
+        // Store the title block polygon found by CLEANSHEET to be used by a final zoom command.
+        private static Point3d[] _lastFoundTitleBlockPoly = null;
 
         [CommandMethod("CLEANTBLK", CommandFlags.Modal)]
         public static void RunCleanTitleBlock()
@@ -21,11 +20,35 @@ namespace AutoCADCleanupTool
             var ed = doc.Editor;
             var db = doc.Database;
 
-            // New: Explode the main title block reference if it exists, to expose nested images.
-            FindAndExplodeTitleBlockReference();
+            try
+            {
+                // New: Explode the main title block reference if it exists, to expose nested images.
+                FindAndExplodeTitleBlockReference();
 
-            // Leave the title-block workflow as-is.
-            RunCleanWorkflow(CleanWorkflowKind.TitleBlock);
+                // Inlined logic from former RunCleanWorkflow
+                PrepareXrefLayersForCleanup(db, ed);
+
+                CleanupCommands.SkipBindDuringFinalize = true;
+                CleanupCommands.ForceDetachOriginalXrefs = true;
+                CleanupCommands.RunKeepOnlyAfterFinalize = false;
+                // NEW: Set flag to run REMOVEREMAININGXREFS after FINALIZE completes
+                CleanupCommands.RunRemoveRemainingAfterFinalize = true;
+
+                CleanupCommands.KeepOnlyTitleBlockInModelSpace();
+                DetachSpecialXrefs();
+                _chainFinalizeAfterEmbed = true;
+                EmbedFromXrefs();
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nClean workflow failed: {ex.Message}");
+                // Reset flags on failure
+                _chainFinalizeAfterEmbed = false;
+                CleanupCommands.RunKeepOnlyAfterFinalize = false;
+                CleanupCommands.SkipBindDuringFinalize = false;
+                CleanupCommands.ForceDetachOriginalXrefs = false;
+                CleanupCommands.RunRemoveRemainingAfterFinalize = false;
+            }
         }
 
         [CommandMethod("CLEANSHEET", CommandFlags.Modal)]
@@ -36,10 +59,13 @@ namespace AutoCADCleanupTool
             var ed = doc.Editor;
             var db = doc.Database;
 
+            _lastFoundTitleBlockPoly = null; // Reset at the start of the workflow
+
             try
             {
                 if (TryGetTitleBlockOutlinePointsForEmbed(db, out var tbPoly) && tbPoly != null && tbPoly.Length > 0)
                 {
+                    _lastFoundTitleBlockPoly = tbPoly; // Keep the polygon for later
                     ed.WriteMessage("\nTitle block found, zooming in...");
                     ZoomToTitleBlockForEmbed(ed, tbPoly);
                 }
@@ -57,12 +83,12 @@ namespace AutoCADCleanupTool
                 CleanupCommands.RunKeepOnlyAfterFinalize = false;
                 _chainFinalizeAfterEmbed = false; // Ensure EMBEDFROMXREFS doesn't chain a command on its own.
 
-                ed.WriteMessage("\nCLEANSHEET: Queuing EMBEDFROMXREFS → CLEANPS → VP2PL → FINALIZE ...");
+                ed.WriteMessage("\nCLEANSHEET: Queuing EMBEDFROMXREFS → CLEANPS → VP2PL → FINALIZE → REMOVEREMAININGXREFS → ZOOMTOLASTTB ...");
 
                 // Queue the entire sequence of commands in a single string.
                 // AutoCAD will execute them one by one after the current command scope ends.
                 // The space at the end ensures the last command is executed.
-                doc.SendStringToExecute("_.EMBEDFROMXREFS _.CLEANPS _.VP2PL _.FINALIZE ", true, false, false);
+                doc.SendStringToExecute("_.EMBEDFROMXREFS _.CLEANPS _.VP2PL _.FINALIZE _.REMOVEREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
             }
             catch (System.Exception ex)
             {
@@ -70,54 +96,53 @@ namespace AutoCADCleanupTool
             }
         }
 
+        [CommandMethod("ZOOMTOLASTTB", CommandFlags.Modal)]
+        public static void ZoomToLastTitleBlock()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+            var db = doc.Database;
+
+            try
+            {
+                // First, ensure we are on a layout tab (not the Model tab).
+                if (Application.GetSystemVariable("TILEMODE").Equals(1))
+                {
+                    ed.WriteMessage("\nSwitching to Paper Space layout...");
+                    Application.SetSystemVariable("TILEMODE", 0);
+                }
+
+                // Second, explicitly switch from a floating viewport to Paper Space itself.
+                // This is a more robust method than setting CVPORT directly.
+                ed.SwitchToPaperSpace();
+                ed.WriteMessage("\nEnsuring Paper Space is active...");
+            }
+            catch (System.Exception ex)
+            {
+                // This might fail if, for example, there are no layouts.
+                ed.WriteMessage($"\nCould not activate Paper Space: {ex.Message}");
+            }
+
+
+            if (_lastFoundTitleBlockPoly != null && _lastFoundTitleBlockPoly.Length > 0)
+            {
+                ed.WriteMessage("\nZooming to the title block found at the start of the workflow...");
+                // Use the public zoom helper from the CleanupCommands class
+                CleanupCommands.ZoomToTitleBlock(ed, _lastFoundTitleBlockPoly);
+            }
+            else
+            {
+                ed.WriteMessage("\nNo title block geometry was stored to zoom to.");
+            }
+            _lastFoundTitleBlockPoly = null; // Clean up the static variable
+        }
+
         // Legacy alias should map to the new CLEANSHEET behavior (not the shared workflow).
         [CommandMethod("CLEANCAD", CommandFlags.Modal)]
         public static void RunCleanCad()
         {
             RunCleanSheet();
-        }
-
-        // Existing shared workflow remains for CLEANTBLK only.
-        private static void RunCleanWorkflow(CleanWorkflowKind kind)
-        {
-            var doc = Application.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-            var db = doc.Database;
-            var ed = doc.Editor;
-
-            try
-            {
-                PrepareXrefLayersForCleanup(db, ed);
-
-                CleanupCommands.SkipBindDuringFinalize = kind == CleanWorkflowKind.TitleBlock;
-                CleanupCommands.ForceDetachOriginalXrefs = kind == CleanWorkflowKind.TitleBlock;
-                CleanupCommands.RunKeepOnlyAfterFinalize = kind == CleanWorkflowKind.Sheet;
-
-                if (kind == CleanWorkflowKind.TitleBlock)
-                {
-                    CleanupCommands.KeepOnlyTitleBlockInModelSpace();
-                    DetachSpecialXrefs();
-                    _chainFinalizeAfterEmbed = true;
-                    EmbedFromXrefs();
-                }
-                else
-                {
-                    // No longer used by CLEANSHEET — left intact for compatibility.
-                    CleanupCommands.ListPaperSpaceXrefs();
-                    CleanupCommands.ViewportToPolyline_AllLayouts();
-                    DetachSpecialXrefs();
-                    _chainFinalizeAfterEmbed = true;
-                    EmbedFromXrefs();
-                }
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nClean workflow failed: {ex.Message}");
-                _chainFinalizeAfterEmbed = false;
-                CleanupCommands.RunKeepOnlyAfterFinalize = false;
-                CleanupCommands.SkipBindDuringFinalize = false;
-                CleanupCommands.ForceDetachOriginalXrefs = false;
-            }
         }
 
         public static void PrepareXrefLayersForCleanup(Database db, Editor ed)

@@ -70,6 +70,7 @@ namespace AutoCADCleanupTool
 
             _imageDefsToPurge.Clear();
             TriggerKeepOnlyTitleBlockIfRequested(doc, ed);
+            TriggerRemoveRemainingIfRequested(doc, ed);
         }
 
         private static void TriggerKeepOnlyTitleBlockIfRequested(Document doc, Editor ed)
@@ -83,6 +84,20 @@ namespace AutoCADCleanupTool
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nFailed to queue KEEPONLYTITLEBLOCKMS: {ex.Message}");
+            }
+        }
+
+        private static void TriggerRemoveRemainingIfRequested(Document doc, Editor ed)
+        {
+            if (!RunRemoveRemainingAfterFinalize) return;
+            RunRemoveRemainingAfterFinalize = false;
+            try
+            {
+                doc.SendStringToExecute("_.REMOVEREMAININGXREFS ", true, false, false);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nFailed to queue REMOVEREMAININGXREFS: {ex.Message}");
             }
         }
     }

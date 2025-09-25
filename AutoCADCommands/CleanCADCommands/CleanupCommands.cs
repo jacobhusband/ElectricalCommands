@@ -18,6 +18,7 @@ namespace AutoCADCleanupTool
         internal static bool RunKeepOnlyAfterFinalize = false;
         internal static bool SkipBindDuringFinalize = false;
         internal static bool ForceDetachOriginalXrefs = false;
+        internal static bool RunRemoveRemainingAfterFinalize = false;
 
         [CommandMethod("ZOOMTOTBPS", CommandFlags.Modal)]
         public static void ZoomToTitleBlockInPaperSpace()
