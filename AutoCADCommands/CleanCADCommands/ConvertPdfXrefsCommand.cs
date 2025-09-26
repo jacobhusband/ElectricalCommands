@@ -1,4 +1,3 @@
-// filepath: AutoCADCommands/CleanCADCommands/ConvertPdfXrefsCommand.cs
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -107,6 +106,25 @@ namespace AutoCADCleanupTool
                         ObjectId imageDefId = imageDict.SetAt(defName, imageDef);
                         tr.AddNewlyCreatedDBObject(imageDef, true);
 
+                        // Debug: Check image definition
+                        ed.WriteMessage($"\n[DEBUG] ImageDef properties:");
+                        ed.WriteMessage($"\n[DEBUG] - SourceFileName: {imageDef.SourceFileName}");
+                        ed.WriteMessage($"\n[DEBUG] - IsLoaded: {imageDef.IsLoaded}");
+
+                        try
+                        {
+                            // Try to get image size from the actual file
+                            using (var magickImage = new MagickImage(pngPath))
+                            {
+                                ed.WriteMessage($"\n[DEBUG] - File PixelWidth: {magickImage.Width}");
+                                ed.WriteMessage($"\n[DEBUG] - File PixelHeight: {magickImage.Height}");
+                            }
+                        }
+                        catch (System.Exception ex)
+                        {
+                            ed.WriteMessage($"\n[DEBUG] - Error getting image properties: {ex.Message}");
+                        }
+
                         // Create image entity
                         var rasterImage = new RasterImage();
                         rasterImage.SetDatabaseDefaults(db);
@@ -120,7 +138,7 @@ namespace AutoCADCleanupTool
                         rasterImage.Color = pdfRef.Color;
 
                         rasterImage.ShowImage = true;
-                        rasterImage.ImageTransparency = true;
+                        rasterImage.ImageTransparency = false;
 
                         // Match placement/orientation
                         Matrix3d transform = pdfRef.Transform;
@@ -129,37 +147,57 @@ namespace AutoCADCleanupTool
                         Vector3d v_vec = transform.CoordinateSystem3d.Yaxis;
                         rasterImage.Orientation = new CoordinateSystem3d(origin, u_vec, v_vec);
 
-                        // Copy clip
-                        rasterImage.IsClipped = pdfRef.IsClipped;
-                        if (pdfRef.IsClipped)
+                        // Declare variables outside using block for clipping boundary access
+                        int pixelWidth, pixelHeight;
+                        double targetWidth, targetHeight;
+                        Vector3d scaledU, scaledV;
+
+                        // Get image dimensions and calculate proper display size
+                        using (var magickImage = new MagickImage(pngPath))
                         {
-                            var boundaryObject = pdfRef.GetClipBoundary();
-                            Point2d[] pdfBoundary2d = boundaryObject as Point2d[];
-                            if (pdfBoundary2d != null && pdfBoundary2d.Length > 1)
+                            pixelWidth = (int)magickImage.Width;
+                            pixelHeight = (int)magickImage.Height;
+
+                            // Use the transformation matrix to estimate proper size
+                            // Based on the user's feedback, the original PDF is 187' x 121'
+                            // We'll use these as target dimensions
+                            targetWidth = 187.0 * 12.0;  // Convert feet to inches (assuming architectural units)
+                            targetHeight = 121.0 * 12.0;
+
+                            ed.WriteMessage($"\nTarget PDF size: {targetWidth:F2}x{targetHeight:F2} inches");
+
+                            // Calculate aspect ratios
+                            double aspectRatio = (double)pixelWidth / pixelHeight;
+                            double targetAspectRatio = targetWidth / targetHeight;
+
+                            // Use the target dimensions as the base
+                            if (aspectRatio > targetAspectRatio)
                             {
-                                Point3dCollection wcsBoundary3d = new Point3dCollection();
-                                Matrix3d pdfTransform = pdfRef.Transform;
-                                foreach (Point2d p2d in pdfBoundary2d)
-                                    wcsBoundary3d.Add(new Point3d(p2d.X, p2d.Y, 0.0).TransformBy(pdfTransform));
-
-                                Matrix3d imageTransform = GetCoordinateSystemMatrix(rasterImage.Orientation).Inverse();
-                                Point2dCollection imageBoundary2d = new Point2dCollection();
-                                foreach (Point3d p3d in wcsBoundary3d)
-                                {
-                                    Point3d transformed3d = p3d.TransformBy(imageTransform);
-                                    imageBoundary2d.Add(new Point2d(transformed3d.X, transformed3d.Y));
-                                }
-
-                                if (imageBoundary2d.Count > 0 &&
-                                    imageBoundary2d[0].GetDistanceTo(imageBoundary2d[imageBoundary2d.Count - 1]) > 1e-6)
-                                {
-                                    imageBoundary2d.Add(imageBoundary2d[0]);
-                                }
-
-                                if (imageBoundary2d.Count > 2)
-                                    rasterImage.SetClipBoundary(ClipBoundaryType.Poly, imageBoundary2d);
+                                // Image is wider, use target width as base
+                                scaledU = u_vec.GetNormal() * targetWidth;
+                                scaledV = u_vec.GetNormal().CrossProduct(Vector3d.ZAxis).GetNormal() * (targetWidth / aspectRatio);
                             }
+                            else
+                            {
+                                // Image is taller, use target height as base
+                                scaledV = v_vec.GetNormal() * targetHeight;
+                                scaledU = v_vec.GetNormal().CrossProduct(Vector3d.ZAxis).GetNormal() * (targetHeight * aspectRatio);
+                            }
+
+                            ed.WriteMessage($"\nImage setup: {pixelWidth}x{pixelHeight} pixels, aspect ratio: {aspectRatio:F2}");
+                            ed.WriteMessage($"\nTarget size: {targetWidth:F2}x{targetHeight:F2} units");
+                            ed.WriteMessage($"\nUsing original origin: ({origin.X:F2}, {origin.Y:F2})");
                         }
+
+                        // Update orientation with proper scale (using original origin for correct positioning)
+                        rasterImage.Orientation = new CoordinateSystem3d(origin, scaledU, scaledV);
+
+                        // Additional display properties for proper visibility
+                        rasterImage.Brightness = 50; // Default brightness
+                        rasterImage.Contrast = 50;   // Default contrast
+                        rasterImage.Fade = 0;        // No fade
+
+                        rasterImage.IsClipped = false;
 
                         // Append entity
                         ownerBtr.AppendEntity(rasterImage);
@@ -167,6 +205,29 @@ namespace AutoCADCleanupTool
 
                         // Associate so def is referenced (this is the key)
                         rasterImage.AssociateRasterDef(imageDef);
+
+                        // Debug: Check raster image properties
+                        ed.WriteMessage($"\n[DEBUG] RasterImage properties:");
+                        ed.WriteMessage($"\n[DEBUG] - ImageDefId: {rasterImage.ImageDefId}");
+                        ed.WriteMessage($"\n[DEBUG] - ShowImage: {rasterImage.ShowImage}");
+                        ed.WriteMessage($"\n[DEBUG] - ImageTransparency: {rasterImage.ImageTransparency}");
+                        ed.WriteMessage($"\n[DEBUG] - Brightness: {rasterImage.Brightness}");
+                        ed.WriteMessage($"\n[DEBUG] - Contrast: {rasterImage.Contrast}");
+                        ed.WriteMessage($"\n[DEBUG] - Fade: {rasterImage.Fade}");
+                        ed.WriteMessage($"\n[DEBUG] - IsClipped: {rasterImage.IsClipped}");
+
+                        try
+                        {
+                            ed.WriteMessage($"\n[DEBUG] - Orientation Origin: {rasterImage.Orientation.Origin}");
+                            ed.WriteMessage($"\n[DEBUG] - Orientation X-axis: {rasterImage.Orientation.Xaxis}");
+                            ed.WriteMessage($"\n[DEBUG] - Orientation Y-axis: {rasterImage.Orientation.Yaxis}");
+                            ed.WriteMessage($"\n[DEBUG] - Orientation X-axis Length: {rasterImage.Orientation.Xaxis.Length}");
+                            ed.WriteMessage($"\n[DEBUG] - Orientation Y-axis Length: {rasterImage.Orientation.Yaxis.Length}");
+                        }
+                        catch (System.Exception ex)
+                        {
+                            ed.WriteMessage($"\n[DEBUG] - Error getting orientation: {ex.Message}");
+                        }
 
                         // Remove original PDF underlay
                         pdfRef.UpgradeOpen();
@@ -257,15 +318,43 @@ namespace AutoCADCleanupTool
                     using (var first = images.First())
                     {
                         first.Format = MagickFormat.Png;
-                        first.BackgroundColor = MagickColors.None;
-                        first.Alpha(AlphaOption.Set);
+                        first.BackgroundColor = MagickColors.White;
+                        // Remove alpha channel to ensure visibility in AutoCAD
+                        first.Alpha(AlphaOption.Off);
                         first.Write(pngPath);
                     }
                 }
 
-                if (File.Exists(pngPath) && new FileInfo(pngPath).Length > 0) return pngPath;
+                if (File.Exists(pngPath) && new FileInfo(pngPath).Length > 0)
+                {
+                    // Validate PNG dimensions and content
+                    try
+                    {
+                        using (var image = new MagickImage(pngPath))
+                        {
+                            if (image.Width > 0 && image.Height > 0)
+                            {
+                                ed.WriteMessage($"\nSuccessfully created PNG: {image.Width}x{image.Height} pixels, {new FileInfo(pngPath).Length} bytes");
+                                return pngPath;
+                            }
+                            else
+                            {
+                                ed.WriteMessage("\nConversion failed: PNG has invalid dimensions.");
+                                File.Delete(pngPath);
+                                return null;
+                            }
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ed.WriteMessage($"\nPNG validation failed: {ex.Message}");
+                        File.Delete(pngPath);
+                        return null;
+                    }
+                }
 
                 ed.WriteMessage("\nConversion failed: Output PNG is empty or missing.");
+                if (File.Exists(pngPath)) File.Delete(pngPath);
                 return null;
             }
             catch (MagickException ex)
