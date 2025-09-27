@@ -11,6 +11,9 @@ using System.Linq;
 // For PDF→PNG conversion with Magick.NET
 using ImageMagick;
 
+// For XCLIP detection
+using Autodesk.AutoCAD.DatabaseServices.Filters;
+
 namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
@@ -24,6 +27,103 @@ namespace AutoCADCleanupTool
                 cs.Xaxis.Z, cs.Yaxis.Z, zaxis.Z, cs.Origin.Z,
                 0.0,        0.0,        0.0,     1.0
             });
+        }
+
+        private static bool HasXClipBoundary(ObjectId entityId, Transaction tr, out Extents3d? clipBounds, out Point3dCollection? boundaryPoints)
+        {
+            clipBounds = null;
+            boundaryPoints = null;
+
+            try
+            {
+                var entity = tr.GetObject(entityId, OpenMode.ForRead);
+                if (!(entity is BlockReference br) || br.ExtensionDictionary == ObjectId.Null)
+                    return false;
+
+                var extdict = tr.GetObject(br.ExtensionDictionary, OpenMode.ForRead) as DBDictionary;
+                if (extdict == null || !extdict.Contains("ACAD_FILTER"))
+                    return false;
+
+                var fildict = tr.GetObject(extdict.GetAt("ACAD_FILTER"), OpenMode.ForRead) as DBDictionary;
+                if (fildict == null || !fildict.Contains("SPATIAL"))
+                    return false;
+
+                var spatialFilter = tr.GetObject(fildict.GetAt("SPATIAL"), OpenMode.ForRead) as SpatialFilter;
+                if (spatialFilter == null)
+                    return false;
+
+                // Get the clipping bounds
+                clipBounds = spatialFilter.GetQueryBounds();
+
+                // Convert Point2dCollection to Point3dCollection
+                var points2d = spatialFilter.Definition.GetPoints();
+                boundaryPoints = new Point3dCollection();
+                foreach (Point2d pt in points2d)
+                {
+                    boundaryPoints.Add(new Point3d(pt.X, pt.Y, 0));
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static ObjectId CreateRectangleFromBoundaryPoints(Point3dCollection boundaryPoints, Transaction tr, Database db, string layer)
+        {
+            if (boundaryPoints == null || boundaryPoints.Count < 3)
+                return ObjectId.Null;
+
+            try
+            {
+                // For a rectangle, we need to find the min/max bounds from the boundary points
+                double minX = double.MaxValue, minY = double.MaxValue;
+                double maxX = double.MinValue, maxY = double.MinValue;
+
+                foreach (Point3d pt in boundaryPoints)
+                {
+                    if (pt.X < minX) minX = pt.X;
+                    if (pt.Y < minY) minY = pt.Y;
+                    if (pt.X > maxX) maxX = pt.X;
+                    if (pt.Y > maxY) maxY = pt.Y;
+                }
+
+                // Create rectangle points (bottom-left, bottom-right, top-right, top-left)
+                var rectanglePoints = new Point3dCollection
+                {
+                    new Point3d(minX, minY, 0),
+                    new Point3d(maxX, minY, 0),
+                    new Point3d(maxX, maxY, 0),
+                    new Point3d(minX, maxY, 0)
+                };
+
+                // Create the polyline for the rectangle
+                var polyline = new Polyline(4);
+                polyline.SetDatabaseDefaults(db);
+
+                for (int i = 0; i < 4; i++)
+                {
+                    polyline.AddVertexAt(i, new Point2d(rectanglePoints[i].X, rectanglePoints[i].Y), 0, 0, 0);
+                }
+
+                polyline.Closed = true;
+                polyline.Layer = layer;
+                polyline.ColorIndex = 256; // ByLayer
+
+                // Add to the current space (model space or paper space)
+                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+                ObjectId polylineId = ms.AppendEntity(polyline);
+                tr.AddNewlyCreatedDBObject(polyline, true);
+
+                return polylineId;
+            }
+            catch
+            {
+                return ObjectId.Null;
+            }
         }
 
         [CommandMethod("PDF2PNG", CommandFlags.Modal)]
@@ -205,6 +305,40 @@ namespace AutoCADCleanupTool
 
                         // Associate so def is referenced (this is the key)
                         rasterImage.AssociateRasterDef(imageDef);
+
+                        // Check for XCLIP boundary before removing PDF
+                        Extents3d? clipBounds;
+                        Point3dCollection? boundaryPoints;
+                        ObjectId rectangleId = ObjectId.Null;
+
+                        if (HasXClipBoundary(item.refId, tr, out clipBounds, out boundaryPoints))
+                        {
+                            ed.WriteMessage($"\nFound XCLIP boundary for PDF reference.");
+
+                            if (clipBounds.HasValue)
+                            {
+                                ed.WriteMessage($"\nClip bounds: ({clipBounds.Value.MinPoint.X:F2}, {clipBounds.Value.MinPoint.Y:F2}) to ({clipBounds.Value.MaxPoint.X:F2}, {clipBounds.Value.MaxPoint.Y:F2})");
+                            }
+
+                            if (boundaryPoints != null && boundaryPoints.Count > 0)
+                            {
+                                ed.WriteMessage($"\nCreating rectangle from {boundaryPoints.Count} boundary points...");
+                                rectangleId = CreateRectangleFromBoundaryPoints(boundaryPoints, tr, db, pdfRef.Layer);
+
+                                if (!rectangleId.IsNull)
+                                {
+                                    ed.WriteMessage($"\nSuccessfully created clipping boundary rectangle.");
+                                }
+                                else
+                                {
+                                    ed.WriteMessage($"\nFailed to create clipping boundary rectangle.");
+                                }
+                            }
+                        }
+                        else
+                        {
+                            ed.WriteMessage($"\nNo XCLIP boundary found for PDF reference.");
+                        }
 
                         // Debug: Check raster image properties
                         ed.WriteMessage($"\n[DEBUG] RasterImage properties:");
