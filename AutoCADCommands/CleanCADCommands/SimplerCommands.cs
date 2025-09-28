@@ -10,9 +10,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
 using System.Globalization;
+using System.Linq;
+
+// This is needed for WindowOrchestrator
+using System.Diagnostics;
 
 namespace AutoCADCleanupTool
 {
+
     public partial class SimplerCommands
     {
         // Win32 helpers to auto-dismiss the "OLE Text Size" dialog
@@ -145,7 +150,8 @@ namespace AutoCADCleanupTool
             public Point3d Pos;
             public Vector3d U;
             public Vector3d V;
-            public ObjectId ImageId;
+            public ObjectId OriginalEntityId; // Changed from ImageId to be generic
+            public Point2d[] ClipBoundary; // For PDF cropping
         }
 
         private static readonly Queue<ImagePlacement> _pending = new Queue<ImagePlacement>();
@@ -273,7 +279,8 @@ namespace AutoCADCleanupTool
             }
         }
 
-        private static bool PrepareClipboardWithImageShared(ImagePlacement placement, Editor ed)
+        // --- NEW: Helper for PDF Cropping in PowerPoint ---
+        private static bool PrepareClipboardWithCroppedImage(ImagePlacement placement, Editor ed)
         {
             try
             {
@@ -285,13 +292,64 @@ namespace AutoCADCleanupTool
                 {
                     try { shapes[i].Delete(); } catch { }
                 }
+
                 string path = placement.Path;
                 dynamic pic = shapes.AddPicture(path, false, true, 10, 10);
 
-                // Store original dimensions before rotation
-                _originalPptImageDims[placement.ImageId] = new Point2d(pic.Width, pic.Height);
+                // --- Cropping Logic ---
+                if (placement.ClipBoundary != null && placement.ClipBoundary.Length >= 2)
+                {
+                    ed.WriteMessage("\nApplying clipping boundary in PowerPoint...");
 
-                // START of new rotation logic
+                    // Get the size of the unclipped PDF in AutoCAD drawing units
+                    double pdfWidthInUnits = placement.U.Length;
+                    double pdfHeightInUnits = placement.V.Length;
+
+                    // Get the size of the inserted picture in PowerPoint points
+                    float picWidthInPoints = pic.Width;
+                    float picHeightInPoints = pic.Height;
+
+                    // Calculate the scaling factor between AutoCAD units and PowerPoint points
+                    // Check for zero dimensions to avoid division by zero
+                    if (pdfWidthInUnits < 1e-6 || pdfHeightInUnits < 1e-6)
+                    {
+                        ed.WriteMessage("\nWarning: PDF has zero size in AutoCAD. Cannot calculate crop ratios.");
+                    }
+                    else
+                    {
+                        double pointsPerUnitX = picWidthInPoints / pdfWidthInUnits;
+                        double pointsPerUnitY = picHeightInPoints / pdfHeightInUnits;
+
+                        // Get the clipping rectangle from the boundary points
+                        var clip = placement.ClipBoundary;
+                        double minX = clip.Min(p => p.X);
+                        double minY = clip.Min(p => p.Y);
+                        double maxX = clip.Max(p => p.X);
+                        double maxY = clip.Max(p => p.Y);
+
+                        // Calculate crop values in points
+                        float cropLeft = (float)(minX * pointsPerUnitX);
+                        float cropTop = (float)(minY * pointsPerUnitY);
+
+                        // CropRight and CropBottom are the amounts to remove from the right and bottom edges
+                        float cropRight = (float)(picWidthInPoints - (maxX * pointsPerUnitX));
+                        float cropBottom = (float)(picHeightInPoints - (maxY * pointsPerUnitY));
+
+                        // Apply the crop
+                        var picFormat = pic.PictureFormat;
+                        picFormat.CropLeft = cropLeft;
+                        picFormat.CropTop = cropTop;
+                        picFormat.CropRight = cropRight;
+                        picFormat.CropBottom = cropBottom;
+
+                        ed.WriteMessage($"\nCrop values (pts): L={cropLeft:F2}, T={cropTop:F2}, R={cropRight:F2}, B={cropBottom:F2}");
+                    }
+                }
+
+                // Store original (pre-crop) dimensions for later scaling
+                _originalPptImageDims[placement.OriginalEntityId] = new Point2d(pic.Width, pic.Height);
+
+                // Apply rotation
                 float picW = pic.Width;
                 float picH = pic.Height;
                 double destWidth = placement.U.Length;
@@ -307,10 +365,8 @@ namespace AutoCADCleanupTool
                     rotationAngleRad -= Math.PI / 2.0; // Adjust by -90 degrees
                 }
 
-                // PowerPoint's Rotation is in degrees and clockwise.
                 float rotationAngleDeg = (float)(-rotationAngleRad * 180.0 / Math.PI);
                 pic.Rotation = rotationAngleDeg;
-                // END of new rotation logic
 
                 pic.Copy();
                 return true;
@@ -320,6 +376,16 @@ namespace AutoCADCleanupTool
                 ed.WriteMessage($"\nFailed to prepare clipboard for '{placement.Path}': {ex.Message}");
                 return false;
             }
+        }
+
+        // --- OLD Helper for XREF Images (uncropped) ---
+        private static bool PrepareClipboardWithImageShared(ImagePlacement placement, Editor ed)
+        {
+            // This is the same function as before, now repurposed for the XREF workflow specifically.
+            // It will be called by EMBEDFROMXREFS.
+            // The new EMBEDFROMPDF will call PrepareClipboardWithCroppedImage.
+            placement.ClipBoundary = null; // Ensure no cropping happens for this path
+            return PrepareClipboardWithCroppedImage(placement, ed);
         }
 
         // Resolve a possibly relative image path against the DWG folder and AutoCAD search paths
@@ -647,7 +713,7 @@ namespace AutoCADCleanupTool
 
                 if (_lastPastedOle.IsNull)
                 {
-                    ed.WriteMessage("\nSkipping a raster image because no OLE object was created.");
+                    ed.WriteMessage("\nSkipping an item because no OLE object was created.");
                     if (_pending.Count > 0) _pending.Dequeue();
                     _activePlacement = null;
                     _activePasteDocument = null;
@@ -681,130 +747,107 @@ namespace AutoCADCleanupTool
                     {
                         try
                         {
-                            // *** MODIFICATION START: New transformation logic with rotation in PowerPoint ***
-                        var ext = ole.GeometricExtents;
-                        double oleW_bbox = Math.Max(1e-8, ext.MaxPoint.X - ext.MinPoint.X);
-                        double oleH_bbox = Math.Max(1e-8, ext.MaxPoint.Y - ext.MinPoint.Y);
-                        Point3d oleCenter = ext.MinPoint + (ext.MaxPoint - ext.MinPoint) * 0.5;
+                            var ext = ole.GeometricExtents;
+                            double oleW_bbox = Math.Max(1e-8, ext.MaxPoint.X - ext.MinPoint.X);
+                            double oleH_bbox = Math.Max(1e-8, ext.MaxPoint.Y - ext.MinPoint.Y);
+                            Point3d oleCenter = ext.MinPoint + (ext.MaxPoint - ext.MinPoint) * 0.5;
 
-                        var destU = target.U;
-                        var destV = target.V;
-                        double destWidth = destU.Length;
-                        double destHeight = destV.Length;
+                            var destU = target.U;
+                            var destV = target.V;
+                            double destWidth = destU.Length;
+                            double destHeight = destV.Length;
 
-                        if (destWidth < 1e-8 || destHeight < 1e-8)
-                        {
-                            ed.WriteMessage($"\nSkipping degenerate raster image {target.ImageId} with zero area.");
-                            ole.Erase();
-                            return;
-                        }
-
-                        // Retrieve original PowerPoint image dimensions
-                        Point2d originalPptDims = Point2d.Origin;
-                        if (_originalPptImageDims.ContainsKey(target.ImageId))
-                        {
-                            originalPptDims = _originalPptImageDims[target.ImageId];
-                            _originalPptImageDims.Remove(target.ImageId); // Clean up
-                        }
-                        else
-                        {
-                            ed.WriteMessage($"\nWarning: Original PowerPoint image dimensions not found for {target.ImageId}. Scaling might be incorrect.");
-                            // Fallback: assume oleW_bbox and oleH_bbox are the effective dimensions
-                            originalPptDims = new Point2d(oleW_bbox, oleH_bbox);
-                        }
-
-                        double imgW_orig = originalPptDims.X;
-                        double imgH_orig = originalPptDims.Y;
-
-                        // Recalculate the rotation angle that was applied in PowerPoint
-                        double rotationAngleRad_ppt = Math.Atan2(destU.Y, destU.X);
-                        bool picIsLandscape = imgW_orig > imgH_orig;
-                        bool destIsLandscape = destWidth > destHeight;
-
-                        if (picIsLandscape != destIsLandscape)
-                        {
-                            rotationAngleRad_ppt -= Math.PI / 2.0; // Adjust by -90 degrees
-                        }
-
-                        // Calculate the unrotated dimensions of the OLE content from its bounding box
-                        // This is the inverse of the bounding box calculation
-                        double c = Math.Abs(Math.Cos(rotationAngleRad_ppt));
-                        double s = Math.Abs(Math.Sin(rotationAngleRad_ppt));
-
-                        double effectiveOleWidth, effectiveOleHeight;
-
-                        // Handle cases where c^2 - s^2 is close to zero (e.g., rotation near 45 degrees)
-                        // This can lead to division by zero or very large numbers.
-                        // A more robust approach might be needed, but for now, let's use the direct solution.
-                        double determinant = (c * c - s * s);
-                        if (Math.Abs(determinant) < 1e-8) // Near 45 degrees or 135 degrees
-                        {
-                            // If rotation is near 45 degrees, the bounding box dimensions are roughly equal.
-                            // In this case, it's hard to uniquely determine original width/height from bbox.
-                            // Fallback: assume uniform scaling based on the larger dimension.
-                            effectiveOleWidth = Math.Max(imgW_orig, imgH_orig);
-                            effectiveOleHeight = Math.Min(imgW_orig, imgH_orig);
-                            if (rotationAngleRad_ppt % (Math.PI / 2) != 0) // If not 0, 90, 180, 270
+                            if (destWidth < 1e-8 || destHeight < 1e-8)
                             {
-                                // This is a simplification. A more accurate solution would involve
-                                // considering the actual bounding box of the rotated image.
-                                // For now, we'll use the original dimensions as a best guess.
-                                effectiveOleWidth = imgW_orig;
-                                effectiveOleHeight = imgH_orig;
+                                ed.WriteMessage($"\nSkipping degenerate original entity {target.OriginalEntityId} with zero area.");
+                                ole.Erase();
+                                tr.Commit(); // Commit the erase
+                                return;
                             }
-                            else // 0, 90, 180, 270 degrees
+
+                            Point2d originalPptDims = Point2d.Origin;
+                            if (_originalPptImageDims.ContainsKey(target.OriginalEntityId))
                             {
-                                if (Math.Abs(rotationAngleRad_ppt % Math.PI) < 1e-8) // 0 or 180
+                                originalPptDims = _originalPptImageDims[target.OriginalEntityId];
+                                _originalPptImageDims.Remove(target.OriginalEntityId);
+                            }
+                            else
+                            {
+                                ed.WriteMessage($"\nWarning: Original PowerPoint image dimensions not found for {target.OriginalEntityId}. Scaling might be incorrect.");
+                                originalPptDims = new Point2d(oleW_bbox, oleH_bbox);
+                            }
+
+                            double imgW_orig = originalPptDims.X;
+                            double imgH_orig = originalPptDims.Y;
+
+                            double rotationAngleRad_ppt = Math.Atan2(destU.Y, destU.X);
+                            bool picIsLandscape = imgW_orig > imgH_orig;
+                            bool destIsLandscape = destWidth > destHeight;
+
+                            if (picIsLandscape != destIsLandscape)
+                            {
+                                rotationAngleRad_ppt -= Math.PI / 2.0;
+                            }
+
+                            double c = Math.Abs(Math.Cos(rotationAngleRad_ppt));
+                            double s = Math.Abs(Math.Sin(rotationAngleRad_ppt));
+
+                            double effectiveOleWidth, effectiveOleHeight;
+
+                            double determinant = (c * c - s * s);
+                            if (Math.Abs(determinant) < 1e-8)
+                            {
+                                effectiveOleWidth = Math.Max(imgW_orig, imgH_orig);
+                                effectiveOleHeight = Math.Min(imgW_orig, imgH_orig);
+                                if (rotationAngleRad_ppt % (Math.PI / 2) != 0)
                                 {
                                     effectiveOleWidth = imgW_orig;
                                     effectiveOleHeight = imgH_orig;
                                 }
-                                else // 90 or 270
+                                else
                                 {
-                                    effectiveOleWidth = imgH_orig;
-                                    effectiveOleHeight = imgW_orig;
+                                    if (Math.Abs(rotationAngleRad_ppt % Math.PI) < 1e-8)
+                                    {
+                                        effectiveOleWidth = imgW_orig;
+                                        effectiveOleHeight = imgH_orig;
+                                    }
+                                    else
+                                    {
+                                        effectiveOleWidth = imgH_orig;
+                                        effectiveOleHeight = imgW_orig;
+                                    }
                                 }
                             }
-                        }
-                        else
-                        {
-                            effectiveOleWidth = (oleW_bbox * c - oleH_bbox * s) / determinant;
-                            effectiveOleHeight = (oleH_bbox * c - oleW_bbox * s) / determinant;
-                        }
+                            else
+                            {
+                                effectiveOleWidth = (oleW_bbox * c - oleH_bbox * s) / determinant;
+                                effectiveOleHeight = (oleH_bbox * c - oleW_bbox * s) / determinant;
+                            }
 
-                        // 1. Initial uniform scale to match the target width.
-                        // Use effectiveOleWidth for scaling
-                        double initialScaleFactor = destWidth / effectiveOleWidth;
-                        ole.TransformBy(Matrix3d.Scaling(initialScaleFactor, oleCenter));
+                            double initialScaleFactor = destWidth / effectiveOleWidth;
+                            ole.TransformBy(Matrix3d.Scaling(initialScaleFactor, oleCenter));
 
-                        // 2. Move to origin for clean aspect scaling.
-                        ole.TransformBy(Matrix3d.Displacement(Point3d.Origin - oleCenter));
+                            ole.TransformBy(Matrix3d.Displacement(Point3d.Origin - oleCenter));
 
-                        // 3. Rotation is done in PowerPoint. No rotation here.
+                            double finalOleHeight = effectiveOleHeight * initialScaleFactor;
+                            double aspectScaleFactor = destHeight / finalOleHeight;
 
-                        // 4. Apply aspect ratio correction.
-                        // Use effectiveOleHeight for scaling
-                        double finalOleHeight = effectiveOleHeight * initialScaleFactor;
-                        double aspectScaleFactor = destHeight / finalOleHeight;
+                            var localYAxis = destU.GetPerpendicularVector().GetNormal();
+                            var v = localYAxis;
+                            double s_aspect = aspectScaleFactor;
+                            double sm1_aspect = s_aspect - 1.0;
 
-                        var localYAxis = destU.GetPerpendicularVector().GetNormal();
-                        var v = localYAxis;
-                        double s_aspect = aspectScaleFactor; // Renamed to avoid conflict with 's' from sin
-                        double sm1_aspect = s_aspect - 1.0;
+                            var data = new double[] {
+                                1.0 + sm1_aspect * v.X * v.X, sm1_aspect * v.X * v.Y,         sm1_aspect * v.X * v.Z,         0.0,
+                                sm1_aspect * v.Y * v.X,         1.0 + sm1_aspect * v.Y * v.Y, sm1_aspect * v.Y * v.Z,         0.0,
+                                sm1_aspect * v.Z * v.X,         sm1_aspect * v.Z * v.Y,         1.0 + sm1_aspect * v.Z * v.Z, 0.0,
+                                0.0,                     0.0,                     0.0,                     1.0
+                            };
+                            var scalingMatrix = new Matrix3d(data);
+                            ole.TransformBy(scalingMatrix);
 
-                        var data = new double[] {
-                            1.0 + sm1_aspect * v.X * v.X, sm1_aspect * v.X * v.Y,         sm1_aspect * v.X * v.Z,         0.0,
-                            sm1_aspect * v.Y * v.X,         1.0 + sm1_aspect * v.Y * v.Y, sm1_aspect * v.Y * v.Z,         0.0,
-                            sm1_aspect * v.Z * v.X,         sm1_aspect * v.Z * v.Y,         1.0 + sm1_aspect * v.Z * v.Z, 0.0,
-                            0.0,                     0.0,                     0.0,                     1.0
-                        };
-                        var scalingMatrix = new Matrix3d(data);
-                        ole.TransformBy(scalingMatrix);
-
-                        // 5. Move the fully transformed object to its final destination.
-                        var destCenter = target.Pos + (destU * 0.5) + (destV * 0.5);
-                        ole.TransformBy(Matrix3d.Displacement(destCenter - Point3d.Origin));
-                        // *** MODIFICATION END ***
+                            var destCenter = target.Pos + (destU * 0.5) + (destV * 0.5);
+                            ole.TransformBy(Matrix3d.Displacement(destCenter - Point3d.Origin));
 
                             try { ole.Layer = "0"; } catch { }
                         }
@@ -815,16 +858,20 @@ namespace AutoCADCleanupTool
                     }
                     try
                     {
-                        var imgEnt = tr.GetObject(target.ImageId, OpenMode.ForWrite, false) as RasterImage;
-                        if (imgEnt != null)
+                        var originalEnt = tr.GetObject(target.OriginalEntityId, OpenMode.ForWrite, false) as Entity;
+                        if (originalEnt != null)
                         {
-                            try
+                            if (originalEnt is RasterImage imgEnt)
                             {
-                                if (!imgEnt.ImageDefId.IsNull)
-                                    _imageDefsToPurge.Add(imgEnt.ImageDefId);
+                                try
+                                {
+                                    if (!imgEnt.ImageDefId.IsNull)
+                                        _imageDefsToPurge.Add(imgEnt.ImageDefId);
+                                }
+                                catch { }
                             }
-                            catch { }
-                            var layer = (LayerTableRecord)tr.GetObject(imgEnt.LayerId, OpenMode.ForRead);
+
+                            var layer = (LayerTableRecord)tr.GetObject(originalEnt.LayerId, OpenMode.ForRead);
                             bool relock = false;
                             if (layer.IsLocked)
                             {
@@ -832,7 +879,7 @@ namespace AutoCADCleanupTool
                                 layer.IsLocked = false;
                                 relock = true;
                             }
-                            imgEnt.Erase();
+                            originalEnt.Erase();
                             if (relock)
                             {
                                 layer.IsLocked = true;
@@ -841,7 +888,7 @@ namespace AutoCADCleanupTool
                     }
                     catch (System.Exception exErase)
                     {
-                        ed.WriteMessage($"\nWarning: failed to erase source raster image: {exErase.Message}");
+                        ed.WriteMessage($"\nWarning: failed to erase source entity: {exErase.Message}");
                     }
                     tr.Commit();
                 }
@@ -914,7 +961,7 @@ namespace AutoCADCleanupTool
             }
         }
 
-                private static void DetachXrefs(Database db, Editor ed)
+        private static void DetachXrefs(Database db, Editor ed)
         {
             if (_xrefsToDetach.Count == 0) return;
 
@@ -962,7 +1009,19 @@ namespace AutoCADCleanupTool
             }
             var target = _pending.Peek();
 
-            if (!PrepareClipboardWithImageShared(target, ed))
+            // --- MODIFIED: Use the appropriate clipboard prep function ---
+            bool clipboardReady;
+            if (target.ClipBoundary != null)
+            {
+                clipboardReady = PrepareClipboardWithCroppedImage(target, ed);
+            }
+            else
+            {
+                clipboardReady = PrepareClipboardWithImageShared(target, ed);
+            }
+            // --- END MODIFICATION ---
+
+            if (!clipboardReady)
             {
                 _pending.Dequeue();
                 _activePlacement = null;
@@ -984,5 +1043,133 @@ namespace AutoCADCleanupTool
             doc.SendStringToExecute("_.PASTECLIP\n", true, false, false);
         }
 
+        // --- NEW COMMAND: EMBEDFROMPDF ---
+        [CommandMethod("EMBEDFROMPDF", CommandFlags.Modal)]
+        public static void EmbedFromPdf()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            ed.WriteMessage("\n--- Starting EMBEDFROMPDF ---");
+
+            // --- Phase 1: Preparation ---
+            _pending.Clear();
+            _lastPastedOle = ObjectId.Null;
+            _isEmbeddingProcessActive = false;
+            _finalPastedOleForZoom = ObjectId.Null;
+            ObjectId originalClayer = db.Clayer;
+            Matrix3d originalUcs = ed.CurrentUserCoordinateSystem;
+
+            var pdfsToProcess = new List<(ObjectId refId, ObjectId ownerId)>();
+
+            try
+            {
+                ed.CurrentUserCoordinateSystem = Matrix3d.Identity; // Set UCS to World
+
+                // --- Phase 2: PDF Collection and Processing ---
+                // --- THIS IS THE FIX: Use the robust detection logic from PDF2PNG ---
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    foreach (ObjectId btrId in bt)
+                    {
+                        var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
+                        if (btr == null) continue;
+
+                        foreach (ObjectId entId in btr)
+                        {
+                            if (entId.ObjectClass.DxfName.Equals("PDFUNDERLAY", StringComparison.OrdinalIgnoreCase))
+                                pdfsToProcess.Add((entId, btr.ObjectId));
+                        }
+                    }
+
+                    if (pdfsToProcess.Count == 0)
+                    {
+                        ed.WriteMessage("\nNo valid PDF underlays found to embed.");
+                        tr.Commit();
+                        return;
+                    }
+
+                    ed.WriteMessage($"\nFound {pdfsToProcess.Count} PDF underlay(s) to process.");
+                    int queuedCount = 0;
+
+                    foreach (var item in pdfsToProcess)
+                    {
+                        var pdfRef = tr.GetObject(item.refId, OpenMode.ForRead) as UnderlayReference;
+                        if (pdfRef == null) continue;
+
+                        var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
+                        if (pdfDef == null) continue;
+
+                        string resolvedPdfPath = ResolveImagePath(db, pdfDef.SourceFileName);
+                        if (string.IsNullOrEmpty(resolvedPdfPath) || !File.Exists(resolvedPdfPath))
+                        {
+                            ed.WriteMessage($"\nSkipping missing PDF file: {pdfDef.SourceFileName}");
+                            continue;
+                        }
+
+                        ed.WriteMessage($"\nProcessing {Path.GetFileName(resolvedPdfPath)}...");
+                        string pngPath = ConvertPdfToPng(resolvedPdfPath, ed);
+                        if (string.IsNullOrEmpty(pngPath))
+                        {
+                            ed.WriteMessage("\nFailed to convert PDF to PNG. Skipping.");
+                            continue;
+                        }
+
+                        // Get geometry and clipping info from the PDF Underlay
+                        Matrix3d transform = pdfRef.Transform;
+                        var placement = new ImagePlacement
+                        {
+                            Path = pngPath,
+                            Pos = transform.CoordinateSystem3d.Origin,
+                            U = transform.CoordinateSystem3d.Xaxis,
+                            V = transform.CoordinateSystem3d.Yaxis,
+                            OriginalEntityId = pdfRef.ObjectId,
+                            ClipBoundary = pdfRef.GetClipBoundary() // Pass the clipping boundary
+                        };
+
+                        _pending.Enqueue(placement);
+                        queuedCount++;
+                        ed.WriteMessage($"\nQueued [{queuedCount}]: {Path.GetFileName(placement.Path)}");
+                    }
+                    tr.Commit();
+                }
+
+                // --- Phase 3: Embedding Logic (reused from EMBEDFROMXREFS) ---
+                if (_pending.Count == 0)
+                {
+                    ed.WriteMessage("\nNo valid PDF underlays could be queued for embedding.");
+                    return;
+                }
+
+                ed.WriteMessage($"\nSuccessfully queued {_pending.Count} PDF(s).");
+
+                if (!EnsurePowerPoint(ed))
+                {
+                    ed.WriteMessage("\n[!] Failed to start or connect to PowerPoint. Aborting.");
+                    return;
+                }
+
+                AttachHandlers(db, doc);
+                ed.WriteMessage($"\nStarting paste process for {_pending.Count} PDF(s)...");
+                _isEmbeddingProcessActive = true;
+                ProcessNextPaste(doc, ed);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\n[!] An error occurred during the PDF embedding process: {ex.Message}");
+            }
+            finally
+            {
+                if (!_isEmbeddingProcessActive)
+                {
+                    ClosePowerPoint(ed);
+                    if (db.Clayer != originalClayer) db.Clayer = originalClayer;
+                }
+                ed.CurrentUserCoordinateSystem = originalUcs;
+            }
+        }
     }
 }

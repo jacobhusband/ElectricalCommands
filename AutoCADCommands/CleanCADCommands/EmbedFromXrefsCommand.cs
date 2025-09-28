@@ -333,7 +333,8 @@ namespace AutoCADCleanupTool
                         Pos = cs.Origin,
                         U = cs.Xaxis,
                         V = cs.Yaxis,
-                        ImageId = img.ObjectId,
+                        // --- THIS IS THE FIX ---
+                        OriginalEntityId = img.ObjectId
                     };
 
                     _pending.Enqueue(placement);

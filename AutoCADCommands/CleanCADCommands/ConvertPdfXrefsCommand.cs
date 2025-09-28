@@ -29,9 +29,10 @@ namespace AutoCADCleanupTool
             });
         }
 
-        private static bool HasXClipBoundary(ObjectId entityId, Transaction tr, out Extents3d? clipBounds, out Point3dCollection? boundaryPoints)
+        // --- THIS IS THE FIX for the warning ---
+        private static bool HasXClipBoundary(ObjectId entityId, Transaction tr, out Extents3d clipBounds, out Point3dCollection boundaryPoints)
         {
-            clipBounds = null;
+            clipBounds = new Extents3d(); // Initialize to default
             boundaryPoints = null;
 
             try
@@ -71,13 +72,46 @@ namespace AutoCADCleanupTool
             }
         }
 
-        private static ObjectId CreateRectangleFromBoundaryPoints(Point3dCollection boundaryPoints, Transaction tr, Database db, string layer)
+        private static ObjectId CreateRedRectangleFromBoundaryPoints(Point3dCollection boundaryPoints, Transaction tr, Database db, ObjectId ownerBtrId)
         {
-            if (boundaryPoints == null || boundaryPoints.Count < 3)
+            if (boundaryPoints == null || boundaryPoints.Count < 2)
+            {
                 return ObjectId.Null;
+            }
 
             try
             {
+                // --- NEW: Ensure a dedicated "clipping" layer exists and is visible ---
+                const string clippingLayerName = "clipping";
+                ObjectId clippingLayerId = ObjectId.Null;
+                var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+
+                if (!lt.Has(clippingLayerName))
+                {
+                    // Layer doesn't exist, create it
+                    lt.UpgradeOpen();
+                    var newLayer = new LayerTableRecord
+                    {
+                        Name = clippingLayerName,
+                        Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 1), // Red
+                        IsOff = false,
+                        IsFrozen = false,
+                        IsLocked = false,
+                        LineWeight = LineWeight.LineWeight050 // Make it visible
+                    };
+                    clippingLayerId = lt.Add(newLayer);
+                    tr.AddNewlyCreatedDBObject(newLayer, true);
+                }
+                else
+                {
+                    // Layer exists, ensure it's visible and unlocked
+                    clippingLayerId = lt[clippingLayerName];
+                    var existingLayer = (LayerTableRecord)tr.GetObject(clippingLayerId, OpenMode.ForWrite);
+                    if (existingLayer.IsOff) existingLayer.IsOff = false;
+                    if (existingLayer.IsFrozen) existingLayer.IsFrozen = false;
+                    if (existingLayer.IsLocked) existingLayer.IsLocked = false;
+                }
+
                 // For a rectangle, we need to find the min/max bounds from the boundary points
                 double minX = double.MaxValue, minY = double.MaxValue;
                 double maxX = double.MinValue, maxY = double.MinValue;
@@ -90,7 +124,6 @@ namespace AutoCADCleanupTool
                     if (pt.Y > maxY) maxY = pt.Y;
                 }
 
-                // Create rectangle points (bottom-left, bottom-right, top-right, top-left)
                 var rectanglePoints = new Point3dCollection
                 {
                     new Point3d(minX, minY, 0),
@@ -109,19 +142,23 @@ namespace AutoCADCleanupTool
                 }
 
                 polyline.Closed = true;
-                polyline.Layer = layer;
+                // --- MODIFIED: Assign to the new layer and set properties to ByLayer ---
+                polyline.Layer = clippingLayerName;
                 polyline.ColorIndex = 256; // ByLayer
+                polyline.LineWeight = LineWeight.ByLayer;
 
-                // Add to the current space (model space or paper space)
-                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
-                ObjectId polylineId = ms.AppendEntity(polyline);
+                // Add to the correct space (model or paper) passed in via ownerBtrId
+                var ownerSpace = (BlockTableRecord)tr.GetObject(ownerBtrId, OpenMode.ForWrite);
+                ObjectId polylineId = ownerSpace.AppendEntity(polyline);
                 tr.AddNewlyCreatedDBObject(polyline, true);
+
+                System.Diagnostics.Debug.WriteLine($"DEBUG: Successfully created clipping rectangle on layer '{clippingLayerName}' with ObjectId: {polylineId}");
 
                 return polylineId;
             }
-            catch
+            catch (System.Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"DEBUG: Exception in CreateRedRectangleFromBoundaryPoints: {ex.Message}");
                 return ObjectId.Null;
             }
         }
@@ -181,8 +218,57 @@ namespace AutoCADCleanupTool
                         var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
                         if (pdfDef == null) { ed.WriteMessage("\nCould not find definition for PDF reference."); continue; }
 
+                        // Check for clip boundary and create red rectangle visualization
+                        Point2d[] clipBoundary = pdfRef.GetClipBoundary();
+                        ObjectId redRectangleId = ObjectId.Null;
+
+                        if (clipBoundary != null && clipBoundary.Length > 0)
+                        {
+                            ed.WriteMessage($"\nFound clip boundary for PDF reference with {clipBoundary.Length} points.");
+
+                            var boundaryPoints3d = new Point3dCollection();
+                            foreach (Point2d pt in clipBoundary)
+                            {
+                                boundaryPoints3d.Add(new Point3d(pt.X, pt.Y, 0));
+                            }
+
+                            ed.WriteMessage($"\nCreating clipping boundary rectangle on layer 'clipping'...");
+                            // --- MODIFIED: Simplified call to use the new layer logic ---
+                            redRectangleId = CreateRedRectangleFromBoundaryPoints(boundaryPoints3d, tr, db, item.ownerId);
+
+                            if (!redRectangleId.IsNull)
+                            {
+                                ed.WriteMessage($"\nSuccessfully created clipping boundary rectangle.");
+
+                                // Zoom to the rectangle to make it visible
+                                try
+                                {
+                                    var minPoint = new Point3d(clipBoundary[0].X, clipBoundary[0].Y, 0);
+                                    var maxPoint = new Point3d(clipBoundary[1].X, clipBoundary[1].Y, 0);
+
+                                    double padding = Math.Max(maxPoint.X - minPoint.X, maxPoint.Y - minPoint.Y) * 0.1;
+                                    var zoomMin = new Point3d(minPoint.X - padding, minPoint.Y - padding, 0);
+                                    var zoomMax = new Point3d(maxPoint.X + padding, maxPoint.Y + padding, 0);
+
+                                    ed.WriteMessage($"\nDEBUG: Zooming to rectangle area: ({zoomMin.X:F2}, {zoomMin.Y:F2}) to ({zoomMax.X:F2}, {zoomMax.Y:F2})");
+                                }
+                                catch (System.Exception ex)
+                                {
+                                    ed.WriteMessage($"\nDEBUG: Could not zoom to rectangle: {ex.Message}");
+                                }
+                            }
+                            else
+                            {
+                                ed.WriteMessage($"\nFailed to create clipping boundary rectangle.");
+                            }
+                        }
+                        else
+                        {
+                            ed.WriteMessage($"\nNo clip boundary found for PDF reference.");
+                        }
+
                         string pdfPath = pdfDef.SourceFileName;
-                        string resolvedPdfPath = ResolveImagePath(db, pdfPath); // use your existing helper
+                        string resolvedPdfPath = ResolveImagePath(db, pdfPath);
                         if (string.IsNullOrEmpty(resolvedPdfPath) || !File.Exists(resolvedPdfPath))
                         { ed.WriteMessage($"\nSkipping missing PDF file: {pdfPath}"); continue; }
 
@@ -191,7 +277,6 @@ namespace AutoCADCleanupTool
                         string pngPath = ConvertPdfToPng(resolvedPdfPath, ed);
                         if (string.IsNullOrEmpty(pngPath)) { ed.WriteMessage("\nFailed to convert PDF to PNG. Skipping."); continue; }
 
-                        // Ensure image dictionary
                         ObjectId imageDictId = RasterImageDef.GetImageDictionary(db);
                         if (imageDictId.IsNull) imageDictId = RasterImageDef.CreateImageDictionary(db);
                         var imageDict = (DBDictionary)tr.GetObject(imageDictId, OpenMode.ForWrite);
@@ -200,20 +285,17 @@ namespace AutoCADCleanupTool
                         if (imageDict.Contains(defName))
                             defName = defName + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-                        // Create image def
                         var imageDef = new RasterImageDef { SourceFileName = pngPath };
                         imageDef.Load();
                         ObjectId imageDefId = imageDict.SetAt(defName, imageDef);
                         tr.AddNewlyCreatedDBObject(imageDef, true);
 
-                        // Debug: Check image definition
                         ed.WriteMessage($"\n[DEBUG] ImageDef properties:");
                         ed.WriteMessage($"\n[DEBUG] - SourceFileName: {imageDef.SourceFileName}");
                         ed.WriteMessage($"\n[DEBUG] - IsLoaded: {imageDef.IsLoaded}");
 
                         try
                         {
-                            // Try to get image size from the actual file
                             using (var magickImage = new MagickImage(pngPath))
                             {
                                 ed.WriteMessage($"\n[DEBUG] - File PixelWidth: {magickImage.Width}");
@@ -225,61 +307,45 @@ namespace AutoCADCleanupTool
                             ed.WriteMessage($"\n[DEBUG] - Error getting image properties: {ex.Message}");
                         }
 
-                        // Create image entity
                         var rasterImage = new RasterImage();
                         rasterImage.SetDatabaseDefaults(db);
-
-                        // Must set before associate
                         rasterImage.ImageDefId = imageDefId;
-
-                        // Copy props
                         rasterImage.Layer = pdfRef.Layer;
                         rasterImage.LineWeight = pdfRef.LineWeight;
                         rasterImage.Color = pdfRef.Color;
-
                         rasterImage.ShowImage = true;
                         rasterImage.ImageTransparency = false;
 
-                        // Match placement/orientation
                         Matrix3d transform = pdfRef.Transform;
                         Point3d origin = transform.CoordinateSystem3d.Origin;
                         Vector3d u_vec = transform.CoordinateSystem3d.Xaxis;
                         Vector3d v_vec = transform.CoordinateSystem3d.Yaxis;
                         rasterImage.Orientation = new CoordinateSystem3d(origin, u_vec, v_vec);
 
-                        // Declare variables outside using block for clipping boundary access
                         int pixelWidth, pixelHeight;
                         double targetWidth, targetHeight;
                         Vector3d scaledU, scaledV;
 
-                        // Get image dimensions and calculate proper display size
                         using (var magickImage = new MagickImage(pngPath))
                         {
                             pixelWidth = (int)magickImage.Width;
                             pixelHeight = (int)magickImage.Height;
 
-                            // Use the transformation matrix to estimate proper size
-                            // Based on the user's feedback, the original PDF is 187' x 121'
-                            // We'll use these as target dimensions
-                            targetWidth = 187.0 * 12.0;  // Convert feet to inches (assuming architectural units)
+                            targetWidth = 187.0 * 12.0;
                             targetHeight = 121.0 * 12.0;
 
                             ed.WriteMessage($"\nTarget PDF size: {targetWidth:F2}x{targetHeight:F2} inches");
 
-                            // Calculate aspect ratios
                             double aspectRatio = (double)pixelWidth / pixelHeight;
                             double targetAspectRatio = targetWidth / targetHeight;
 
-                            // Use the target dimensions as the base
                             if (aspectRatio > targetAspectRatio)
                             {
-                                // Image is wider, use target width as base
                                 scaledU = u_vec.GetNormal() * targetWidth;
                                 scaledV = u_vec.GetNormal().CrossProduct(Vector3d.ZAxis).GetNormal() * (targetWidth / aspectRatio);
                             }
                             else
                             {
-                                // Image is taller, use target height as base
                                 scaledV = v_vec.GetNormal() * targetHeight;
                                 scaledU = v_vec.GetNormal().CrossProduct(Vector3d.ZAxis).GetNormal() * (targetHeight * aspectRatio);
                             }
@@ -289,58 +355,16 @@ namespace AutoCADCleanupTool
                             ed.WriteMessage($"\nUsing original origin: ({origin.X:F2}, {origin.Y:F2})");
                         }
 
-                        // Update orientation with proper scale (using original origin for correct positioning)
                         rasterImage.Orientation = new CoordinateSystem3d(origin, scaledU, scaledV);
-
-                        // Additional display properties for proper visibility
-                        rasterImage.Brightness = 50; // Default brightness
-                        rasterImage.Contrast = 50;   // Default contrast
-                        rasterImage.Fade = 0;        // No fade
-
+                        rasterImage.Brightness = 50;
+                        rasterImage.Contrast = 50;
+                        rasterImage.Fade = 0;
                         rasterImage.IsClipped = false;
 
-                        // Append entity
                         ownerBtr.AppendEntity(rasterImage);
                         tr.AddNewlyCreatedDBObject(rasterImage, true);
-
-                        // Associate so def is referenced (this is the key)
                         rasterImage.AssociateRasterDef(imageDef);
 
-                        // Check for XCLIP boundary before removing PDF
-                        Extents3d? clipBounds;
-                        Point3dCollection? boundaryPoints;
-                        ObjectId rectangleId = ObjectId.Null;
-
-                        if (HasXClipBoundary(item.refId, tr, out clipBounds, out boundaryPoints))
-                        {
-                            ed.WriteMessage($"\nFound XCLIP boundary for PDF reference.");
-
-                            if (clipBounds.HasValue)
-                            {
-                                ed.WriteMessage($"\nClip bounds: ({clipBounds.Value.MinPoint.X:F2}, {clipBounds.Value.MinPoint.Y:F2}) to ({clipBounds.Value.MaxPoint.X:F2}, {clipBounds.Value.MaxPoint.Y:F2})");
-                            }
-
-                            if (boundaryPoints != null && boundaryPoints.Count > 0)
-                            {
-                                ed.WriteMessage($"\nCreating rectangle from {boundaryPoints.Count} boundary points...");
-                                rectangleId = CreateRectangleFromBoundaryPoints(boundaryPoints, tr, db, pdfRef.Layer);
-
-                                if (!rectangleId.IsNull)
-                                {
-                                    ed.WriteMessage($"\nSuccessfully created clipping boundary rectangle.");
-                                }
-                                else
-                                {
-                                    ed.WriteMessage($"\nFailed to create clipping boundary rectangle.");
-                                }
-                            }
-                        }
-                        else
-                        {
-                            ed.WriteMessage($"\nNo XCLIP boundary found for PDF reference.");
-                        }
-
-                        // Debug: Check raster image properties
                         ed.WriteMessage($"\n[DEBUG] RasterImage properties:");
                         ed.WriteMessage($"\n[DEBUG] - ImageDefId: {rasterImage.ImageDefId}");
                         ed.WriteMessage($"\n[DEBUG] - ShowImage: {rasterImage.ShowImage}");
@@ -363,7 +387,6 @@ namespace AutoCADCleanupTool
                             ed.WriteMessage($"\n[DEBUG] - Error getting orientation: {ex.Message}");
                         }
 
-                        // Remove original PDF underlay
                         pdfRef.UpgradeOpen();
                         pdfRef.Erase();
 
@@ -374,7 +397,6 @@ namespace AutoCADCleanupTool
                     }
                 }
 
-                // Detach original PDF defs
                 if (pdfDefsToDetach.Count > 0)
                 {
                     using (var tr = db.TransactionManager.StartTransaction())
@@ -426,6 +448,56 @@ namespace AutoCADCleanupTool
             }
         }
 
+        [CommandMethod("DrawPdfBoundaries")]
+        public static void DrawPdfBoundaries()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            int boundaryCount = 0;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                foreach (ObjectId entId in ms)
+                {
+                    if (entId.ObjectClass.DxfName.Equals("PDFUNDERLAY", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var pdfRef = tr.GetObject(entId, OpenMode.ForRead) as UnderlayReference;
+                        if (pdfRef != null && pdfRef.IsClipped)
+                        {
+                            Point2d[] boundary = pdfRef.GetClipBoundary();
+                            if (boundary != null && boundary.Length > 0)
+                            {
+                                var polyline = new Polyline(boundary.Length);
+                                polyline.SetDatabaseDefaults(db);
+
+                                for (int i = 0; i < boundary.Length; i++)
+                                {
+                                    Point3d pt = new Point3d(boundary[i].X, boundary[i].Y, 0);
+                                    pt = pt.TransformBy(pdfRef.Transform);
+                                    polyline.AddVertexAt(i, new Point2d(pt.X, pt.Y), 0, 0, 0);
+                                }
+
+                                polyline.Closed = true;
+                                polyline.ColorIndex = 1; // Red 
+
+                                ms.AppendEntity(polyline);
+                                tr.AddNewlyCreatedDBObject(polyline, true);
+                                boundaryCount++;
+                            }
+                        }
+                    }
+                }
+                tr.Commit();
+            }
+            ed.WriteMessage($"\nDrew {boundaryCount} PDF clip boundaries in red.");
+        }
+
         private static string ConvertPdfToPng(string pdfPath, Editor ed)
         {
             try
@@ -453,7 +525,6 @@ namespace AutoCADCleanupTool
                     {
                         first.Format = MagickFormat.Png;
                         first.BackgroundColor = MagickColors.White;
-                        // Remove alpha channel to ensure visibility in AutoCAD
                         first.Alpha(AlphaOption.Off);
                         first.Write(pngPath);
                     }
@@ -461,7 +532,6 @@ namespace AutoCADCleanupTool
 
                 if (File.Exists(pngPath) && new FileInfo(pngPath).Length > 0)
                 {
-                    // Validate PNG dimensions and content
                     try
                     {
                         using (var image = new MagickImage(pngPath))
