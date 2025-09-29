@@ -156,6 +156,7 @@ namespace AutoCADCleanupTool
             public Vector3d V;
             public ObjectId OriginalEntityId; // Changed from ImageId to be generic
             public Point2d[] ClipBoundary; // For PDF cropping
+            public double Scale = 1.0;
         }
 
         private static readonly Queue<ImagePlacement> _pending = new Queue<ImagePlacement>();
@@ -283,117 +284,6 @@ namespace AutoCADCleanupTool
             }
         }
 
-        // --- NEW: Debugging helper to show cropped image in PowerPoint and stop ---
-        private static void ShowImageInPowerPointForDebug(ImagePlacement placement, Editor ed)
-        {
-            try
-            {
-                if (!EnsurePowerPoint(ed)) return;
-                dynamic slide = _pptPresentationShared.Slides[1]; // 1-based
-                var shapes = slide.Shapes;
-                // Clear previous shapes
-                for (int i = shapes.Count; i >= 1; i--)
-                {
-                    try { shapes[i].Delete(); } catch { }
-                }
-
-                string path = placement.Path;
-                dynamic pic = shapes.AddPicture(path, false, true, 10, 10);
-
-                // --- Cropping Logic ---
-                if (placement.ClipBoundary != null && placement.ClipBoundary.Length >= 2)
-                {
-                    ed.WriteMessage("\nApplying clipping boundary in PowerPoint...");
-
-                    // Get the size of the unclipped PDF in AutoCAD drawing units
-                    double pdfWidthInUnits = placement.U.Length;
-                    double pdfHeightInUnits = placement.V.Length;
-
-                    // Get the size of the inserted picture in PowerPoint points
-                    float picWidthInPoints = pic.Width;
-                    float picHeightInPoints = pic.Height;
-
-                    // Calculate the scaling factor between AutoCAD units and PowerPoint points
-                    // Check for zero dimensions to avoid division by zero
-                    if (pdfWidthInUnits < 1e-6 || pdfHeightInUnits < 1e-6)
-                    {
-                        ed.WriteMessage("\nWarning: PDF has zero size in AutoCAD. Cannot calculate crop ratios.");
-                    }
-                    else
-                    {
-                        double pointsPerUnitX = picWidthInPoints / pdfWidthInUnits;
-                        double pointsPerUnitY = picHeightInPoints / pdfHeightInUnits;
-
-                        // --- MORE DETAILED LOGGING ---
-                        ed.WriteMessage($"\n[DEBUG] PDF Dimensions (drawing units): W={pdfWidthInUnits:F4}, H={pdfHeightInUnits:F4}");
-                        ed.WriteMessage($"\n[DEBUG] PPT Picture Dimensions (points): W={picWidthInPoints:F4}, H={picHeightInPoints:F4}");
-                        ed.WriteMessage($"\n[DEBUG] Scaling Factors: Pts/Unit X={pointsPerUnitX:F4}, Pts/Unit Y={pointsPerUnitY:F4}");
-                        // --- END LOGGING ---
-
-                        // Get the clipping rectangle from the boundary points
-                        var clip = placement.ClipBoundary;
-                        double minX = clip.Min(p => p.X);
-                        double minY = clip.Min(p => p.Y);
-                        double maxX = clip.Max(p => p.X);
-                        double maxY = clip.Max(p => p.Y);
-
-                        // --- MORE DETAILED LOGGING ---
-                        ed.WriteMessage($"\n[DEBUG] Local Clip Min/Max (drawing units): MinX={minX:F4}, MinY={minY:F4}, MaxX={maxX:F4}, MaxY={maxY:F4}");
-                        // --- END LOGGING ---
-
-                        // --- CORRECTED CROPPING LOGIC ---
-                        // Crop values are the amount to REMOVE from each side.
-
-                        // Amount to remove from the left is the distance from the image's left edge to the clip's left edge.
-                        float cropLeft = (float)(minX * pointsPerUnitX);
-
-                        // Amount to remove from the top is the distance from the image's top edge down to the clip's top edge.
-                        float cropTop = (float)((pdfHeightInUnits - maxY) * pointsPerUnitY);
-
-                        // Amount to remove from the right is the distance from the image's right edge back to the clip's right edge.
-                        float cropRight = (float)((pdfWidthInUnits - maxX) * pointsPerUnitX);
-
-                        // Amount to remove from the bottom is the distance from the image's bottom edge up to the clip's bottom edge.
-                        float cropBottom = (float)(minY * pointsPerUnitY);
-
-
-                        // Apply the crop
-                        var picFormat = pic.PictureFormat;
-                        picFormat.CropLeft = cropLeft;
-                        picFormat.CropTop = cropTop;
-                        picFormat.CropRight = cropRight;
-                        picFormat.CropBottom = cropBottom;
-
-                        ed.WriteMessage($"\nCrop values (pts): L={cropLeft:F2}, T={cropTop:F2}, R={cropRight:F2}, B={cropBottom:F2}");
-                    }
-                }
-
-                // Apply rotation
-                float picW = pic.Width;
-                float picH = pic.Height;
-                double destWidth = placement.U.Length;
-                double destHeight = placement.V.Length;
-
-                bool picIsLandscape = picW > picH;
-                bool destIsLandscape = destWidth > destHeight;
-
-                double rotationAngleRad = Math.Atan2(placement.U.Y, placement.U.X);
-
-                if (picIsLandscape != destIsLandscape)
-                {
-                    rotationAngleRad -= Math.PI / 2.0; // Adjust by -90 degrees
-                }
-
-                float rotationAngleDeg = (float)(-rotationAngleRad * 180.0 / Math.PI);
-                pic.Rotation = rotationAngleDeg;
-
-                // For debugging, we don't copy to the clipboard. The user will inspect PowerPoint directly.
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nFailed to show image in PowerPoint for debug for '{placement.Path}': {ex.Message}");
-            }
-        }
 
         // --- NEW: Helper for PDF Cropping in PowerPoint ---
         private static bool PrepareClipboardWithCroppedImage(ImagePlacement placement, Editor ed)
@@ -417,48 +307,53 @@ namespace AutoCADCleanupTool
                 {
                     ed.WriteMessage("\nApplying clipping boundary in PowerPoint...");
 
-                    // Get the size of the unclipped PDF in AutoCAD drawing units
-                    double pdfWidthInUnits = placement.U.Length;
-                    double pdfHeightInUnits = placement.V.Length;
+                    var clip = placement.ClipBoundary;
+                    double minX = clip.Min(p => p.X);
+                    double minY = clip.Min(p => p.Y);
+                    double maxX = clip.Max(p => p.X);
+                    double maxY = clip.Max(p => p.Y);
 
-                    // Get the size of the inserted picture in PowerPoint points
                     float picWidthInPoints = pic.Width;
                     float picHeightInPoints = pic.Height;
 
-                    // Calculate the scaling factor between AutoCAD units and PowerPoint points
-                    // Check for zero dimensions to avoid division by zero
-                    if (pdfWidthInUnits < 1e-6 || pdfHeightInUnits < 1e-6)
+                    bool clipIsPercentage = maxX <= 1.0 + 1e-6 && maxY <= 1.0 + 1e-6 && minX >= -1e-6 && minY >= -1e-6;
+                    float cropLeft = 0f, cropTop = 0f, cropRight = 0f, cropBottom = 0f;
+                    bool cropComputed = false;
+
+                    if (clipIsPercentage)
                     {
-                        ed.WriteMessage("\nWarning: PDF has zero size in AutoCAD. Cannot calculate crop ratios.");
+                        cropLeft = (float)(minX * picWidthInPoints);
+                        cropTop = (float)((1.0 - maxY) * picHeightInPoints);
+                        cropRight = (float)((1.0 - maxX) * picWidthInPoints);
+                        cropBottom = (float)(minY * picHeightInPoints);
+                        cropComputed = true;
+
+                        ed.WriteMessage($"\n[DEBUG] Clip Percentages: Left={minX:P2}, Bottom={minY:P2}, Right={maxX:P2}, Top={maxY:P2}");
                     }
                     else
                     {
-                        double pointsPerUnitX = picWidthInPoints / pdfWidthInUnits;
-                        double pointsPerUnitY = picHeightInPoints / pdfHeightInUnits;
+                        double pdfWidthInUnits = placement.U.Length;
+                        double pdfHeightInUnits = placement.V.Length;
 
-                        // Get the clipping rectangle from the boundary points
-                        var clip = placement.ClipBoundary;
-                        double minX = clip.Min(p => p.X);
-                        double minY = clip.Min(p => p.Y);
-                        double maxX = clip.Max(p => p.X);
-                        double maxY = clip.Max(p => p.Y);
+                        if (pdfWidthInUnits < 1e-6 || pdfHeightInUnits < 1e-6)
+                        {
+                            ed.WriteMessage("\nWarning: PDF has zero size in AutoCAD. Cannot calculate crop ratios.");
+                        }
+                        else
+                        {
+                            double pointsPerUnitX = picWidthInPoints / pdfWidthInUnits;
+                            double pointsPerUnitY = picHeightInPoints / pdfHeightInUnits;
 
-                        // --- CORRECTED CROPPING LOGIC ---
-                        // Crop values are the amount to REMOVE from each side.
+                            cropLeft = (float)(minX * pointsPerUnitX);
+                            cropTop = (float)((pdfHeightInUnits - maxY) * pointsPerUnitY);
+                            cropRight = (float)((pdfWidthInUnits - maxX) * pointsPerUnitX);
+                            cropBottom = (float)(minY * pointsPerUnitY);
+                            cropComputed = true;
+                        }
+                    }
 
-                        // Amount to remove from the left is the distance from the image's left edge to the clip's left edge.
-                        float cropLeft = (float)(minX * pointsPerUnitX);
-
-                        // Amount to remove from the top is the distance from the image's top edge down to the clip's top edge.
-                        float cropTop = (float)((pdfHeightInUnits - maxY) * pointsPerUnitY);
-
-                        // Amount to remove from the right is the distance from the image's right edge back to the clip's right edge.
-                        float cropRight = (float)((pdfWidthInUnits - maxX) * pointsPerUnitX);
-
-                        // Amount to remove from the bottom is the distance from the image's bottom edge up to the clip's bottom edge.
-                        float cropBottom = (float)(minY * pointsPerUnitY);
-
-                        // Apply the crop
+                    if (cropComputed)
+                    {
                         var picFormat = pic.PictureFormat;
                         picFormat.CropLeft = cropLeft;
                         picFormat.CropTop = cropTop;
@@ -1166,7 +1061,7 @@ namespace AutoCADCleanupTool
             doc.SendStringToExecute("_.PASTECLIP\n", true, false, false);
         }
 
-        // --- NEW COMMAND: EMBEDFROMPDF ---
+        // --- NEW COMMAND: EMBEDFROMPDF with Percentage-Based Clipping ---
         [CommandMethod("EMBEDFROMPDF", CommandFlags.Modal)]
         public static void EmbedFromPdf()
         {
@@ -1188,7 +1083,7 @@ namespace AutoCADCleanupTool
 
                 ImagePlacement placementToDebug = null;
 
-                // --- Phase 2: Find the FIRST PDF and prepare it ---
+                // --- Phase 1: Find the FIRST PDF and prepare it ---
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
@@ -1228,16 +1123,15 @@ namespace AutoCADCleanupTool
                     var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
                     if (pdfDef == null) { tr.Commit(); return; }
 
-                    // --- FIX: Get the size directly from the UnderlayReference's transform vectors ---
+                    // Get PDF page size in drawing units from the reference transform
                     Matrix3d pdfTransform = pdfRef.Transform;
                     Vector3d u_vec = pdfTransform.CoordinateSystem3d.Xaxis;
                     Vector3d v_vec = pdfTransform.CoordinateSystem3d.Yaxis;
 
-                    double scaledWidth = u_vec.Length;
-                    double scaledHeight = v_vec.Length;
+                    double pdfWidthInUnits = u_vec.Length;
+                    double pdfHeightInUnits = v_vec.Length;
 
-                    ed.WriteMessage($"\n[DEBUG] PDF Scaled Size from Reference (units): W={scaledWidth:F4}, H={scaledHeight:F4}");
-
+                    ed.WriteMessage($"\n[DEBUG] PDF Size (drawing units): W={pdfWidthInUnits:F4}, H={pdfHeightInUnits:F4}");
 
                     string resolvedPdfPath = ResolveImagePath(db, pdfDef.SourceFileName);
                     if (string.IsNullOrEmpty(resolvedPdfPath) || !File.Exists(resolvedPdfPath))
@@ -1256,54 +1150,140 @@ namespace AutoCADCleanupTool
                         return;
                     }
 
-                    // --- NEW: Transform Clip Boundary from World to Local Coordinates ---
-                    object rawClipBoundaryObject = pdfRef.GetClipBoundary();
-                    Point2d[] rawClipBoundary = null;
-                    if (rawClipBoundaryObject != null)
+                    // --- NEW: Get Clip Boundary and Convert to Percentages ---
+                    Point2d[] percentageClipBoundary = null;
+
+                    if (pdfRef.IsClipped)
                     {
+                        ed.WriteMessage("\nPDF is clipped. Calculating percentage-based clip boundary...");
+
+                        object rawClipBoundaryObject = pdfRef.GetClipBoundary();
+                        Point2d[] wcsClipBoundary = null;
+
                         if (rawClipBoundaryObject is Point2dCollection rawClipBoundaryCollection)
                         {
-                            rawClipBoundary = new Point2d[rawClipBoundaryCollection.Count];
-                            rawClipBoundaryCollection.CopyTo(rawClipBoundary, 0);
+                            wcsClipBoundary = new Point2d[rawClipBoundaryCollection.Count];
+                            rawClipBoundaryCollection.CopyTo(wcsClipBoundary, 0);
                         }
                         else if (rawClipBoundaryObject is Point2d[] rawClipBoundaryArray)
                         {
-                            rawClipBoundary = rawClipBoundaryArray;
+                            wcsClipBoundary = rawClipBoundaryArray;
+                        }
+
+                        if (wcsClipBoundary != null && wcsClipBoundary.Length >= 2)
+                        {
+                            // Get min/max of WCS clip boundary (these are in drawing units)
+                            double minX_wcs = wcsClipBoundary.Min(p => p.X);
+                            double minY_wcs = wcsClipBoundary.Min(p => p.Y);
+                            double maxX_wcs = wcsClipBoundary.Max(p => p.X);
+                            double maxY_wcs = wcsClipBoundary.Max(p => p.Y);
+
+                            ed.WriteMessage($"\n[DEBUG] WCS Clip (units): MinX={minX_wcs:F4}, MinY={minY_wcs:F4}, MaxX={maxX_wcs:F4}, MaxY={maxY_wcs:F4}");
+
+                            // Get the actual PDF sheet size in inches using Spire.PDF
+                            int pageNumber = 1;
+                            if (int.TryParse(pdfDef.ItemName, out int pg) && pg > 0)
+                            {
+                                pageNumber = pg;
+                            }
+
+                            Point2d? pdfSheetSizeInches = GetPdfPageSizeInches(resolvedPdfPath, pageNumber);
+
+                            if (!pdfSheetSizeInches.HasValue)
+                            {
+                                ed.WriteMessage("\nWarning: Could not determine PDF sheet size. Cannot calculate crop percentages.");
+                            }
+                            else
+                            {
+                                double sheetWidthInches = pdfSheetSizeInches.Value.X;
+                                double sheetHeightInches = pdfSheetSizeInches.Value.Y;
+
+                                ed.WriteMessage($"\n[DEBUG] PDF Sheet Size (inches): W={sheetWidthInches:F4}\", H={sheetHeightInches:F4}\"");
+
+                                // Calculate the scale factor: drawing units per inch
+                                double unitsPerInchX = pdfWidthInUnits / sheetWidthInches;
+                                double unitsPerInchY = pdfHeightInUnits / sheetHeightInches;
+
+                                ed.WriteMessage($"\n[DEBUG] Scale Factor: {unitsPerInchX:F4} units/inch (X), {unitsPerInchY:F4} units/inch (Y)");
+
+                                // Get the PDF origin in WCS
+                                Point3d pdfOrigin = pdfTransform.CoordinateSystem3d.Origin;
+                                ed.WriteMessage($"\n[DEBUG] PDF Origin (WCS): ({pdfOrigin.X:F4}, {pdfOrigin.Y:F4})");
+
+                                // Transform the clip boundary from WCS into the PDF's local coordinate system
+                                Matrix3d inverseTransform = pdfTransform.Inverse();
+
+                                double minLocalX = double.MaxValue;
+                                double minLocalY = double.MaxValue;
+                                double maxLocalX = double.MinValue;
+                                double maxLocalY = double.MinValue;
+
+                                foreach (var clipPt in wcsClipBoundary)
+                                {
+                                    Point3d localPt = new Point3d(clipPt.X, clipPt.Y, 0).TransformBy(inverseTransform);
+                                    if (localPt.X < minLocalX) minLocalX = localPt.X;
+                                    if (localPt.Y < minLocalY) minLocalY = localPt.Y;
+                                    if (localPt.X > maxLocalX) maxLocalX = localPt.X;
+                                    if (localPt.Y > maxLocalY) maxLocalY = localPt.Y;
+                                }
+
+                                ed.WriteMessage($"\n[DEBUG] Clip in PDF Local Space (units): MinU={minLocalX:F4}, MinV={minLocalY:F4}, MaxU={maxLocalX:F4}, MaxV={maxLocalY:F4}");
+
+                                double clipMinX_inches = minLocalX / unitsPerInchX;
+                                double clipMinY_inches = minLocalY / unitsPerInchY;
+                                double clipMaxX_inches = maxLocalX / unitsPerInchX;
+                                double clipMaxY_inches = maxLocalY / unitsPerInchY;
+
+                                clipMinX_inches = Math.Max(0.0, Math.Min(sheetWidthInches, clipMinX_inches));
+                                clipMaxX_inches = Math.Max(0.0, Math.Min(sheetWidthInches, clipMaxX_inches));
+                                clipMinY_inches = Math.Max(0.0, Math.Min(sheetHeightInches, clipMinY_inches));
+                                clipMaxY_inches = Math.Max(0.0, Math.Min(sheetHeightInches, clipMaxY_inches));
+
+                                if (clipMaxX_inches < clipMinX_inches)
+                                {
+                                    double swap = clipMinX_inches;
+                                    clipMinX_inches = clipMaxX_inches;
+                                    clipMaxX_inches = swap;
+                                }
+
+                                if (clipMaxY_inches < clipMinY_inches)
+                                {
+                                    double swap = clipMinY_inches;
+                                    clipMinY_inches = clipMaxY_inches;
+                                    clipMaxY_inches = swap;
+                                }
+
+                                ed.WriteMessage($"\n[DEBUG] Clip in Inches (from origin): MinX={clipMinX_inches:F4}\", MinY={clipMinY_inches:F4}\", MaxX={clipMaxX_inches:F4}\", MaxY={clipMaxY_inches:F4}\"");
+
+                                // Calculate percentages based on the sheet size
+                                double leftPercent = minX_wcs / sheetWidthInches;
+                                double bottomPercent = minY_wcs / sheetHeightInches;
+                                double rightPercent = maxX_wcs / sheetWidthInches;
+                                double topPercent = maxY_wcs / sheetHeightInches;
+
+                                leftPercent = Math.Max(0.0, Math.Min(1.0, leftPercent));
+                                bottomPercent = Math.Max(0.0, Math.Min(1.0, bottomPercent));
+                                rightPercent = Math.Max(0.0, Math.Min(1.0, rightPercent));
+                                topPercent = Math.Max(0.0, Math.Min(1.0, topPercent));
+
+                                ed.WriteMessage($"\n[DEBUG] Clip Percentages: Left={leftPercent:P2}, Bottom={bottomPercent:P2}, Right={rightPercent:P2}, Top={topPercent:P2}");
+
+                                // Store as Point2d array: [0] = min (left, bottom), [1] = max (right, top)
+                                percentageClipBoundary = new Point2d[]
+                                {
+                            new Point2d(leftPercent, bottomPercent),
+                            new Point2d(rightPercent, topPercent)
+                                };
+                            }
+                        }
+                        else
+                        {
+                            ed.WriteMessage("\nWarning: Could not retrieve valid clipping boundary.");
                         }
                     }
-                    Point2d[] relativeClipBoundary = null;
-
-                    if (rawClipBoundary != null && rawClipBoundary.Length > 0)
+                    else
                     {
-                        ed.WriteMessage("\nTransforming clip boundary from WCS to local PDF coordinates...");
-
-                        // --- MORE DETAILED LOGGING ---
-                        ed.WriteMessage("\n[DEBUG] Raw WCS Clip Boundary (drawing units):");
-                        foreach (var pt in rawClipBoundary)
-                        {
-                            ed.WriteMessage($"  -> ({pt.X:F4}, {pt.Y:F4})");
-                        }
-                        // --- END LOGGING ---
-
-                        Matrix3d transform = pdfRef.Transform;
-                        Matrix3d inverseTransform = transform.Inverse();
-
-                        relativeClipBoundary = new Point2d[rawClipBoundary.Length];
-                        for (int i = 0; i < rawClipBoundary.Length; i++)
-                        {
-                            // Convert to 3D, transform, then convert back to 2D
-                            Point3d worldPoint = new Point3d(rawClipBoundary[i].X, rawClipBoundary[i].Y, 0);
-                            Point3d localPoint = worldPoint.TransformBy(inverseTransform);
-                            relativeClipBoundary[i] = new Point2d(localPoint.X, localPoint.Y);
-                        }
-
-                        // --- MORE DETAILED LOGGING ---
-                        ed.WriteMessage("\n[DEBUG] Transformed Local Clip Boundary (drawing units):");
-                        foreach (var pt in relativeClipBoundary)
-                        {
-                            ed.WriteMessage($"  -> ({pt.X:F4}, {pt.Y:F4})");
-                        }
-                        // --- END LOGGING ---
+                        ed.WriteMessage("\nPDF is not clipped. No cropping will be applied.");
                     }
 
                     placementToDebug = new ImagePlacement
@@ -1313,13 +1293,13 @@ namespace AutoCADCleanupTool
                         U = u_vec,
                         V = v_vec,
                         OriginalEntityId = pdfRef.ObjectId,
-                        ClipBoundary = relativeClipBoundary // Use the new, corrected boundary
+                        ClipBoundary = percentageClipBoundary // Store percentage-based boundary
                     };
 
                     tr.Commit();
                 }
 
-                // --- Phase 3: Show in PowerPoint and stop ---
+                // --- Phase 2: Show in PowerPoint and stop ---
                 if (placementToDebug == null)
                 {
                     ed.WriteMessage("\nCould not prepare PDF for debugging.");
@@ -1327,10 +1307,7 @@ namespace AutoCADCleanupTool
                 }
 
                 ed.WriteMessage($"\nOpening PowerPoint to show cropped image. The command will stop here.");
-
-                // This function will open PPT, do the crop, but NOT copy to clipboard or proceed.
-                ShowImageInPowerPointForDebug(placementToDebug, ed);
-
+                ShowImageInPowerPointForDebugPercentage(placementToDebug, ed);
                 ed.WriteMessage("\nPowerPoint should be open with the cropped image. Please inspect it.");
                 ed.WriteMessage("\nCommand finished.");
             }
@@ -1340,14 +1317,100 @@ namespace AutoCADCleanupTool
             }
             finally
             {
-                // Restore layer and UCS, but do not close PowerPoint for debugging purposes.
                 try
                 {
                     if (db.Clayer != originalClayer) db.Clayer = originalClayer;
                 }
                 catch { }
-
                 ed.CurrentUserCoordinateSystem = originalUcs;
+            }
+        }
+
+        // --- NEW: Debug helper using percentage-based cropping ---
+        private static void ShowImageInPowerPointForDebugPercentage(ImagePlacement placement, Editor ed)
+        {
+            try
+            {
+                if (!EnsurePowerPoint(ed)) return;
+                dynamic slide = _pptPresentationShared.Slides[1];
+                var shapes = slide.Shapes;
+
+                // Clear previous shapes
+                for (int i = shapes.Count; i >= 1; i--)
+                {
+                    try { shapes[i].Delete(); } catch { }
+                }
+
+                string path = placement.Path;
+                dynamic pic = shapes.AddPicture(path, false, true, 10, 10);
+
+                // --- Percentage-Based Cropping Logic ---
+                if (placement.ClipBoundary != null && placement.ClipBoundary.Length >= 2)
+                {
+                    ed.WriteMessage("\nApplying percentage-based clipping boundary in PowerPoint...");
+
+                    // Get the size of the inserted picture in PowerPoint points
+                    float picWidthInPoints = pic.Width;
+                    float picHeightInPoints = pic.Height;
+
+                    ed.WriteMessage($"\n[DEBUG] PPT Picture Dimensions (points): W={picWidthInPoints:F4}, H={picHeightInPoints:F4}");
+
+                    // Extract percentages from ClipBoundary
+                    // [0] = (leftPercent, bottomPercent), [1] = (rightPercent, topPercent)
+                    double leftPercent = placement.ClipBoundary[0].X;
+                    double bottomPercent = placement.ClipBoundary[0].Y;
+                    double rightPercent = placement.ClipBoundary[1].X;
+                    double topPercent = placement.ClipBoundary[1].Y;
+
+                    ed.WriteMessage($"\n[DEBUG] Clip Percentages: Left={leftPercent:P2}, Bottom={bottomPercent:P2}, Right={rightPercent:P2}, Top={topPercent:P2}");
+
+                    // Calculate crop amounts in points
+                    // Crop from left = leftPercent * width
+                    float cropLeft = (float)(leftPercent * picWidthInPoints);
+
+                    // Crop from top = (1 - topPercent) * height
+                    float cropTop = (float)((1.0 - topPercent) * picHeightInPoints);
+
+                    // Crop from right = (1 - rightPercent) * width
+                    float cropRight = (float)((1.0 - rightPercent) * picWidthInPoints);
+
+                    // Crop from bottom = bottomPercent * height
+                    float cropBottom = (float)(bottomPercent * picHeightInPoints);
+
+                    // Apply the crop
+                    var picFormat = pic.PictureFormat;
+                    picFormat.CropLeft = cropLeft;
+                    picFormat.CropTop = cropTop;
+                    picFormat.CropRight = cropRight;
+                    picFormat.CropBottom = cropBottom;
+
+                    ed.WriteMessage($"\n[DEBUG] Crop values (pts): L={cropLeft:F2}, T={cropTop:F2}, R={cropRight:F2}, B={cropBottom:F2}");
+                }
+
+                // Apply rotation
+                float picW = pic.Width;
+                float picH = pic.Height;
+                double destWidth = placement.U.Length;
+                double destHeight = placement.V.Length;
+
+                bool picIsLandscape = picW > picH;
+                bool destIsLandscape = destWidth > destHeight;
+
+                double rotationAngleRad = Math.Atan2(placement.U.Y, placement.U.X);
+
+                if (picIsLandscape != destIsLandscape)
+                {
+                    rotationAngleRad -= Math.PI / 2.0;
+                }
+
+                float rotationAngleDeg = (float)(-rotationAngleRad * 180.0 / Math.PI);
+                pic.Rotation = rotationAngleDeg;
+
+                ed.WriteMessage($"\n[DEBUG] Applied rotation: {rotationAngleDeg:F2} degrees");
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nFailed to show image in PowerPoint for debug: {ex.Message}");
             }
         }
 
