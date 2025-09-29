@@ -279,6 +279,118 @@ namespace AutoCADCleanupTool
             }
         }
 
+        // --- NEW: Debugging helper to show cropped image in PowerPoint and stop ---
+        private static void ShowImageInPowerPointForDebug(ImagePlacement placement, Editor ed)
+        {
+            try
+            {
+                if (!EnsurePowerPoint(ed)) return;
+                dynamic slide = _pptPresentationShared.Slides[1]; // 1-based
+                var shapes = slide.Shapes;
+                // Clear previous shapes
+                for (int i = shapes.Count; i >= 1; i--)
+                {
+                    try { shapes[i].Delete(); } catch { }
+                }
+
+                string path = placement.Path;
+                dynamic pic = shapes.AddPicture(path, false, true, 10, 10);
+
+                // --- Cropping Logic ---
+                if (placement.ClipBoundary != null && placement.ClipBoundary.Length >= 2)
+                {
+                    ed.WriteMessage("\nApplying clipping boundary in PowerPoint...");
+
+                    // Get the size of the unclipped PDF in AutoCAD drawing units
+                    double pdfWidthInUnits = placement.U.Length;
+                    double pdfHeightInUnits = placement.V.Length;
+
+                    // Get the size of the inserted picture in PowerPoint points
+                    float picWidthInPoints = pic.Width;
+                    float picHeightInPoints = pic.Height;
+
+                    // Calculate the scaling factor between AutoCAD units and PowerPoint points
+                    // Check for zero dimensions to avoid division by zero
+                    if (pdfWidthInUnits < 1e-6 || pdfHeightInUnits < 1e-6)
+                    {
+                        ed.WriteMessage("\nWarning: PDF has zero size in AutoCAD. Cannot calculate crop ratios.");
+                    }
+                    else
+                    {
+                        double pointsPerUnitX = picWidthInPoints / pdfWidthInUnits;
+                        double pointsPerUnitY = picHeightInPoints / pdfHeightInUnits;
+
+                        // --- MORE DETAILED LOGGING ---
+                        ed.WriteMessage($"\n[DEBUG] PDF Dimensions (drawing units): W={pdfWidthInUnits:F4}, H={pdfHeightInUnits:F4}");
+                        ed.WriteMessage($"\n[DEBUG] PPT Picture Dimensions (points): W={picWidthInPoints:F4}, H={picHeightInPoints:F4}");
+                        ed.WriteMessage($"\n[DEBUG] Scaling Factors: Pts/Unit X={pointsPerUnitX:F4}, Pts/Unit Y={pointsPerUnitY:F4}");
+                        // --- END LOGGING ---
+
+                        // Get the clipping rectangle from the boundary points
+                        var clip = placement.ClipBoundary;
+                        double minX = clip.Min(p => p.X);
+                        double minY = clip.Min(p => p.Y);
+                        double maxX = clip.Max(p => p.X);
+                        double maxY = clip.Max(p => p.Y);
+
+                        // --- MORE DETAILED LOGGING ---
+                        ed.WriteMessage($"\n[DEBUG] Local Clip Min/Max (drawing units): MinX={minX:F4}, MinY={minY:F4}, MaxX={maxX:F4}, MaxY={maxY:F4}");
+                        // --- END LOGGING ---
+
+                        // --- CORRECTED CROPPING LOGIC ---
+                        // Crop values are the amount to REMOVE from each side.
+
+                        // Amount to remove from the left is the distance from the image's left edge to the clip's left edge.
+                        float cropLeft = (float)(minX * pointsPerUnitX);
+
+                        // Amount to remove from the top is the distance from the image's top edge down to the clip's top edge.
+                        float cropTop = (float)((pdfHeightInUnits - maxY) * pointsPerUnitY);
+
+                        // Amount to remove from the right is the distance from the image's right edge back to the clip's right edge.
+                        float cropRight = (float)((pdfWidthInUnits - maxX) * pointsPerUnitX);
+
+                        // Amount to remove from the bottom is the distance from the image's bottom edge up to the clip's bottom edge.
+                        float cropBottom = (float)(minY * pointsPerUnitY);
+
+
+                        // Apply the crop
+                        var picFormat = pic.PictureFormat;
+                        picFormat.CropLeft = cropLeft;
+                        picFormat.CropTop = cropTop;
+                        picFormat.CropRight = cropRight;
+                        picFormat.CropBottom = cropBottom;
+
+                        ed.WriteMessage($"\nCrop values (pts): L={cropLeft:F2}, T={cropTop:F2}, R={cropRight:F2}, B={cropBottom:F2}");
+                    }
+                }
+
+                // Apply rotation
+                float picW = pic.Width;
+                float picH = pic.Height;
+                double destWidth = placement.U.Length;
+                double destHeight = placement.V.Length;
+
+                bool picIsLandscape = picW > picH;
+                bool destIsLandscape = destWidth > destHeight;
+
+                double rotationAngleRad = Math.Atan2(placement.U.Y, placement.U.X);
+
+                if (picIsLandscape != destIsLandscape)
+                {
+                    rotationAngleRad -= Math.PI / 2.0; // Adjust by -90 degrees
+                }
+
+                float rotationAngleDeg = (float)(-rotationAngleRad * 180.0 / Math.PI);
+                pic.Rotation = rotationAngleDeg;
+
+                // For debugging, we don't copy to the clipboard. The user will inspect PowerPoint directly.
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nFailed to show image in PowerPoint for debug for '{placement.Path}': {ex.Message}");
+            }
+        }
+
         // --- NEW: Helper for PDF Cropping in PowerPoint ---
         private static bool PrepareClipboardWithCroppedImage(ImagePlacement placement, Editor ed)
         {
@@ -327,13 +439,20 @@ namespace AutoCADCleanupTool
                         double maxX = clip.Max(p => p.X);
                         double maxY = clip.Max(p => p.Y);
 
-                        // Calculate crop values in points
-                        float cropLeft = (float)(minX * pointsPerUnitX);
-                        float cropTop = (float)(minY * pointsPerUnitY);
+                        // --- CORRECTED CROPPING LOGIC ---
+                        // Crop values are the amount to REMOVE from each side.
 
-                        // CropRight and CropBottom are the amounts to remove from the right and bottom edges
-                        float cropRight = (float)(picWidthInPoints - (maxX * pointsPerUnitX));
-                        float cropBottom = (float)(picHeightInPoints - (maxY * pointsPerUnitY));
+                        // Amount to remove from the left is the distance from the image's left edge to the clip's left edge.
+                        float cropLeft = (float)(minX * pointsPerUnitX);
+
+                        // Amount to remove from the top is the distance from the image's top edge down to the clip's top edge.
+                        float cropTop = (float)((pdfHeightInUnits - maxY) * pointsPerUnitY);
+
+                        // Amount to remove from the right is the distance from the image's right edge back to the clip's right edge.
+                        float cropRight = (float)((pdfWidthInUnits - maxX) * pointsPerUnitX);
+
+                        // Amount to remove from the bottom is the distance from the image's bottom edge up to the clip's bottom edge.
+                        float cropBottom = (float)(minY * pointsPerUnitY);
 
                         // Apply the crop
                         var picFormat = pic.PictureFormat;
@@ -1052,27 +1171,27 @@ namespace AutoCADCleanupTool
             var db = doc.Database;
             var ed = doc.Editor;
 
-            ed.WriteMessage("\n--- Starting EMBEDFROMPDF ---");
+            ed.WriteMessage("\n--- Starting EMBEDFROMPDF (Debug Mode) ---");
 
-            // --- Phase 1: Preparation ---
             _pending.Clear();
-            _lastPastedOle = ObjectId.Null;
             _isEmbeddingProcessActive = false;
-            _finalPastedOleForZoom = ObjectId.Null;
             ObjectId originalClayer = db.Clayer;
             Matrix3d originalUcs = ed.CurrentUserCoordinateSystem;
-
-            var pdfsToProcess = new List<(ObjectId refId, ObjectId ownerId)>();
 
             try
             {
                 ed.CurrentUserCoordinateSystem = Matrix3d.Identity; // Set UCS to World
 
-                // --- Phase 2: PDF Collection and Processing ---
-                // --- THIS IS THE FIX: Use the robust detection logic from PDF2PNG ---
+                ImagePlacement placementToDebug = null;
+
+                // --- Phase 2: Find the FIRST PDF and prepare it ---
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+
+                    // Find first PDF
+                    (ObjectId refId, ObjectId ownerId) firstPdf = default;
+                    bool found = false;
                     foreach (ObjectId btrId in bt)
                     {
                         var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
@@ -1081,93 +1200,140 @@ namespace AutoCADCleanupTool
                         foreach (ObjectId entId in btr)
                         {
                             if (entId.ObjectClass.DxfName.Equals("PDFUNDERLAY", StringComparison.OrdinalIgnoreCase))
-                                pdfsToProcess.Add((entId, btr.ObjectId));
+                            {
+                                firstPdf = (entId, btr.ObjectId);
+                                found = true;
+                                break;
+                            }
                         }
+                        if (found) break;
                     }
 
-                    if (pdfsToProcess.Count == 0)
+                    if (!found)
                     {
                         ed.WriteMessage("\nNo valid PDF underlays found to embed.");
                         tr.Commit();
                         return;
                     }
 
-                    ed.WriteMessage($"\nFound {pdfsToProcess.Count} PDF underlay(s) to process.");
-                    int queuedCount = 0;
+                    ed.WriteMessage($"\nFound a PDF underlay to process for debugging.");
 
-                    foreach (var item in pdfsToProcess)
+                    var pdfRef = tr.GetObject(firstPdf.refId, OpenMode.ForRead) as UnderlayReference;
+                    if (pdfRef == null) { tr.Commit(); return; }
+
+                    var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
+                    if (pdfDef == null) { tr.Commit(); return; }
+
+                    // --- CORRECTED FINAL: Use the reliable Scale property from the UnderlayReference ---
+                    // The 'Scale' property on the UnderlayReference gives the unscaled size directly.
+                    double unscaledWidth = pdfRef.Scale.X;
+                    double unscaledHeight = pdfRef.Scale.Y;
+
+                    ed.WriteMessage($"\n[DEBUG] PDF Unscaled Size from Reference (units): W={unscaledWidth:F4}, H={unscaledHeight:F4}");
+
+
+                    string resolvedPdfPath = ResolveImagePath(db, pdfDef.SourceFileName);
+                    if (string.IsNullOrEmpty(resolvedPdfPath) || !File.Exists(resolvedPdfPath))
                     {
-                        var pdfRef = tr.GetObject(item.refId, OpenMode.ForRead) as UnderlayReference;
-                        if (pdfRef == null) continue;
-
-                        var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
-                        if (pdfDef == null) continue;
-
-                        string resolvedPdfPath = ResolveImagePath(db, pdfDef.SourceFileName);
-                        if (string.IsNullOrEmpty(resolvedPdfPath) || !File.Exists(resolvedPdfPath))
-                        {
-                            ed.WriteMessage($"\nSkipping missing PDF file: {pdfDef.SourceFileName}");
-                            continue;
-                        }
-
-                        ed.WriteMessage($"\nProcessing {Path.GetFileName(resolvedPdfPath)}...");
-                        string pngPath = ConvertPdfToPng(resolvedPdfPath, ed);
-                        if (string.IsNullOrEmpty(pngPath))
-                        {
-                            ed.WriteMessage("\nFailed to convert PDF to PNG. Skipping.");
-                            continue;
-                        }
-
-                        // Get geometry and clipping info from the PDF Underlay
-                        Matrix3d transform = pdfRef.Transform;
-                        var placement = new ImagePlacement
-                        {
-                            Path = pngPath,
-                            Pos = transform.CoordinateSystem3d.Origin,
-                            U = transform.CoordinateSystem3d.Xaxis,
-                            V = transform.CoordinateSystem3d.Yaxis,
-                            OriginalEntityId = pdfRef.ObjectId,
-                            ClipBoundary = pdfRef.GetClipBoundary() // Pass the clipping boundary
-                        };
-
-                        _pending.Enqueue(placement);
-                        queuedCount++;
-                        ed.WriteMessage($"\nQueued [{queuedCount}]: {Path.GetFileName(placement.Path)}");
+                        ed.WriteMessage($"\nSkipping missing PDF file: {pdfDef.SourceFileName}");
+                        tr.Commit();
+                        return;
                     }
+
+                    ed.WriteMessage($"\nProcessing {Path.GetFileName(resolvedPdfPath)}...");
+                    string pngPath = ConvertPdfToPng(resolvedPdfPath, ed);
+                    if (string.IsNullOrEmpty(pngPath))
+                    {
+                        ed.WriteMessage("\nFailed to convert PDF to PNG. Skipping.");
+                        tr.Commit();
+                        return;
+                    }
+
+                    // --- NEW: Transform Clip Boundary from World to Local Coordinates ---
+                    Point2d[] rawClipBoundary = pdfRef.GetClipBoundary();
+                    Point2d[] relativeClipBoundary = null;
+
+                    if (rawClipBoundary != null && rawClipBoundary.Length > 0)
+                    {
+                        ed.WriteMessage("\nTransforming clip boundary from WCS to local PDF coordinates...");
+
+                        // --- MORE DETAILED LOGGING ---
+                        ed.WriteMessage("\n[DEBUG] Raw WCS Clip Boundary (drawing units):");
+                        foreach (var pt in rawClipBoundary)
+                        {
+                            ed.WriteMessage($"  -> ({pt.X:F4}, {pt.Y:F4})");
+                        }
+                        // --- END LOGGING ---
+
+                        Matrix3d transform = pdfRef.Transform;
+                        Matrix3d inverseTransform = transform.Inverse();
+
+                        relativeClipBoundary = new Point2d[rawClipBoundary.Length];
+                        for (int i = 0; i < rawClipBoundary.Length; i++)
+                        {
+                            // Convert to 3D, transform, then convert back to 2D
+                            Point3d worldPoint = new Point3d(rawClipBoundary[i].X, rawClipBoundary[i].Y, 0);
+                            Point3d localPoint = worldPoint.TransformBy(inverseTransform);
+                            relativeClipBoundary[i] = new Point2d(localPoint.X, localPoint.Y);
+                        }
+
+                        // --- MORE DETAILED LOGGING ---
+                        ed.WriteMessage("\n[DEBUG] Transformed Local Clip Boundary (drawing units):");
+                        foreach (var pt in relativeClipBoundary)
+                        {
+                            ed.WriteMessage($"  -> ({pt.X:F4}, {pt.Y:F4})");
+                        }
+                        // --- END LOGGING ---
+                    }
+
+                    // Get geometry and clipping info from the PDF Underlay
+                    Matrix3d pdfTransform = pdfRef.Transform;
+
+                    // --- NEW: Construct U and V vectors from definition size, not scaled instance size ---
+                    Vector3d u_direction = pdfTransform.CoordinateSystem3d.Xaxis.GetNormal();
+                    Vector3d v_direction = pdfTransform.CoordinateSystem3d.Yaxis.GetNormal();
+
+                    placementToDebug = new ImagePlacement
+                    {
+                        Path = pngPath,
+                        Pos = pdfTransform.CoordinateSystem3d.Origin,
+                        U = u_direction.MultiplyBy(unscaledWidth),
+                        V = v_direction.MultiplyBy(unscaledHeight),
+                        OriginalEntityId = pdfRef.ObjectId,
+                        ClipBoundary = relativeClipBoundary // Use the new, corrected boundary
+                    };
+
                     tr.Commit();
                 }
 
-                // --- Phase 3: Embedding Logic (reused from EMBEDFROMXREFS) ---
-                if (_pending.Count == 0)
+                // --- Phase 3: Show in PowerPoint and stop ---
+                if (placementToDebug == null)
                 {
-                    ed.WriteMessage("\nNo valid PDF underlays could be queued for embedding.");
+                    ed.WriteMessage("\nCould not prepare PDF for debugging.");
                     return;
                 }
 
-                ed.WriteMessage($"\nSuccessfully queued {_pending.Count} PDF(s).");
+                ed.WriteMessage($"\nOpening PowerPoint to show cropped image. The command will stop here.");
 
-                if (!EnsurePowerPoint(ed))
-                {
-                    ed.WriteMessage("\n[!] Failed to start or connect to PowerPoint. Aborting.");
-                    return;
-                }
+                // This function will open PPT, do the crop, but NOT copy to clipboard or proceed.
+                ShowImageInPowerPointForDebug(placementToDebug, ed);
 
-                AttachHandlers(db, doc);
-                ed.WriteMessage($"\nStarting paste process for {_pending.Count} PDF(s)...");
-                _isEmbeddingProcessActive = true;
-                ProcessNextPaste(doc, ed);
+                ed.WriteMessage("\nPowerPoint should be open with the cropped image. Please inspect it.");
+                ed.WriteMessage("\nCommand finished.");
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\n[!] An error occurred during the PDF embedding process: {ex.Message}");
+                ed.WriteMessage($"\n[!] An error occurred during the PDF embedding debug process: {ex.Message}");
             }
             finally
             {
-                if (!_isEmbeddingProcessActive)
+                // Restore layer and UCS, but do not close PowerPoint for debugging purposes.
+                try
                 {
-                    ClosePowerPoint(ed);
                     if (db.Clayer != originalClayer) db.Clayer = originalClayer;
                 }
+                catch { }
+
                 ed.CurrentUserCoordinateSystem = originalUcs;
             }
         }
