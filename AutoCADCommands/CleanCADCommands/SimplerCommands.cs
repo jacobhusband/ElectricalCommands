@@ -1410,7 +1410,7 @@ namespace AutoCADCleanupTool
         // ===================== NEW: GETPDFSHEETSIZE =====================
         /// <summary>
         /// Lets the user select a PDF underlay reference and reports the sheet size in inches.
-        /// Uses the reference transform's X/Y axis lengths (drawing units) and converts via INSUNITS.
+        /// Uses an external Ghostscript process to determine the page size.
         /// </summary>
         [CommandMethod("GETPDFSHEETSIZE", CommandFlags.Modal)]
         public static void GetPdfSheetSize()
@@ -1420,16 +1420,12 @@ namespace AutoCADCleanupTool
             var db = doc.Database;
             var ed = doc.Editor;
 
-            // Filter for PDF underlay entities
             var opts = new PromptSelectionOptions
             {
                 MessageForAdding = "\nSelect a PDF underlay reference:",
                 SingleOnly = true
             };
-            var filter = new SelectionFilter(new[]
-            {
-                new TypedValue((int)DxfCode.Start, "PDFUNDERLAY")
-            });
+            var filter = new SelectionFilter(new[] { new TypedValue((int)DxfCode.Start, "PDFUNDERLAY") });
 
             var sel = ed.GetSelection(opts, filter);
             if (sel.Status != PromptStatus.OK)
@@ -1439,11 +1435,7 @@ namespace AutoCADCleanupTool
             }
 
             var id = sel.Value.GetObjectIds().FirstOrDefault();
-            if (id.IsNull)
-            {
-                ed.WriteMessage("\nNo selection.");
-                return;
-            }
+            if (id.IsNull) return;
 
             try
             {
@@ -1456,41 +1448,48 @@ namespace AutoCADCleanupTool
                         return;
                     }
 
-                    // Width/Height in drawing units come from transform axes
-                    Matrix3d xf = ur.Transform;
-                    Vector3d ux = xf.CoordinateSystem3d.Xaxis;
-                    Vector3d uy = xf.CoordinateSystem3d.Yaxis;
-
-                    double wUnits = ux.Length;
-                    double hUnits = uy.Length;
-
-                    // Convert drawing units -> inches using INSUNITS
-                    double toIn = UnitsToInchesFactor(db.Insunits);
-                    if (db.Insunits == UnitsValue.Undefined)
+                    var def = tr.GetObject(ur.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
+                    if (def == null)
                     {
-                        ed.WriteMessage("\n[Warning] Drawing INSUNITS=Unitless. Assuming 1 drawing unit = 1 inch.");
+                        ed.WriteMessage("\nCould not retrieve PDF definition.");
+                        return;
                     }
 
-                    double wIn = Math.Abs(wUnits * toIn);
-                    double hIn = Math.Abs(hUnits * toIn);
+                    string resolvedPath = ResolveImagePath(db, def.SourceFileName);
+                    if (string.IsNullOrEmpty(resolvedPath) || !File.Exists(resolvedPath))
+                    {
+                        ed.WriteMessage($"\nCould not find PDF file: {def.SourceFileName}");
+                        return;
+                    }
 
-                    // Round to hundredths for readability
-                    double wInR = Math.Round(wIn, 2);
-                    double hInR = Math.Round(hIn, 2);
+                    int pageNumber = 1;
+                    if (int.TryParse(def.ItemName, out int pg) && pg > 0)
+                    {
+                        pageNumber = pg;
+                    }
 
-                    // Normalize presentation (report both WxH and the swapped if needed)
-                    string orient = wIn >= hIn ? "Landscape" : "Portrait";
-                    string file = "";
                     try
                     {
-                        var def = tr.GetObject(ur.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
-                        if (def != null) file = Path.GetFileName(def.SourceFileName);
-                    }
-                    catch { }
+                        Point2d? pageSize = GetPdfPageSizeInches(resolvedPath, pageNumber);
+                        if (pageSize.HasValue)
+                        {
+                            double wIn = pageSize.Value.X;
+                            double hIn = pageSize.Value.Y;
+                            string orient = wIn >= hIn ? "Landscape" : "Portrait";
+                            string file = Path.GetFileName(def.SourceFileName);
 
-                    ed.WriteMessage($"\nPDF sheet size (inches): {wInR}\" × {hInR}\"  [{orient}]");
-                    if (!string.IsNullOrEmpty(file))
-                        ed.WriteMessage($"\nSource: {file}");
+                            ed.WriteMessage($"\nPDF sheet size (inches): {wIn:F2}\" × {hIn:F2}\"  [{orient}] (Page {pageNumber})");
+                            ed.WriteMessage($"\nSource: {file}");
+                        }
+                        else
+                        {
+                            ed.WriteMessage("\nCould not determine PDF page size using Ghostscript. Make sure gswin64c.exe is in your system's PATH.");
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ed.WriteMessage($"\nError while getting PDF size: {ex.Message}");
+                    }
 
                     tr.Commit();
                 }
@@ -1501,38 +1500,57 @@ namespace AutoCADCleanupTool
             }
         }
 
-        /// <summary>
-        /// Returns the factor to convert from the drawing's INSUNITS to inches.
-        /// </summary>
-        private static double UnitsToInchesFactor(UnitsValue u)
+        private static Point2d? GetPdfPageSizeInches(string pdfPath, int pageNumber)
         {
-            // Values per AutoCAD INSUNITS:
-            // 0=Unitless, 1=Inches, 2=Feet, 3=Miles, 4=Millimeters, 5=Centimeters, 6=Meters, 7=Kilometers,
-            // 8=Microinches, 9=Mils (thousandths of an inch), 10=Yards, 11=Angstroms, 12=Nanometers, 13=Microns,
-            // 14=Decimeters, 15=Decameters, 16=Hectometers, 17=Gigameters, 18=AU, 19=Light years, 20=Parsecs
-            switch (u)
+            var startInfo = new ProcessStartInfo
             {
-                case UnitsValue.Undefined: return 1.0;
-                case UnitsValue.Inches: return 1.0;
-                case UnitsValue.Feet: return 12.0;
-                case UnitsValue.Miles: return 63360.0;
-                case UnitsValue.Millimeters: return 1.0 / 25.4;
-                case UnitsValue.Centimeters: return 1.0 / 2.54;
-                case UnitsValue.Meters: return 39.37007874015748;        // exact inch per meter
-                case UnitsValue.Kilometers: return 39370.07874015748;
-                case UnitsValue.Mils: return 1.0 / 1000.0;             // 1 mil = 0.001 inch
-                case UnitsValue.Yards: return 36.0;
-                case UnitsValue.Angstroms: return 1.0e-10 / 0.0254;         // m per angstrom -> inches
-                case UnitsValue.Nanometers: return 1.0e-9 / 0.0254;
-                case UnitsValue.Microns: return 1.0e-6 / 0.0254;
-                case UnitsValue.Decimeters: return (0.1) / 0.0254;
-                case UnitsValue.Hectometers: return (100.0) / 0.0254;
-                case UnitsValue.Gigameters: return (1.0e9) / 0.0254;
-                case UnitsValue.LightYears: return 9.4607304725808e15 / 0.0254;
-                case UnitsValue.Parsecs: return 3.085677581491367e16 / 0.0254;
-                default: return 1.0; // conservative fallback
+                FileName = "gswin64c", // Ensure Ghostscript is in your system's PATH
+                Arguments = $"-o - -dFirstPage={pageNumber} -dLastPage={pageNumber} -sDEVICE=bbox \"{pdfPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\nFailed to start Ghostscript process.");
+                    return null;
+                }
+
+                // Ghostscript often writes its output (like %%BoundingBox) to StandardError
+                string errorOutput = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+
+                string[] lines = errorOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                string bboxLine = lines.FirstOrDefault(l => l.StartsWith("%%BoundingBox:"));
+
+                if (bboxLine != null)
+                {
+                    var parts = bboxLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length == 5)
+                    {
+                        // The bounding box is llx lly urx ury (lower-left x, lower-left y, upper-right x, upper-right y)
+                        // All values are in points.
+                        if (int.TryParse(parts[1], out int llx) &&
+                            int.TryParse(parts[2], out int lly) &&
+                            int.TryParse(parts[3], out int urx) &&
+                            int.TryParse(parts[4], out int ury))
+                        {
+                            double widthInPoints = urx - llx;
+                            double heightInPoints = ury - lly;
+                            // Convert from points to inches (1 point = 1/72 inch)
+                            return new Point2d(widthInPoints / 72.0, heightInPoints / 72.0);
+                        }
+                    }
+                }
+
+                // If we reach here, we failed to parse the BoundingBox
+                Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage($"\nGhostscript output did not contain expected BoundingBox info. Error stream: {errorOutput}");
+                return null;
             }
         }
-        // =================== END NEW: GETPDFSHEETSIZE ===================
     }
 }
