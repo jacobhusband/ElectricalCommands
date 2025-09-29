@@ -106,24 +106,41 @@ namespace AutoCADCleanupTool
 
             try
             {
-                // First, ensure we are on a layout tab (not the Model tab).
-                if (Application.GetSystemVariable("TILEMODE").Equals(1))
+                // Use a transaction to ensure database operations are stable
+                using (var tr = db.TransactionManager.StartTransaction())
                 {
-                    ed.WriteMessage("\nSwitching to Paper Space layout...");
-                    Application.SetSystemVariable("TILEMODE", 0);
-                }
+                    // Step 1: Ensure we are on a layout tab (not the Model tab).
+                    // TILEMODE = 0 means a layout tab is active.
+                    if (Convert.ToInt16(Application.GetSystemVariable("TILEMODE")) == 1)
+                    {
+                        ed.WriteMessage("\nSwitching from Model tab to a Layout tab...");
+                        Application.SetSystemVariable("TILEMODE", 0);
+                    }
 
-                // Second, explicitly switch from a floating viewport to Paper Space itself.
-                // This is a more robust method than setting CVPORT directly.
-                ed.SwitchToPaperSpace();
-                ed.WriteMessage("\nEnsuring Paper Space is active...");
+                    // Step 2: Ensure we are in Paper Space, not a floating viewport.
+                    // CVPORT = 1 refers to the main paper space viewport.
+                    // Any other value means a floating model space viewport is active.
+                    if (Convert.ToInt16(Application.GetSystemVariable("CVPORT")) != 1)
+                    {
+                        ed.WriteMessage("\nActivating Paper Space...");
+                        ed.SwitchToPaperSpace();
+                    }
+
+                    // Optional: A final check to confirm the state.
+                    if (Convert.ToInt16(Application.GetSystemVariable("CVPORT")) != 1)
+                    {
+                        ed.WriteMessage("\nWarning: Failed to switch to Paper Space. Aborting zoom.");
+                        return; // Exit if we couldn't switch
+                    }
+
+                    tr.Commit(); // Commit transaction if all is well
+                }
             }
             catch (System.Exception ex)
             {
                 // This might fail if, for example, there are no layouts.
                 ed.WriteMessage($"\nCould not activate Paper Space: {ex.Message}");
             }
-
 
             if (_lastFoundTitleBlockPoly != null && _lastFoundTitleBlockPoly.Length > 0)
             {

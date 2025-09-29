@@ -1,3 +1,5 @@
+// Updated SimplerCommands.cs
+
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -1224,12 +1226,15 @@ namespace AutoCADCleanupTool
                     var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
                     if (pdfDef == null) { tr.Commit(); return; }
 
-                    // --- CORRECTED FINAL: Use the reliable Scale property from the UnderlayReference ---
-                    // The 'Scale' property on the UnderlayReference gives the unscaled size directly.
-                    double unscaledWidth = pdfRef.Scale.X;
-                    double unscaledHeight = pdfRef.Scale.Y;
+                    // --- FIX: Get the size directly from the UnderlayReference's transform vectors ---
+                    Matrix3d pdfTransform = pdfRef.Transform;
+                    Vector3d u_vec = pdfTransform.CoordinateSystem3d.Xaxis;
+                    Vector3d v_vec = pdfTransform.CoordinateSystem3d.Yaxis;
 
-                    ed.WriteMessage($"\n[DEBUG] PDF Unscaled Size from Reference (units): W={unscaledWidth:F4}, H={unscaledHeight:F4}");
+                    double scaledWidth = u_vec.Length;
+                    double scaledHeight = v_vec.Length;
+
+                    ed.WriteMessage($"\n[DEBUG] PDF Scaled Size from Reference (units): W={scaledWidth:F4}, H={scaledHeight:F4}");
 
 
                     string resolvedPdfPath = ResolveImagePath(db, pdfDef.SourceFileName);
@@ -1286,19 +1291,12 @@ namespace AutoCADCleanupTool
                         // --- END LOGGING ---
                     }
 
-                    // Get geometry and clipping info from the PDF Underlay
-                    Matrix3d pdfTransform = pdfRef.Transform;
-
-                    // --- NEW: Construct U and V vectors from definition size, not scaled instance size ---
-                    Vector3d u_direction = pdfTransform.CoordinateSystem3d.Xaxis.GetNormal();
-                    Vector3d v_direction = pdfTransform.CoordinateSystem3d.Yaxis.GetNormal();
-
                     placementToDebug = new ImagePlacement
                     {
                         Path = pngPath,
                         Pos = pdfTransform.CoordinateSystem3d.Origin,
-                        U = u_direction.MultiplyBy(unscaledWidth),
-                        V = v_direction.MultiplyBy(unscaledHeight),
+                        U = u_vec,
+                        V = v_vec,
                         OriginalEntityId = pdfRef.ObjectId,
                         ClipBoundary = relativeClipBoundary // Use the new, corrected boundary
                     };
@@ -1337,5 +1335,204 @@ namespace AutoCADCleanupTool
                 ed.CurrentUserCoordinateSystem = originalUcs;
             }
         }
+
+        // --- EXISTING COMMAND: Get PDF page number ---
+        [CommandMethod("GetPdfPageNumber", CommandFlags.Modal)]
+        public static void GetPdfPageNumber()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            // Set up selection options to filter for only PDF underlays
+            var selOpts = new PromptSelectionOptions();
+            selOpts.MessageForAdding = "\nSelect a PDF underlay reference:";
+            selOpts.SingleOnly = true;
+
+            var filter = new SelectionFilter(new TypedValue[] {
+                new TypedValue((int)DxfCode.Start, "PDFUNDERLAY")
+            });
+
+            PromptSelectionResult selRes = ed.GetSelection(selOpts, filter);
+
+            if (selRes.Status != PromptStatus.OK)
+            {
+                ed.WriteMessage("\n*Cancel*");
+                return;
+            }
+
+            SelectionSet selSet = selRes.Value;
+            ObjectId selectedId = selSet.GetObjectIds()[0];
+
+            try
+            {
+                using (Transaction tr = db.TransactionManager.StartTransaction())
+                {
+                    // Get the selected PDF underlay reference
+                    var pdfRef = tr.GetObject(selectedId, OpenMode.ForRead) as UnderlayReference;
+                    if (pdfRef == null)
+                    {
+                        ed.WriteMessage("\nSelected object is not a valid PDF underlay.");
+                        return;
+                    }
+
+                    // Get the definition associated with the reference
+                    var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
+                    if (pdfDef == null)
+                    {
+                        ed.WriteMessage("\nCould not retrieve the PDF definition for the selected reference.");
+                        return;
+                    }
+
+                    // The 'ItemName' property of the definition holds the page number for PDFs.
+                    string pageNumber = pdfDef.ItemName;
+                    string pdfFileName = Path.GetFileName(pdfDef.SourceFileName);
+
+                    if (string.IsNullOrEmpty(pageNumber))
+                    {
+                        ed.WriteMessage($"\nThe selected PDF reference ('{pdfFileName}') does not have a specific page number associated with it.");
+                    }
+                    else
+                    {
+                        ed.WriteMessage($"\nThe selected PDF reference is on page: {pageNumber} of '{pdfFileName}'.");
+                    }
+
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nAn error occurred: {ex.Message}");
+            }
+        }
+
+        // ===================== NEW: GETPDFSHEETSIZE =====================
+        /// <summary>
+        /// Lets the user select a PDF underlay reference and reports the sheet size in inches.
+        /// Uses the reference transform's X/Y axis lengths (drawing units) and converts via INSUNITS.
+        /// </summary>
+        [CommandMethod("GETPDFSHEETSIZE", CommandFlags.Modal)]
+        public static void GetPdfSheetSize()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            // Filter for PDF underlay entities
+            var opts = new PromptSelectionOptions
+            {
+                MessageForAdding = "\nSelect a PDF underlay reference:",
+                SingleOnly = true
+            };
+            var filter = new SelectionFilter(new[]
+            {
+                new TypedValue((int)DxfCode.Start, "PDFUNDERLAY")
+            });
+
+            var sel = ed.GetSelection(opts, filter);
+            if (sel.Status != PromptStatus.OK)
+            {
+                ed.WriteMessage("\n*Cancel*");
+                return;
+            }
+
+            var id = sel.Value.GetObjectIds().FirstOrDefault();
+            if (id.IsNull)
+            {
+                ed.WriteMessage("\nNo selection.");
+                return;
+            }
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var ur = tr.GetObject(id, OpenMode.ForRead) as UnderlayReference;
+                    if (ur == null)
+                    {
+                        ed.WriteMessage("\nSelected object is not a PDF underlay.");
+                        return;
+                    }
+
+                    // Width/Height in drawing units come from transform axes
+                    Matrix3d xf = ur.Transform;
+                    Vector3d ux = xf.CoordinateSystem3d.Xaxis;
+                    Vector3d uy = xf.CoordinateSystem3d.Yaxis;
+
+                    double wUnits = ux.Length;
+                    double hUnits = uy.Length;
+
+                    // Convert drawing units -> inches using INSUNITS
+                    double toIn = UnitsToInchesFactor(db.Insunits);
+                    if (db.Insunits == UnitsValue.Undefined)
+                    {
+                        ed.WriteMessage("\n[Warning] Drawing INSUNITS=Unitless. Assuming 1 drawing unit = 1 inch.");
+                    }
+
+                    double wIn = Math.Abs(wUnits * toIn);
+                    double hIn = Math.Abs(hUnits * toIn);
+
+                    // Round to hundredths for readability
+                    double wInR = Math.Round(wIn, 2);
+                    double hInR = Math.Round(hIn, 2);
+
+                    // Normalize presentation (report both WxH and the swapped if needed)
+                    string orient = wIn >= hIn ? "Landscape" : "Portrait";
+                    string file = "";
+                    try
+                    {
+                        var def = tr.GetObject(ur.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
+                        if (def != null) file = Path.GetFileName(def.SourceFileName);
+                    }
+                    catch { }
+
+                    ed.WriteMessage($"\nPDF sheet size (inches): {wInR}\" × {hInR}\"  [{orient}]");
+                    if (!string.IsNullOrEmpty(file))
+                        ed.WriteMessage($"\nSource: {file}");
+
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nError: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Returns the factor to convert from the drawing's INSUNITS to inches.
+        /// </summary>
+        private static double UnitsToInchesFactor(UnitsValue u)
+        {
+            // Values per AutoCAD INSUNITS:
+            // 0=Unitless, 1=Inches, 2=Feet, 3=Miles, 4=Millimeters, 5=Centimeters, 6=Meters, 7=Kilometers,
+            // 8=Microinches, 9=Mils (thousandths of an inch), 10=Yards, 11=Angstroms, 12=Nanometers, 13=Microns,
+            // 14=Decimeters, 15=Decameters, 16=Hectometers, 17=Gigameters, 18=AU, 19=Light years, 20=Parsecs
+            switch (u)
+            {
+                case UnitsValue.Undefined: return 1.0;
+                case UnitsValue.Inches: return 1.0;
+                case UnitsValue.Feet: return 12.0;
+                case UnitsValue.Miles: return 63360.0;
+                case UnitsValue.Millimeters: return 1.0 / 25.4;
+                case UnitsValue.Centimeters: return 1.0 / 2.54;
+                case UnitsValue.Meters: return 39.37007874015748;        // exact inch per meter
+                case UnitsValue.Kilometers: return 39370.07874015748;
+                case UnitsValue.Mils: return 1.0 / 1000.0;             // 1 mil = 0.001 inch
+                case UnitsValue.Yards: return 36.0;
+                case UnitsValue.Angstroms: return 1.0e-10 / 0.0254;         // m per angstrom -> inches
+                case UnitsValue.Nanometers: return 1.0e-9 / 0.0254;
+                case UnitsValue.Microns: return 1.0e-6 / 0.0254;
+                case UnitsValue.Decimeters: return (0.1) / 0.0254;
+                case UnitsValue.Hectometers: return (100.0) / 0.0254;
+                case UnitsValue.Gigameters: return (1.0e9) / 0.0254;
+                case UnitsValue.LightYears: return 9.4607304725808e15 / 0.0254;
+                case UnitsValue.Parsecs: return 3.085677581491367e16 / 0.0254;
+                default: return 1.0; // conservative fallback
+            }
+        }
+        // =================== END NEW: GETPDFSHEETSIZE ===================
     }
 }
