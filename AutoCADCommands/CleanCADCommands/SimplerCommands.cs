@@ -13,6 +13,8 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Globalization;
 using System.Linq;
+using Spire.Pdf;
+using Spire.Pdf.Graphics;
 
 // This is needed for WindowOrchestrator
 using System.Diagnostics;
@@ -1410,7 +1412,7 @@ namespace AutoCADCleanupTool
         // ===================== NEW: GETPDFSHEETSIZE =====================
         /// <summary>
         /// Lets the user select a PDF underlay reference and reports the sheet size in inches.
-        /// Uses an external Ghostscript process to determine the page size.
+        /// Uses Spire.PDF to determine the page size.
         /// </summary>
         [CommandMethod("GETPDFSHEETSIZE", CommandFlags.Modal)]
         public static void GetPdfSheetSize()
@@ -1483,7 +1485,7 @@ namespace AutoCADCleanupTool
                         }
                         else
                         {
-                            ed.WriteMessage("\nCould not determine PDF page size using Ghostscript. Make sure gswin64c.exe is in your system's PATH.");
+                            ed.WriteMessage("\nCould not determine PDF page size using Spire.PDF.");
                         }
                     }
                     catch (System.Exception ex)
@@ -1502,53 +1504,41 @@ namespace AutoCADCleanupTool
 
         private static Point2d? GetPdfPageSizeInches(string pdfPath, int pageNumber)
         {
-            var startInfo = new ProcessStartInfo
+            try
             {
-                FileName = "gswin64c", // Ensure Ghostscript is in your system's PATH
-                Arguments = $"-o - -dFirstPage={pageNumber} -dLastPage={pageNumber} -sDEVICE=bbox \"{pdfPath}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                // Load a PDF file
+                PdfDocument pdf = new PdfDocument();
+                pdf.LoadFromFile(pdfPath);
 
-            using (var process = Process.Start(startInfo))
-            {
-                if (process == null)
+                // Page numbers in Spire.PDF are 0-indexed
+                int pageIndex = pageNumber - 1;
+
+                if (pageIndex < 0 || pageIndex >= pdf.Pages.Count)
                 {
-                    Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\nFailed to start Ghostscript process.");
+                    var ed = Application.DocumentManager.MdiActiveDocument.Editor;
+                    ed.WriteMessage($"\nError: Page number {pageNumber} is out of range.");
                     return null;
                 }
 
-                // Ghostscript often writes its output (like %%BoundingBox) to StandardError
-                string errorOutput = process.StandardError.ReadToEnd();
-                process.WaitForExit();
+                // Get the specified page
+                PdfPageBase page = pdf.Pages[pageIndex];
 
-                string[] lines = errorOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                string bboxLine = lines.FirstOrDefault(l => l.StartsWith("%%BoundingBox:"));
+                // Get the width and height of the page in "point"
+                float pointWidth = page.Size.Width;
+                float pointHeight = page.Size.Height;
 
-                if (bboxLine != null)
-                {
-                    var parts = bboxLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length == 5)
-                    {
-                        // The bounding box is llx lly urx ury (lower-left x, lower-left y, upper-right x, upper-right y)
-                        // All values are in points.
-                        if (int.TryParse(parts[1], out int llx) &&
-                            int.TryParse(parts[2], out int lly) &&
-                            int.TryParse(parts[3], out int urx) &&
-                            int.TryParse(parts[4], out int ury))
-                        {
-                            double widthInPoints = urx - llx;
-                            double heightInPoints = ury - lly;
-                            // Convert from points to inches (1 point = 1/72 inch)
-                            return new Point2d(widthInPoints / 72.0, heightInPoints / 72.0);
-                        }
-                    }
-                }
+                // Convert to inches (1 inch = 72 points)
+                float inchWidth = pointWidth / 72f;
+                float inchHeight = pointHeight / 72f;
+                
+                pdf.Close();
 
-                // If we reach here, we failed to parse the BoundingBox
-                Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage($"\nGhostscript output did not contain expected BoundingBox info. Error stream: {errorOutput}");
+                return new Point2d(inchWidth, inchHeight);
+            }
+            catch (System.Exception ex)
+            {
+                var ed = Application.DocumentManager.MdiActiveDocument.Editor;
+                ed.WriteMessage($"\nAn exception occurred while getting PDF page size: {ex.Message}");
                 return null;
             }
         }
