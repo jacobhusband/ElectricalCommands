@@ -1257,7 +1257,20 @@ namespace AutoCADCleanupTool
                     }
 
                     // --- NEW: Transform Clip Boundary from World to Local Coordinates ---
-                    Point2d[] rawClipBoundary = pdfRef.GetClipBoundary();
+                    object rawClipBoundaryObject = pdfRef.GetClipBoundary();
+                    Point2d[] rawClipBoundary = null;
+                    if (rawClipBoundaryObject != null)
+                    {
+                        if (rawClipBoundaryObject is Point2dCollection rawClipBoundaryCollection)
+                        {
+                            rawClipBoundary = new Point2d[rawClipBoundaryCollection.Count];
+                            rawClipBoundaryCollection.CopyTo(rawClipBoundary, 0);
+                        }
+                        else if (rawClipBoundaryObject is Point2d[] rawClipBoundaryArray)
+                        {
+                            rawClipBoundary = rawClipBoundaryArray;
+                        }
+                    }
                     Point2d[] relativeClipBoundary = null;
 
                     if (rawClipBoundary != null && rawClipBoundary.Length > 0)
@@ -1530,7 +1543,7 @@ namespace AutoCADCleanupTool
                 // Convert to inches (1 inch = 72 points)
                 float inchWidth = pointWidth / 72f;
                 float inchHeight = pointHeight / 72f;
-                
+
                 pdf.Close();
 
                 return new Point2d(inchWidth, inchHeight);
@@ -1540,6 +1553,209 @@ namespace AutoCADCleanupTool
                 var ed = Application.DocumentManager.MdiActiveDocument.Editor;
                 ed.WriteMessage($"\nAn exception occurred while getting PDF page size: {ex.Message}");
                 return null;
+            }
+        }
+
+        [CommandMethod("GETCLIPBOUNDARY", CommandFlags.Modal)]
+        public static void GetClippingBoundaryInches()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            var opts = new PromptSelectionOptions
+            {
+                MessageForAdding = "\nSelect a clipped underlay (PDF, DWF, DGN, or Image):",
+                SingleOnly = true
+            };
+            var filter = new SelectionFilter(new[] {
+                new TypedValue((int)DxfCode.Start, "PDFUNDERLAY,DWFUNDERLAY,DGNUNDERLAY,IMAGE")
+            });
+
+            var sel = ed.GetSelection(opts, filter);
+            if (sel.Status != PromptStatus.OK)
+            {
+                ed.WriteMessage("\n*Cancel*");
+                return;
+            }
+
+            var id = sel.Value.GetObjectIds().FirstOrDefault();
+            if (id.IsNull) return;
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+                    if (ent == null)
+                    {
+                        ed.WriteMessage("\nSelected object is not a valid entity.");
+                        return;
+                    }
+
+                    Point2d[] boundary = null;
+                    string underlayType = "";
+                    object boundaryObject = null;
+
+                    if (ent is UnderlayReference ur)
+                    {
+                        if (!ur.IsClipped)
+                        {
+                            ed.WriteMessage("\nThe selected underlay is not clipped.");
+                            return;
+                        }
+                        boundaryObject = ur.GetClipBoundary();
+                        underlayType = ur.GetRXClass().DxfName.Replace("UNDERLAY", "");
+                    }
+                    else if (ent is RasterImage ri)
+                    {
+                        if (!ri.IsClipped)
+                        {
+                            ed.WriteMessage("\nThe selected image is not clipped.");
+                            return;
+                        }
+                        boundaryObject = ri.GetClipBoundary();
+                        underlayType = "Image";
+                    }
+
+                    if (boundaryObject is Point2dCollection boundaryCollection)
+                    {
+                        boundary = new Point2d[boundaryCollection.Count];
+                        boundaryCollection.CopyTo(boundary, 0);
+                    }
+                    else if (boundaryObject is Point2d[] boundaryArray)
+                    {
+                        boundary = boundaryArray;
+                    }
+
+                    if (boundary == null || boundary.Length == 0)
+                    {
+                        ed.WriteMessage("\nCould not retrieve a valid clipping boundary.");
+                        return;
+                    }
+
+                    ed.WriteMessage($"\nClipping boundary for {underlayType} in WCS coordinates (inches):");
+
+                    // Get the current drawing units
+                    var insUnits = db.Insunits;
+                    double conversionFactor = 1.0; // Default to inches
+
+                    // Find the conversion factor to inches
+                    switch (insUnits)
+                    {
+                        case UnitsValue.Millimeters:
+                            conversionFactor = 1.0 / 25.4;
+                            break;
+                        case UnitsValue.Centimeters:
+                            conversionFactor = 1.0 / 2.54;
+                            break;
+                        case UnitsValue.Meters:
+                            conversionFactor = 1.0 / 0.0254;
+                            break;
+                        case UnitsValue.Feet:
+                            conversionFactor = 12.0;
+                            break;
+                            // Add other cases as needed
+                    }
+
+
+                    for (int i = 0; i < boundary.Length; i++)
+                    {
+                        Point2d pt = boundary[i];
+                        ed.WriteMessage($"  Vertex {i + 1}: (X={pt.X * conversionFactor:F4}, Y={pt.Y * conversionFactor:F4})");
+                    }
+
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nAn error occurred: {ex.Message}");
+            }
+        }
+
+        [CommandMethod("GETPDFCLIPPING", CommandFlags.Modal)]
+        public static void GetPdfClippingBoundary()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            var opts = new PromptSelectionOptions
+            {
+                MessageForAdding = "\nSelect a clipped PDF underlay:",
+                SingleOnly = true
+            };
+            var filter = new SelectionFilter(new[] {
+                new TypedValue((int)DxfCode.Start, "PDFUNDERLAY")
+            });
+
+            var sel = ed.GetSelection(opts, filter);
+            if (sel.Status != PromptStatus.OK)
+            {
+                ed.WriteMessage("\n*Cancel*");
+                return;
+            }
+
+            var id = sel.Value.GetObjectIds().FirstOrDefault();
+            if (id.IsNull) return;
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+                    if (ent == null)
+                    {
+                        ed.WriteMessage("\nSelected object is not a valid entity.");
+                        return;
+                    }
+
+                    if (ent is UnderlayReference ur)
+                    {
+                        if (!ur.IsClipped)
+                        {
+                            ed.WriteMessage("\nThe selected PDF is not clipped.");
+                            return;
+                        }
+
+                        object boundaryObject = ur.GetClipBoundary();
+                        Point2d[] boundary = null;
+
+                        if (boundaryObject is Point2dCollection boundaryCollection)
+                        {
+                            boundary = new Point2d[boundaryCollection.Count];
+                            boundaryCollection.CopyTo(boundary, 0);
+                        }
+                        else if (boundaryObject is Point2d[] boundaryArray)
+                        {
+                            boundary = boundaryArray;
+                        }
+
+                        if (boundary != null && boundary.Length >= 2)
+                        {
+                            Point2d minPoint = boundary[0];
+                            Point2d maxPoint = boundary[1];
+                            ed.WriteMessage($"\n[DEBUG] Raw WCS Clip Boundary (drawing units):  -> ({minPoint.X:F4}, {minPoint.Y:F4})  -> ({maxPoint.X:F4}, {maxPoint.Y:F4})");
+                        }
+                        else
+                        {
+                            ed.WriteMessage("\nCould not retrieve a valid clipping boundary (requires at least 2 points).");
+                        }
+                    }
+                    else
+                    {
+                        ed.WriteMessage("\nSelected object is not a PDF underlay.");
+                    }
+
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nAn error occurred: {ex.Message}");
             }
         }
     }
