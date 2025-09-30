@@ -15,6 +15,11 @@ using System.Globalization;
 using System.Linq;
 using Spire.Pdf;
 using Spire.Pdf.Graphics;
+using Microsoft.Office.Core;
+using Microsoft.Office.Interop.PowerPoint;
+using PowerPoint = Microsoft.Office.Interop.PowerPoint;
+using AutoCADApp = Autodesk.AutoCAD.ApplicationServices.Application;
+using Shape = Microsoft.Office.Interop.PowerPoint.Shape;
 
 // This is needed for WindowOrchestrator
 using System.Diagnostics;
@@ -300,11 +305,15 @@ namespace AutoCADCleanupTool
                 }
 
                 string path = placement.Path;
-                dynamic pic = shapes.AddPicture(path, false, true, 10, 10);
+                Shape pic = shapes.AddPicture(path, MsoTriState.msoFalse, MsoTriState.msoTrue, 10, 10);
+
 
                 // --- Cropping Logic ---
                 if (placement.ClipBoundary != null && placement.ClipBoundary.Length >= 2)
                 {
+                    pic.ScaleHeight(1.00f, MsoTriState.msoTrue);
+                    pic.ScaleWidth(1.00f, MsoTriState.msoTrue);
+
                     ed.WriteMessage("\nApplying clipping boundary in PowerPoint...");
 
                     var clip = placement.ClipBoundary;
@@ -477,7 +486,7 @@ namespace AutoCADCleanupTool
             try { doc.CommandEnded -= Doc_CommandEnded; } catch { }
             if (_pastePointHandlerAttached)
             {
-                try { Autodesk.AutoCAD.ApplicationServices.Application.Idle -= Application_OnIdleSendPastePoint; } catch { }
+                try { AutoCADApp.Idle -= Application_OnIdleSendPastePoint; } catch { }
                 _pastePointHandlerAttached = false;
             }
             _activePlacement = null;
@@ -662,10 +671,10 @@ namespace AutoCADCleanupTool
 
                 if (_activePasteDocument == null)
                 {
-                    _activePasteDocument = Application.DocumentManager.MdiActiveDocument;
+                    _activePasteDocument = AutoCADApp.DocumentManager.MdiActiveDocument;
                 }
 
-                Autodesk.AutoCAD.ApplicationServices.Application.Idle += Application_OnIdleSendPastePoint;
+                AutoCADApp.Idle += Application_OnIdleSendPastePoint;
                 _pastePointHandlerAttached = true;
             }
             catch { }
@@ -675,10 +684,10 @@ namespace AutoCADCleanupTool
         {
             try
             {
-                Autodesk.AutoCAD.ApplicationServices.Application.Idle -= Application_OnIdleSendPastePoint;
+                AutoCADApp.Idle -= Application_OnIdleSendPastePoint;
                 _pastePointHandlerAttached = false;
 
-                var doc = _activePasteDocument ?? Application.DocumentManager.MdiActiveDocument;
+                var doc = _activePasteDocument ?? AutoCADApp.DocumentManager.MdiActiveDocument;
                 var placement = _activePlacement;
                 if (doc == null || placement == null)
                 {
@@ -712,7 +721,7 @@ namespace AutoCADCleanupTool
             {
                 if (!_isEmbeddingProcessActive || !string.Equals(e.GlobalCommandName, "PASTECLIP", StringComparison.OrdinalIgnoreCase)) return;
 
-                var doc = Application.DocumentManager.MdiActiveDocument;
+                var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
                 if (doc == null) return;
                 var db = doc.Database;
                 var ed = doc.Editor;
@@ -720,7 +729,7 @@ namespace AutoCADCleanupTool
                 _waitingForPasteStart = false;
                 if (_pastePointHandlerAttached)
                 {
-                    try { Autodesk.AutoCAD.ApplicationServices.Application.Idle -= Application_OnIdleSendPastePoint; } catch { }
+                    try { AutoCADApp.Idle -= Application_OnIdleSendPastePoint; } catch { }
                     _pastePointHandlerAttached = false;
                 }
 
@@ -924,7 +933,7 @@ namespace AutoCADCleanupTool
             }
             catch (System.Exception ex)
             {
-                var doc = Application.DocumentManager.MdiActiveDocument;
+                var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
                 if (doc != null)
                 {
                     doc.Editor.WriteMessage($"\nAn unhandled error occurred in CommandEnded: {ex.Message}");
@@ -935,9 +944,9 @@ namespace AutoCADCleanupTool
 
         private static void FinalCleanupOnIdle(object sender, EventArgs e)
         {
-            Application.Idle -= FinalCleanupOnIdle;
+            AutoCADApp.Idle -= FinalCleanupOnIdle;
 
-            var doc = Application.DocumentManager.MdiActiveDocument;
+            var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var db = doc.Database;
             var ed = doc.Editor;
@@ -1015,7 +1024,7 @@ namespace AutoCADCleanupTool
 
         private static void FinishEmbeddingRun(Document doc, Editor ed, Database db)
         {
-            Application.Idle += FinalCleanupOnIdle;
+            AutoCADApp.Idle += FinalCleanupOnIdle;
         }
 
         private static void ProcessNextPaste(Document doc, Editor ed)
@@ -1055,7 +1064,7 @@ namespace AutoCADCleanupTool
 
             if (_pastePointHandlerAttached)
             {
-                try { Autodesk.AutoCAD.ApplicationServices.Application.Idle -= Application_OnIdleSendPastePoint; } catch { }
+                try { AutoCADApp.Idle -= Application_OnIdleSendPastePoint; } catch { }
                 _pastePointHandlerAttached = false;
             }
             doc.SendStringToExecute("_.PASTECLIP\n", true, false, false);
@@ -1065,7 +1074,7 @@ namespace AutoCADCleanupTool
         [CommandMethod("EMBEDFROMPDF", CommandFlags.Modal)]
         public static void EmbedFromPdf()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
+            var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var db = doc.Database;
             var ed = doc.Editor;
@@ -1333,7 +1342,7 @@ namespace AutoCADCleanupTool
             {
                 if (!EnsurePowerPoint(ed)) return;
                 dynamic slide = _pptPresentationShared.Slides[1];
-                var shapes = slide.Shapes;
+                PowerPoint.Shapes shapes = slide.Shapes;
 
                 // Clear previous shapes
                 for (int i = shapes.Count; i >= 1; i--)
@@ -1342,12 +1351,14 @@ namespace AutoCADCleanupTool
                 }
 
                 string path = placement.Path;
-                dynamic pic = shapes.AddPicture(path, false, true, 10, 10);
+                Shape pic = shapes.AddPicture(path, MsoTriState.msoFalse, MsoTriState.msoTrue, 10, 10);
 
                 // --- Percentage-Based Cropping Logic ---
                 if (placement.ClipBoundary != null && placement.ClipBoundary.Length >= 2)
                 {
                     ed.WriteMessage("\nApplying percentage-based clipping boundary in PowerPoint...");
+
+                    pic.ScaleWidth(1.00f, MsoTriState.msoTrue);
 
                     // Get the size of the inserted picture in PowerPoint points
                     float picWidthInPoints = pic.Width;
@@ -1386,27 +1397,6 @@ namespace AutoCADCleanupTool
 
                     ed.WriteMessage($"\n[DEBUG] Crop values (pts): L={cropLeft:F2}, T={cropTop:F2}, R={cropRight:F2}, B={cropBottom:F2}");
                 }
-
-                // Apply rotation
-                float picW = pic.Width;
-                float picH = pic.Height;
-                double destWidth = placement.U.Length;
-                double destHeight = placement.V.Length;
-
-                bool picIsLandscape = picW > picH;
-                bool destIsLandscape = destWidth > destHeight;
-
-                double rotationAngleRad = Math.Atan2(placement.U.Y, placement.U.X);
-
-                if (picIsLandscape != destIsLandscape)
-                {
-                    rotationAngleRad -= Math.PI / 2.0;
-                }
-
-                float rotationAngleDeg = (float)(-rotationAngleRad * 180.0 / Math.PI);
-                pic.Rotation = rotationAngleDeg;
-
-                ed.WriteMessage($"\n[DEBUG] Applied rotation: {rotationAngleDeg:F2} degrees");
             }
             catch (System.Exception ex)
             {
@@ -1418,7 +1408,7 @@ namespace AutoCADCleanupTool
         [CommandMethod("GetPdfPageNumber", CommandFlags.Modal)]
         public static void GetPdfPageNumber()
         {
-            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Document doc = AutoCADApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             Database db = doc.Database;
             Editor ed = doc.Editor;
@@ -1493,7 +1483,7 @@ namespace AutoCADCleanupTool
         [CommandMethod("GETPDFSHEETSIZE", CommandFlags.Modal)]
         public static void GetPdfSheetSize()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
+            var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var db = doc.Database;
             var ed = doc.Editor;
@@ -1591,7 +1581,7 @@ namespace AutoCADCleanupTool
 
                 if (pageIndex < 0 || pageIndex >= pdf.Pages.Count)
                 {
-                    var ed = Application.DocumentManager.MdiActiveDocument.Editor;
+                    var ed = AutoCADApp.DocumentManager.MdiActiveDocument.Editor;
                     ed.WriteMessage($"\nError: Page number {pageNumber} is out of range.");
                     return null;
                 }
@@ -1613,7 +1603,7 @@ namespace AutoCADCleanupTool
             }
             catch (System.Exception ex)
             {
-                var ed = Application.DocumentManager.MdiActiveDocument.Editor;
+                var ed = AutoCADApp.DocumentManager.MdiActiveDocument.Editor;
                 ed.WriteMessage($"\nAn exception occurred while getting PDF page size: {ex.Message}");
                 return null;
             }
@@ -1622,7 +1612,7 @@ namespace AutoCADCleanupTool
         [CommandMethod("GETCLIPBOUNDARY", CommandFlags.Modal)]
         public static void GetClippingBoundaryInches()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
+            var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var db = doc.Database;
             var ed = doc.Editor;
@@ -1741,7 +1731,7 @@ namespace AutoCADCleanupTool
         [CommandMethod("GETPDFCLIPPING", CommandFlags.Modal)]
         public static void GetPdfClippingBoundary()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
+            var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var db = doc.Database;
             var ed = doc.Editor;
