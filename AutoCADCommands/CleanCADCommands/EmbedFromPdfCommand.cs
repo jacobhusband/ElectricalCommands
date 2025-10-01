@@ -155,61 +155,6 @@ namespace AutoCADCleanupTool
 
                                 ed.WriteMessage($"\n[DEBUG] PDF Sheet Size (inches): W={sheetWidthInches:F4}\", H={sheetHeightInches:F4}\"");
 
-                                // Calculate the scale factor: drawing units per inch
-                                double unitsPerInchX = pdfWidthInUnits / sheetWidthInches;
-                                double unitsPerInchY = pdfHeightInUnits / sheetHeightInches;
-
-                                ed.WriteMessage($"\n[DEBUG] Scale Factor: {unitsPerInchX:F4} units/inch (X), {unitsPerInchY:F4} units/inch (Y)");
-
-                                // Get the PDF origin in WCS
-                                Point3d pdfOrigin = pdfTransform.CoordinateSystem3d.Origin;
-                                ed.WriteMessage($"\n[DEBUG] PDF Origin (WCS): ({pdfOrigin.X:F4}, {pdfOrigin.Y:F4})");
-
-                                // Transform the clip boundary from WCS into the PDF's local coordinate system
-                                Matrix3d inverseTransform = pdfTransform.Inverse();
-
-                                double minLocalX = double.MaxValue;
-                                double minLocalY = double.MaxValue;
-                                double maxLocalX = double.MinValue;
-                                double maxLocalY = double.MinValue;
-
-                                foreach (var clipPt in wcsClipBoundary)
-                                {
-                                    Point3d localPt = new Point3d(clipPt.X, clipPt.Y, 0).TransformBy(inverseTransform);
-                                    if (localPt.X < minLocalX) minLocalX = localPt.X;
-                                    if (localPt.Y < minLocalY) minLocalY = localPt.Y;
-                                    if (localPt.X > maxLocalX) maxLocalX = localPt.X;
-                                    if (localPt.Y > maxLocalY) maxLocalY = localPt.Y;
-                                }
-
-                                ed.WriteMessage($"\n[DEBUG] Clip in PDF Local Space (units): MinU={minLocalX:F4}, MinV={minLocalY:F4}, MaxU={maxLocalX:F4}, MaxV={maxLocalY:F4}");
-
-                                double clipMinX_inches = minLocalX / unitsPerInchX;
-                                double clipMinY_inches = minLocalY / unitsPerInchY;
-                                double clipMaxX_inches = maxLocalX / unitsPerInchX;
-                                double clipMaxY_inches = maxLocalY / unitsPerInchY;
-
-                                clipMinX_inches = Math.Max(0.0, Math.Min(sheetWidthInches, clipMinX_inches));
-                                clipMaxX_inches = Math.Max(0.0, Math.Min(sheetWidthInches, clipMaxX_inches));
-                                clipMinY_inches = Math.Max(0.0, Math.Min(sheetHeightInches, clipMinY_inches));
-                                clipMaxY_inches = Math.Max(0.0, Math.Min(sheetHeightInches, clipMaxY_inches));
-
-                                if (clipMaxX_inches < clipMinX_inches)
-                                {
-                                    double swap = clipMinX_inches;
-                                    clipMinX_inches = clipMaxX_inches;
-                                    clipMaxX_inches = swap;
-                                }
-
-                                if (clipMaxY_inches < clipMinY_inches)
-                                {
-                                    double swap = clipMinY_inches;
-                                    clipMinY_inches = clipMaxY_inches;
-                                    clipMaxY_inches = swap;
-                                }
-
-                                ed.WriteMessage($"\n[DEBUG] Clip in Inches (from origin): MinX={clipMinX_inches:F4}\", MinY={clipMinY_inches:F4}\", MaxX={clipMaxX_inches:F4}\", MaxY={clipMaxY_inches:F4}\"");
-
                                 // Calculate percentages based on the sheet size
                                 double leftPercent = minX_wcs / sheetWidthInches;
                                 double bottomPercent = minY_wcs / sheetHeightInches;
@@ -226,8 +171,8 @@ namespace AutoCADCleanupTool
                                 // Store as Point2d array: [0] = min (left, bottom), [1] = max (right, top)
                                 percentageClipBoundary = new Point2d[]
                                 {
-                            new Point2d(leftPercent, bottomPercent),
-                            new Point2d(rightPercent, topPercent)
+                                    new Point2d(leftPercent, bottomPercent),
+                                    new Point2d(rightPercent, topPercent)
                                 };
                             }
                         }
