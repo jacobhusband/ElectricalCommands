@@ -272,9 +272,10 @@ namespace AutoCADCleanupTool
                         if (string.IsNullOrEmpty(resolvedPdfPath) || !File.Exists(resolvedPdfPath))
                         { ed.WriteMessage($"\nSkipping missing PDF file: {pdfPath}"); continue; }
 
-                        ed.WriteMessage($"\nProcessing {Path.GetFileName(resolvedPdfPath)}...");
+                        int pageNumber = ResolvePdfPageNumber(pdfRef, pdfDef);
+                        ed.WriteMessage($"\nProcessing {Path.GetFileName(resolvedPdfPath)} (page {pageNumber})...");
 
-                        string pngPath = ConvertPdfToPng(resolvedPdfPath, ed);
+                        string pngPath = ConvertPdfToPng(resolvedPdfPath, ed, pageNumber);
                         if (string.IsNullOrEmpty(pngPath)) { ed.WriteMessage("\nFailed to convert PDF to PNG. Skipping."); continue; }
 
                         ObjectId imageDictId = RasterImageDef.GetImageDictionary(db);
@@ -498,38 +499,37 @@ namespace AutoCADCleanupTool
             ed.WriteMessage($"\nDrew {boundaryCount} PDF clip boundaries in red.");
         }
 
-        private static string ConvertPdfToPng(string pdfPath, Editor ed)
+        private static string ConvertPdfToPng(string pdfPath, Editor ed, int pageNumber = 1)
         {
             try
             {
+                int safePageNumber = pageNumber > 0 ? pageNumber : 1;
+                int pageIndex = safePageNumber - 1;
                 string tempDir = Path.Combine(Path.GetTempPath(), "AutoCADCleanupTool", "PdfToPng");
                 Directory.CreateDirectory(tempDir);
                 string pngPath = Path.Combine(
                     tempDir,
-                    Path.GetFileNameWithoutExtension(pdfPath) + "_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".png"
+                    $"{Path.GetFileNameWithoutExtension(pdfPath)}_p{safePageNumber:D3}_{Guid.NewGuid().ToString("N").Substring(0, 8)}.png"
                 );
-
                 var settings = new MagickReadSettings { Density = new Density(300, 300) };
-                ed.WriteMessage("\n[INFO] Converting PDF to PNG using Magick.NET at 300 DPI...");
-
+                ed.WriteMessage($"\n[INFO] Converting PDF page {safePageNumber} to PNG using Magick.NET at 300 DPI...");
                 using (var images = new MagickImageCollection())
                 {
-                    images.Read(pdfPath + "[0]", settings);
+                    string pageSpecifier = $"{pdfPath}[{pageIndex}]";
+                    images.Read(pageSpecifier, settings);
                     if (images.Count == 0)
                     {
-                        ed.WriteMessage($"\nCould not read page 1 from PDF: {pdfPath}.");
+                        ed.WriteMessage($"\nCould not read page {safePageNumber} from PDF: {pdfPath}.");
                         return null;
                     }
-
-                    using (var first = images.First())
+                    using (var pageImage = (MagickImage)images[0].Clone())
                     {
-                        first.Format = MagickFormat.Png;
-                        first.BackgroundColor = MagickColors.White;
-                        first.Alpha(AlphaOption.Off);
-                        first.Write(pngPath);
+                        pageImage.Format = MagickFormat.Png;
+                        pageImage.BackgroundColor = MagickColors.White;
+                        pageImage.Alpha(AlphaOption.Off);
+                        pageImage.Write(pngPath);
                     }
                 }
-
                 if (File.Exists(pngPath) && new FileInfo(pngPath).Length > 0)
                 {
                     try
@@ -538,15 +538,12 @@ namespace AutoCADCleanupTool
                         {
                             if (image.Width > 0 && image.Height > 0)
                             {
-                                ed.WriteMessage($"\nSuccessfully created PNG: {image.Width}x{image.Height} pixels, {new FileInfo(pngPath).Length} bytes");
+                                ed.WriteMessage($"\nSuccessfully created PNG for page {safePageNumber}: {image.Width}x{image.Height} pixels, {new FileInfo(pngPath).Length} bytes");
                                 return pngPath;
                             }
-                            else
-                            {
-                                ed.WriteMessage("\nConversion failed: PNG has invalid dimensions.");
-                                File.Delete(pngPath);
-                                return null;
-                            }
+                            ed.WriteMessage("\nConversion failed: PNG has invalid dimensions.");
+                            File.Delete(pngPath);
+                            return null;
                         }
                     }
                     catch (System.Exception ex)
@@ -556,7 +553,6 @@ namespace AutoCADCleanupTool
                         return null;
                     }
                 }
-
                 ed.WriteMessage("\nConversion failed: Output PNG is empty or missing.");
                 if (File.Exists(pngPath)) File.Delete(pngPath);
                 return null;

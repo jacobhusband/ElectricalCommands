@@ -152,14 +152,15 @@ namespace AutoCADCleanupTool
                             continue;
                         }
 
-                        string pngPath = ConvertPdfToPng(resolvedPdfPath, ed);
+                        int pageNumber = ResolvePdfPageNumber(pdfRef, pdfDef);
+                        string pngPath = ConvertPdfToPng(resolvedPdfPath, ed, pageNumber);
                         if (string.IsNullOrEmpty(pngPath) || !File.Exists(pngPath))
                         {
                             ed.WriteMessage($"\nFailed to convert PDF '{pdfDef.SourceFileName}' to PNG. Skipping.");
                             continue;
                         }
 
-                        var placement = BuildPlacementForPdf(pdfRef, pdfDef, pngPath, resolvedPdfPath, ed);
+                        var placement = BuildPlacementForPdf(pdfRef, pdfDef, pngPath, resolvedPdfPath, pageNumber, ed);
                         if (placement == null)
                         {
                             try { File.Delete(pngPath); } catch { }
@@ -178,7 +179,7 @@ namespace AutoCADCleanupTool
             return queued;
         }
 
-        private static ImagePlacement BuildPlacementForPdf(UnderlayReference pdfRef, UnderlayDefinition pdfDef, string pngPath, string resolvedPdfPath, Editor ed)
+        private static ImagePlacement BuildPlacementForPdf(UnderlayReference pdfRef, UnderlayDefinition pdfDef, string pngPath, string resolvedPdfPath, int pageNumber, Editor ed)
         {
             var transform = pdfRef.Transform;
             Point3d origin = transform.CoordinateSystem3d.Origin;
@@ -223,12 +224,6 @@ namespace AutoCADCleanupTool
 
                         if (minX <= maxX && minY <= maxY)
                         {
-                            int pageNumber = 1;
-                            if (int.TryParse(pdfDef.ItemName, out int parsedPage) && parsedPage > 0)
-                            {
-                                pageNumber = parsedPage;
-                            }
-
                             (Point2d[] clip, double leftPercent, double bottomPercent, double rightPercent, double topPercent) =
                                 ComputeClipPercentages(resolvedPdfPath, pageNumber, minX, minY, maxX, maxY, transform, origin, uVec, vVec, ed);
 
@@ -279,6 +274,64 @@ namespace AutoCADCleanupTool
                 ClipBoundary = percentageClipBoundary
             };
         }
+        private static int ResolvePdfPageNumber(UnderlayReference pdfRef, UnderlayDefinition pdfDef)
+        {
+            int page = TryParsePdfPage(SafeGetItemName(pdfRef));
+            if (page > 0) return page;
+
+            page = TryParsePdfPage(pdfDef?.ItemName);
+            if (page > 0) return page;
+
+            return 1;
+        }
+
+        private static string SafeGetItemName(UnderlayReference pdfRef)
+        {
+            if (pdfRef == null) return null;
+            try
+            {
+                var prop = pdfRef.GetType().GetProperty("ItemName");
+                if (prop != null && prop.PropertyType == typeof(string))
+                {
+                    return prop.GetValue(pdfRef) as string;
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
+        private static int TryParsePdfPage(string candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) return -1;
+            candidate = candidate.Trim();
+
+            if (int.TryParse(candidate, out int direct) && direct > 0)
+            {
+                return direct;
+            }
+
+            int value = 0;
+            bool foundDigit = false;
+
+            foreach (char c in candidate)
+            {
+                if (char.IsDigit(c))
+                {
+                    value = (value * 10) + (c - '0');
+                    foundDigit = true;
+                }
+                else if (foundDigit)
+                {
+                    break;
+                }
+            }
+
+            return (foundDigit && value > 0) ? value : -1;
+        }
+
         private static (Point2d[] clip, double left, double bottom, double right, double top) ComputeClipPercentages(
             string resolvedPdfPath,
             int pageNumber,
