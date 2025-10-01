@@ -310,8 +310,6 @@ namespace AutoCADCleanupTool
                 // --- Cropping Logic ---
                 if (placement.ClipBoundary != null && placement.ClipBoundary.Length >= 2)
                 {
-                    pic.ScaleHeight(1.00f, MsoTriState.msoTrue);
-                    pic.ScaleWidth(1.00f, MsoTriState.msoTrue);
 
                     ed.WriteMessage("\nApplying clipping boundary in PowerPoint...");
 
@@ -713,7 +711,7 @@ namespace AutoCADCleanupTool
                 string x = placement.Pos.X.ToString("G17", CultureInfo.InvariantCulture);
                 string y = placement.Pos.Y.ToString("G17", CultureInfo.InvariantCulture);
 
-                doc.SendStringToExecute($"{x},{y}\n1\n0\n", true, false, false);
+                doc.SendStringToExecute($"{x},{y}\n", true, false, false);
             }
             catch
             {
@@ -786,37 +784,19 @@ namespace AutoCADCleanupTool
                             var ext = ole.GeometricExtents;
                             double oleWidth = Math.Max(1e-8, ext.MaxPoint.X - ext.MinPoint.X);
                             double oleHeight = Math.Max(1e-8, ext.MaxPoint.Y - ext.MinPoint.Y);
-                            Point3d oleCenter = ext.MinPoint + (ext.MaxPoint - ext.MinPoint) * 0.5;
 
                             var destU = target.U;
                             var destV = target.V;
                             double destWidth = destU.Length;
                             double destHeight = destV.Length;
 
-                            if (destWidth < 1e-8 || destHeight < 1e-8)
+                            if (destWidth < 1e-8 || destHeight < 1e-8 || oleWidth < 1e-8 || oleHeight < 1e-8)
                             {
-                                ed.WriteMessage($"\nSkipping degenerate original entity {target.OriginalEntityId} with zero area.");
+                                ed.WriteMessage($"\nSkipping transform: invalid geometry for {target.OriginalEntityId}.");
                                 ole.Erase();
-                                tr.Commit(); // Commit the erase
+                                tr.Commit();
                                 return;
                             }
-
-                            ole.TransformBy(Matrix3d.Displacement(Point3d.Origin - oleCenter));
-
-                            double scaleX = destWidth / oleWidth;
-                            double scaleY = destHeight / oleHeight;
-
-                            if (double.IsNaN(scaleX) || double.IsInfinity(scaleX) || scaleX <= 0.0) scaleX = 1.0;
-                            if (double.IsNaN(scaleY) || double.IsInfinity(scaleY) || scaleY <= 0.0) scaleY = 1.0;
-
-                            var scaleMatrix = new Matrix3d(new double[]
-                            {
-                                scaleX, 0.0,   0.0, 0.0,
-                                0.0,   scaleY, 0.0, 0.0,
-                                0.0,   0.0,    1.0, 0.0,
-                                0.0,   0.0,    0.0, 1.0
-                            });
-                            ole.TransformBy(scaleMatrix);
 
                             Vector3d destNormal = destU.CrossProduct(destV);
                             if (destNormal.Length < 1e-8)
@@ -824,23 +804,25 @@ namespace AutoCADCleanupTool
                                 destNormal = Vector3d.ZAxis;
                             }
 
-                            Vector3d destUUnit = destWidth > 1e-8 ? destU / destWidth : Vector3d.XAxis;
-                            Vector3d destVUnit = destHeight > 1e-8 ? destV / destHeight : Vector3d.YAxis;
-                            Vector3d destNormalUnit = destNormal.GetNormal();
+                            Point3d oleOrigin = ext.MinPoint;
+                            Vector3d oleU = new Vector3d(oleWidth, 0.0, 0.0);
+                            Vector3d oleV = new Vector3d(0.0, oleHeight, 0.0);
+                            Vector3d oleNormal = oleU.CrossProduct(oleV);
 
-                            var orientationMatrix = Matrix3d.AlignCoordinateSystem(
-                                Point3d.Origin,
-                                Vector3d.XAxis,
-                                Vector3d.YAxis,
-                                Vector3d.ZAxis,
-                                Point3d.Origin,
-                                destUUnit,
-                                destVUnit,
-                                destNormalUnit);
-                            ole.TransformBy(orientationMatrix);
+                            var align = Matrix3d.AlignCoordinateSystem(
+                                oleOrigin,
+                                oleU,
+                                oleV,
+                                oleNormal,
+                                target.Pos,
+                                destU,
+                                destV,
+                                destNormal);
 
-                            Point3d destCenter = target.Pos + (destU * 0.5) + (destV * 0.5);
-                            ole.TransformBy(Matrix3d.Displacement(destCenter - Point3d.Origin));
+                            ole.TransformBy(align);
+
+                            var finalExt = ole.GeometricExtents;
+                            ed.WriteMessage($"\n[DEBUG] Transform complete: src=({oleWidth:F4},{oleHeight:F4}) dest=({destWidth:F4},{destHeight:F4}) final=({finalExt.MaxPoint.X - finalExt.MinPoint.X:F4},{finalExt.MaxPoint.Y - finalExt.MinPoint.Y:F4}) pos=({target.Pos.X:F4},{target.Pos.Y:F4},{target.Pos.Z:F4})");
 
                             try { ole.Layer = "0"; } catch { }
                         }

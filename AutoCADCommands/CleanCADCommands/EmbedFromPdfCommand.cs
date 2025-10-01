@@ -182,6 +182,10 @@ namespace AutoCADCleanupTool
         private static ImagePlacement BuildPlacementForPdf(UnderlayReference pdfRef, UnderlayDefinition pdfDef, string pngPath, string resolvedPdfPath, int pageNumber, Editor ed)
         {
             var transform = pdfRef.Transform;
+            double rawMinX = double.NaN, rawMinY = double.NaN, rawMaxX = double.NaN, rawMaxY = double.NaN;
+            double leftPercent = double.NaN, bottomPercent = double.NaN, rightPercent = double.NaN, topPercent = double.NaN;
+            bool clipDerived = false;
+            string FormatPerc(double value) => double.IsNaN(value) || double.IsInfinity(value) ? "NaN" : value.ToString("F4");
             Point3d origin = transform.CoordinateSystem3d.Origin;
             Vector3d uVec = transform.CoordinateSystem3d.Xaxis;
             Vector3d vVec = transform.CoordinateSystem3d.Yaxis;
@@ -224,8 +228,17 @@ namespace AutoCADCleanupTool
 
                         if (minX <= maxX && minY <= maxY)
                         {
-                            (Point2d[] clip, double leftPercent, double bottomPercent, double rightPercent, double topPercent) =
-                                ComputeClipPercentages(resolvedPdfPath, pageNumber, minX, minY, maxX, maxY, transform, origin, uVec, vVec, ed);
+                            rawMinX = minX;
+                            rawMinY = minY;
+                            rawMaxX = maxX;
+                            rawMaxY = maxY;
+
+                            var clipResult = ComputeClipPercentages(resolvedPdfPath, pageNumber, minX, minY, maxX, maxY, transform, origin, uVec, vVec, ed);
+                            var clip = clipResult.clip;
+                            leftPercent = clipResult.left;
+                            bottomPercent = clipResult.bottom;
+                            rightPercent = clipResult.right;
+                            topPercent = clipResult.top;
 
                             if (clip != null)
                             {
@@ -234,6 +247,7 @@ namespace AutoCADCleanupTool
 
                                 if (widthFactor > 1e-6 && heightFactor > 1e-6)
                                 {
+                                    clipDerived = true;
                                     percentageClipBoundary = clip;
                                     placementOrigin = origin + (uVec * leftPercent) + (vVec * bottomPercent);
                                     placementU = uVec * widthFactor;
@@ -258,6 +272,11 @@ namespace AutoCADCleanupTool
                 }
             }
 
+            string fileLabel = string.IsNullOrEmpty(resolvedPdfPath) ? "<unknown>" : Path.GetFileName(resolvedPdfPath);
+            string clipDebug = clipDerived
+                ? $"clip rawX=[{FormatPerc(rawMinX)},{FormatPerc(rawMaxX)}] rawY=[{FormatPerc(rawMinY)},{FormatPerc(rawMaxY)}] perc=[L={FormatPerc(leftPercent)},B={FormatPerc(bottomPercent)},R={FormatPerc(rightPercent)},T={FormatPerc(topPercent)}]"
+                : "clip none";
+            ed?.WriteMessage($"\n[DEBUG] Placement '{fileLabel}' page {pageNumber}: origin=({placementOrigin.X:F4},{placementOrigin.Y:F4},{placementOrigin.Z:F4}), Ulen={placementU.Length:F4}, Vlen={placementV.Length:F4}; {clipDebug}");
             if (placementU.Length < 1e-8 || placementV.Length < 1e-8)
             {
                 ed.WriteMessage("\nSkipping PDF underlay due to zero-sized placement vectors.");
