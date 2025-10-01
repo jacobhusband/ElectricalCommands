@@ -161,6 +161,7 @@ namespace AutoCADCleanupTool
             public Vector3d V;
             public ObjectId OriginalEntityId; // Changed from ImageId to be generic
             public Point2d[] ClipBoundary; // For PDF cropping
+            public ObjectId TargetBtrId = ObjectId.Null;
             public double Scale = 1.0;
         }
 
@@ -183,8 +184,6 @@ namespace AutoCADCleanupTool
         // State management to prevent re-entrancy and zoom to the final image
         private static bool _isEmbeddingProcessActive = false;
         private static ObjectId _finalPastedOleForZoom = ObjectId.Null;
-        // Store original PowerPoint image dimensions for scaling correction
-        private static readonly Dictionary<ObjectId, Point2d> _originalPptImageDims = new Dictionary<ObjectId, Point2d>();
         // Track XREFs that contained images that were embedded, so they can be detached
         private static readonly HashSet<ObjectId> _xrefsToDetach = new HashSet<ObjectId>();
 
@@ -374,9 +373,38 @@ namespace AutoCADCleanupTool
                 }
 
                 // Store original (pre-crop) dimensions for later scaling
-                _originalPptImageDims[placement.OriginalEntityId] = new Point2d(pic.Width, pic.Height);
+
+                try { System.Windows.Forms.Clipboard.Clear(); } catch { }
 
                 pic.Copy();
+
+                dynamic pngRange = null;
+                try
+                {
+                    pngRange = slide.Shapes.PasteSpecial(PowerPoint.PpPasteDataType.ppPastePNG);
+                    Shape pngShape = null;
+                    try { pngShape = pngRange[1]; } catch { }
+                    if (pngShape != null)
+                    {
+                        pngShape.Copy();
+                        try { pngShape.Delete(); } catch { }
+                    }
+                    else
+                    {
+                        try { pngRange.Delete(); } catch { }
+                    }
+                }
+                catch { }
+                finally
+                {
+                    if (pngRange != null)
+                    {
+                        try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(pngRange); } catch { }
+                    }
+                }
+
+                try { pic.Delete(); } catch { }
+
                 return true;
             }
             catch (System.Exception ex)
@@ -391,7 +419,7 @@ namespace AutoCADCleanupTool
         {
             // This is the same function as before, now repurposed for the XREF workflow specifically.
             // It will be called by EMBEDFROMXREFS.
-            // The new EMBEDFROMPDF will call PrepareClipboardWithCroppedImage.
+            // The new EMBEDFROMPDFS will call PrepareClipboardWithCroppedImage.
             placement.ClipBoundary = null; // Ensure no cropping happens for this path
             return PrepareClipboardWithCroppedImage(placement, ed);
         }
@@ -756,8 +784,8 @@ namespace AutoCADCleanupTool
                         try
                         {
                             var ext = ole.GeometricExtents;
-                            double oleW_bbox = Math.Max(1e-8, ext.MaxPoint.X - ext.MinPoint.X);
-                            double oleH_bbox = Math.Max(1e-8, ext.MaxPoint.Y - ext.MinPoint.Y);
+                            double oleWidth = Math.Max(1e-8, ext.MaxPoint.X - ext.MinPoint.X);
+                            double oleHeight = Math.Max(1e-8, ext.MaxPoint.Y - ext.MinPoint.Y);
                             Point3d oleCenter = ext.MinPoint + (ext.MaxPoint - ext.MinPoint) * 0.5;
 
                             var destU = target.U;
@@ -773,88 +801,45 @@ namespace AutoCADCleanupTool
                                 return;
                             }
 
-                            Point2d originalPptDims = Point2d.Origin;
-                            if (_originalPptImageDims.ContainsKey(target.OriginalEntityId))
-                            {
-                                originalPptDims = _originalPptImageDims[target.OriginalEntityId];
-                                _originalPptImageDims.Remove(target.OriginalEntityId);
-                            }
-                            else
-                            {
-                                ed.WriteMessage($"\nWarning: Original PowerPoint image dimensions not found for {target.OriginalEntityId}. Scaling might be incorrect.");
-                                originalPptDims = new Point2d(oleW_bbox, oleH_bbox);
-                            }
-
-                            double imgW_orig = originalPptDims.X;
-                            double imgH_orig = originalPptDims.Y;
-
-                            double rotationAngleRad_ppt = Math.Atan2(destU.Y, destU.X);
-                            bool picIsLandscape = imgW_orig > imgH_orig;
-                            bool destIsLandscape = destWidth > destHeight;
-
-                            if (picIsLandscape != destIsLandscape)
-                            {
-                                rotationAngleRad_ppt -= Math.PI / 2.0;
-                            }
-
-                            double c = Math.Abs(Math.Cos(rotationAngleRad_ppt));
-                            double s = Math.Abs(Math.Sin(rotationAngleRad_ppt));
-
-                            double effectiveOleWidth, effectiveOleHeight;
-
-                            double determinant = (c * c - s * s);
-                            if (Math.Abs(determinant) < 1e-8)
-                            {
-                                effectiveOleWidth = Math.Max(imgW_orig, imgH_orig);
-                                effectiveOleHeight = Math.Min(imgW_orig, imgH_orig);
-                                if (rotationAngleRad_ppt % (Math.PI / 2) != 0)
-                                {
-                                    effectiveOleWidth = imgW_orig;
-                                    effectiveOleHeight = imgH_orig;
-                                }
-                                else
-                                {
-                                    if (Math.Abs(rotationAngleRad_ppt % Math.PI) < 1e-8)
-                                    {
-                                        effectiveOleWidth = imgW_orig;
-                                        effectiveOleHeight = imgH_orig;
-                                    }
-                                    else
-                                    {
-                                        effectiveOleWidth = imgH_orig;
-                                        effectiveOleHeight = imgW_orig;
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                effectiveOleWidth = (oleW_bbox * c - oleH_bbox * s) / determinant;
-                                effectiveOleHeight = (oleH_bbox * c - oleW_bbox * s) / determinant;
-                            }
-
-                            double initialScaleFactor = destWidth / effectiveOleWidth;
-                            ole.TransformBy(Matrix3d.Scaling(initialScaleFactor, oleCenter));
-
                             ole.TransformBy(Matrix3d.Displacement(Point3d.Origin - oleCenter));
 
-                            double finalOleHeight = effectiveOleHeight * initialScaleFactor;
-                            double aspectScaleFactor = destHeight / finalOleHeight;
+                            double scaleX = destWidth / oleWidth;
+                            double scaleY = destHeight / oleHeight;
 
-                            var localYAxis = destU.GetPerpendicularVector().GetNormal();
-                            var v = localYAxis;
-                            double s_aspect = aspectScaleFactor;
-                            double sm1_aspect = s_aspect - 1.0;
+                            if (double.IsNaN(scaleX) || double.IsInfinity(scaleX) || scaleX <= 0.0) scaleX = 1.0;
+                            if (double.IsNaN(scaleY) || double.IsInfinity(scaleY) || scaleY <= 0.0) scaleY = 1.0;
 
-                            var data = new double[] {
-                                1.0 + sm1_aspect * v.X * v.X, sm1_aspect * v.X * v.Y,         sm1_aspect * v.X * v.Z,         0.0,
-                                sm1_aspect * v.Y * v.X,         1.0 + sm1_aspect * v.Y * v.Y, sm1_aspect * v.Y * v.Z,         0.0,
-                                sm1_aspect * v.Z * v.X,         sm1_aspect * v.Z * v.Y,         1.0 + sm1_aspect * v.Z * v.Z, 0.0,
-                                0.0,                     0.0,                     0.0,                     1.0
-                            };
-                            var scalingMatrix = new Matrix3d(data);
-                            ole.TransformBy(scalingMatrix);
+                            var scaleMatrix = new Matrix3d(new double[]
+                            {
+                                scaleX, 0.0,   0.0, 0.0,
+                                0.0,   scaleY, 0.0, 0.0,
+                                0.0,   0.0,    1.0, 0.0,
+                                0.0,   0.0,    0.0, 1.0
+                            });
+                            ole.TransformBy(scaleMatrix);
 
-                            var destCenter = target.Pos + (destU * 0.5) + (destV * 0.5);
+                            Vector3d destNormal = destU.CrossProduct(destV);
+                            if (destNormal.Length < 1e-8)
+                            {
+                                destNormal = Vector3d.ZAxis;
+                            }
+
+                            Vector3d destUUnit = destWidth > 1e-8 ? destU / destWidth : Vector3d.XAxis;
+                            Vector3d destVUnit = destHeight > 1e-8 ? destV / destHeight : Vector3d.YAxis;
+                            Vector3d destNormalUnit = destNormal.GetNormal();
+
+                            var orientationMatrix = Matrix3d.AlignCoordinateSystem(
+                                Point3d.Origin,
+                                Vector3d.XAxis,
+                                Vector3d.YAxis,
+                                Vector3d.ZAxis,
+                                Point3d.Origin,
+                                destUUnit,
+                                destVUnit,
+                                destNormalUnit);
+                            ole.TransformBy(orientationMatrix);
+
+                            Point3d destCenter = target.Pos + (destU * 0.5) + (destV * 0.5);
                             ole.TransformBy(Matrix3d.Displacement(destCenter - Point3d.Origin));
 
                             try { ole.Layer = "0"; } catch { }
@@ -1008,6 +993,62 @@ namespace AutoCADCleanupTool
             AutoCADApp.Idle += FinalCleanupOnIdle;
         }
 
+        private static bool EnsurePlacementSpace(Document doc, ImagePlacement placement, Editor ed)
+        {
+            if (doc == null || placement == null || placement.TargetBtrId.IsNull)
+            {
+                return true;
+            }
+
+            var db = doc.Database;
+            if (db.CurrentSpaceId == placement.TargetBtrId)
+            {
+                return true;
+            }
+
+            try
+            {
+                string layoutName = null;
+                using (var tr = db.TransactionManager.StartOpenCloseTransaction())
+                {
+                    var btr = tr.GetObject(placement.TargetBtrId, OpenMode.ForRead) as BlockTableRecord;
+                    if (btr == null || !btr.IsLayout)
+                    {
+                        ed?.WriteMessage("\nSkipping placement: owner space is not a layout or is unavailable.");
+                        return false;
+                    }
+
+                    var layout = tr.GetObject(btr.LayoutId, OpenMode.ForRead) as Layout;
+                    if (layout == null)
+                    {
+                        ed?.WriteMessage("\nSkipping placement: layout information could not be resolved.");
+                        return false;
+                    }
+
+                    layoutName = layout.LayoutName;
+                }
+
+                var lm = LayoutManager.Current;
+                if (lm == null)
+                {
+                    ed?.WriteMessage("\nUnable to activate layout manager for placement.");
+                    return false;
+                }
+
+                if (!string.Equals(lm.CurrentLayout, layoutName, StringComparison.OrdinalIgnoreCase))
+                {
+                    lm.CurrentLayout = layoutName;
+                }
+
+                return db.CurrentSpaceId == placement.TargetBtrId;
+            }
+            catch (System.Exception ex)
+            {
+                ed?.WriteMessage($"\nFailed to switch to target layout: {ex.Message}");
+                return false;
+            }
+        }
+
         private static void ProcessNextPaste(Document doc, Editor ed)
         {
             if (!_isEmbeddingProcessActive || _pending.Count == 0)
@@ -1016,6 +1057,16 @@ namespace AutoCADCleanupTool
                 return;
             }
             var target = _pending.Peek();
+
+            if (!EnsurePlacementSpace(doc, target, ed))
+            {
+                _pending.Dequeue();
+                _activePlacement = null;
+                _activePasteDocument = null;
+                ed?.WriteMessage("\nSkipping queued item because its target space could not be activated.");
+                ProcessNextPaste(doc, ed);
+                return;
+            }
 
             // --- MODIFIED: Use the appropriate clipboard prep function ---
             bool clipboardReady;
