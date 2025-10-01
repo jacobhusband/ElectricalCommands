@@ -265,6 +265,15 @@ namespace AutoCADCleanupTool
                 ShowImageInPowerPointForDebugPercentage(placementToDebug, ed);
                 ed.WriteMessage("\nPowerPoint should be open with the cropped image. Please inspect it.");
                 ed.WriteMessage("\nCommand finished.");
+
+                ed.WriteMessage("\nPasting cropped image into drawing...");
+                _savedClayer = originalClayer;
+                _pending.Enqueue(placementToDebug);
+                _lastPastedOle = ObjectId.Null;
+                _finalPastedOleForZoom = ObjectId.Null;
+                AttachHandlers(db, doc);
+                _isEmbeddingProcessActive = true;
+                ProcessNextPaste(doc, ed);
             }
             catch (System.Exception ex)
             {
@@ -341,6 +350,8 @@ namespace AutoCADCleanupTool
                     picFormat.CropBottom = cropBottom;
 
                     ed.WriteMessage($"\n[DEBUG] Crop values (pts): L={cropLeft:F2}, T={cropTop:F2}, R={cropRight:F2}, B={cropBottom:F2}");
+
+                    pic.Copy();
                 }
             }
             catch (System.Exception ex)

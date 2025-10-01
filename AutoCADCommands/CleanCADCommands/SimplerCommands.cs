@@ -376,25 +376,6 @@ namespace AutoCADCleanupTool
                 // Store original (pre-crop) dimensions for later scaling
                 _originalPptImageDims[placement.OriginalEntityId] = new Point2d(pic.Width, pic.Height);
 
-                // Apply rotation
-                float picW = pic.Width;
-                float picH = pic.Height;
-                double destWidth = placement.U.Length;
-                double destHeight = placement.V.Length;
-
-                bool picIsLandscape = picW > picH;
-                bool destIsLandscape = destWidth > destHeight;
-
-                double rotationAngleRad = Math.Atan2(placement.U.Y, placement.U.X);
-
-                if (picIsLandscape != destIsLandscape)
-                {
-                    rotationAngleRad -= Math.PI / 2.0; // Adjust by -90 degrees
-                }
-
-                float rotationAngleDeg = (float)(-rotationAngleRad * 180.0 / Math.PI);
-                pic.Rotation = rotationAngleDeg;
-
                 pic.Copy();
                 return true;
             }
