@@ -310,6 +310,14 @@ namespace AutoCADCleanupTool
                 // --- Cropping Logic ---
                 if (placement.ClipBoundary != null && placement.ClipBoundary.Length >= 2)
                 {
+                    // For EMBEDFROMPDFS, PowerPoint may auto-scale the inserted image.
+                    // Resetting the scale to 100% of the original image size ensures that
+                    // the pic.Width and pic.Height values used for calculating the crop
+                    // are the true, unscaled dimensions. This programmatic step mirrors
+                    // the manual fix that was found to work. This does not affect
+                    // EMBEDFROMXREFS, as its ClipBoundary is null and this block is skipped.
+                    pic.ScaleHeight(1, MsoTriState.msoTrue, MsoScaleFrom.msoScaleFromTopLeft);
+                    pic.ScaleWidth(1, MsoTriState.msoTrue, MsoScaleFrom.msoScaleFromTopLeft);
 
                     ed.WriteMessage("\nApplying clipping boundary in PowerPoint...");
 
