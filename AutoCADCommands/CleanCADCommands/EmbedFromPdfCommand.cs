@@ -233,36 +233,45 @@ namespace AutoCADCleanupTool
                             rawMaxX = maxX;
                             rawMaxY = maxY;
 
+                            // --- START MODIFICATION ---
+                            // 1. Calculate the precise placement in AutoCAD's World Coordinate System
+                            //    by transforming the local clip boundary points. This correctly handles
+                            //    the PDF's position, scale, and rotation, fixing the shift and scale issues.
+                            Point3d localBottomLeft = new Point3d(minX, minY, 0);
+                            Point3d localBottomRight = new Point3d(maxX, minY, 0);
+                            Point3d localTopLeft = new Point3d(minX, maxY, 0);
+
+                            Point3d worldBottomLeft = localBottomLeft.TransformBy(transform);
+                            Point3d worldBottomRight = localBottomRight.TransformBy(transform);
+                            Point3d worldTopLeft = localTopLeft.TransformBy(transform);
+
+                            placementOrigin = worldBottomLeft;
+                            placementU = worldBottomRight - worldBottomLeft;
+                            placementV = worldTopLeft - worldBottomLeft;
+
+                            // 2. Separately, calculate the crop percentages required by PowerPoint.
+                            //    This is based on the PDF's original sheet size.
                             var clipResult = ComputeClipPercentages(resolvedPdfPath, pageNumber, minX, minY, maxX, maxY, transform, origin, uVec, vVec, ed);
-                            var clip = clipResult.clip;
+                            percentageClipBoundary = clipResult.clip;
                             leftPercent = clipResult.left;
                             bottomPercent = clipResult.bottom;
                             rightPercent = clipResult.right;
                             topPercent = clipResult.top;
 
-                            if (clip != null)
-                            {
-                                double widthFactor = rightPercent - leftPercent;
-                                double heightFactor = topPercent - bottomPercent;
+                            clipDerived = true;
 
-                                if (widthFactor > 1e-6 && heightFactor > 1e-6)
-                                {
-                                    clipDerived = true;
-                                    percentageClipBoundary = clip;
-                                    placementOrigin = origin + (uVec * leftPercent) + (vVec * bottomPercent);
-                                    placementU = uVec * widthFactor;
-                                    placementV = vVec * heightFactor;
-                                }
-                                else
-                                {
-                                    ed.WriteMessage("\nSkipping PDF underlay with zero-area clip boundary.");
-                                    return null;
-                                }
-                            }
-                            else
+                            // 3. Check for zero-area clip to prevent errors.
+                            if (placementU.Length < 1e-6 || placementV.Length < 1e-6)
                             {
-                                ed.WriteMessage("\nWarning: Could not derive crop percentages for this PDF underlay.");
+                                ed.WriteMessage("\nSkipping PDF underlay with zero-area clip boundary.");
+                                return null;
                             }
+
+                            if (percentageClipBoundary == null)
+                            {
+                                ed.WriteMessage("\nWarning: Could not derive crop percentages for PowerPoint. The image may not be cropped correctly.");
+                            }
+                            // --- END MODIFICATION ---
                         }
                     }
                 }

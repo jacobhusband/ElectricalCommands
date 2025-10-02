@@ -375,6 +375,10 @@ namespace AutoCADCleanupTool
                         picFormat.CropBottom = cropBottom;
 
                         ed.WriteMessage($"\nCrop values (pts): L={cropLeft:F2}, T={cropTop:F2}, R={cropRight:F2}, B={cropBottom:F2}");
+
+                        var pso = new PromptStringOptions("\nDEBUG: Paused after cropping in PowerPoint. Press Enter in AutoCAD to continue...");
+                        pso.AllowSpaces = true;
+                        ed.GetString(pso);
                     }
                 }
 
@@ -806,7 +810,38 @@ namespace AutoCADCleanupTool
                                 return;
                             }
 
-                            Vector3d destNormal = destU.CrossProduct(destV);
+                            // *** MODIFICATION START: Preserve aspect ratio ***
+                            double oleAspectRatio = oleWidth / oleHeight;
+                            double destAspectRatio = destWidth / destHeight;
+
+                            Vector3d finalU = destU;
+                            Vector3d finalV = destV;
+                            Point3d finalPos = target.Pos;
+
+                            if (Math.Abs(oleAspectRatio - destAspectRatio) > 1e-6)
+                            {
+                                // Aspect ratios differ, so we need to adjust.
+                                // We will fit the OLE object inside the destination box.
+                                if (oleAspectRatio > destAspectRatio)
+                                {
+                                    // OLE is wider than destination. Fit to width.
+                                    double newHeight = destWidth / oleAspectRatio;
+                                    finalV = destV.GetNormal() * newHeight;
+                                    // Center vertically
+                                    finalPos = target.Pos + (destV - finalV) / 2.0;
+                                }
+                                else
+                                {
+                                    // OLE is taller than destination. Fit to height.
+                                    double newWidth = destHeight * oleAspectRatio;
+                                    finalU = destU.GetNormal() * newWidth;
+                                    // Center horizontally
+                                    finalPos = target.Pos + (destU - finalU) / 2.0;
+                                }
+                            }
+                            // *** MODIFICATION END ***
+
+                            Vector3d destNormal = finalU.CrossProduct(finalV);
                             if (destNormal.Length < 1e-8)
                             {
                                 destNormal = Vector3d.ZAxis;
@@ -822,15 +857,15 @@ namespace AutoCADCleanupTool
                                 oleU,
                                 oleV,
                                 oleNormal,
-                                target.Pos,
-                                destU,
-                                destV,
+                                finalPos, // Use adjusted position
+                                finalU,   // Use adjusted U-vector
+                                finalV,   // Use adjusted V-vector
                                 destNormal);
 
                             ole.TransformBy(align);
 
                             var finalExt = ole.GeometricExtents;
-                            ed.WriteMessage($"\n[DEBUG] Transform complete: src=({oleWidth:F4},{oleHeight:F4}) dest=({destWidth:F4},{destHeight:F4}) final=({finalExt.MaxPoint.X - finalExt.MinPoint.X:F4},{finalExt.MaxPoint.Y - finalExt.MinPoint.Y:F4}) pos=({target.Pos.X:F4},{target.Pos.Y:F4},{target.Pos.Z:F4})");
+                            ed.WriteMessage($"\n[DEBUG] Transform complete: src=({oleWidth:F4},{oleHeight:F4}) dest=({destWidth:F4},{destHeight:F4}) final=({finalExt.MaxPoint.X - finalExt.MinPoint.X:F4},{finalExt.MaxPoint.Y - finalExt.MinPoint.Y:F4}) pos=({finalPos.X:F4},{finalPos.Y:F4},{finalPos.Z:F4})");
 
                             try { ole.Layer = "0"; } catch { }
                         }

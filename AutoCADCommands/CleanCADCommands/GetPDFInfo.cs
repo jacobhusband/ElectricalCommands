@@ -51,45 +51,59 @@ namespace AutoCADCleanupTool
 
                         if (drawingUnits == UnitsValue.Undefined)
                         {
-                            ed.WriteMessage("\n[Warning] Drawing units are 'Undefined'. Assuming 1 drawing unit = 1 inch.");
+                            ed.WriteMessage("\n[Info] Drawing units are 'Undefined'. Assuming 1 drawing unit = 1 inch.");
                         }
                         else
                         {
-                            ed.WriteMessage($"\nDrawing units: {drawingUnits}. Using conversion factor to inches: {toInchesFactor:F6}");
+                            ed.WriteMessage($"\n[Info] Drawing units: {drawingUnits}. Using conversion factor to inches: {toInchesFactor:F6}");
                         }
 
-                        // --- Geometry Information (Now in Inches) ---
-                        ed.WriteMessage("\nGeometry:");
+                        // --- Position & Scale ---
+                        ed.WriteMessage("\n--- Position & Scale ---");
                         Point3d position = pdfRef.Position;
                         Point3d positionInInches = new Point3d(
                             position.X * toInchesFactor,
                             position.Y * toInchesFactor,
                             position.Z * toInchesFactor
                         );
-                        ed.WriteMessage($"  Position (X, Y, Z) (Inches): {positionInInches.X:F4}, {positionInInches.Y:F4}, {positionInInches.Z:F4}");
+                        ed.WriteMessage($"  AutoCAD Position (X, Y, Z) (Inches): {positionInInches.X:F4}, {positionInInches.Y:F4}, {positionInInches.Z:F4}");
 
                         Scale3d scale = pdfRef.ScaleFactors;
-                        ed.WriteMessage($"  Scale (X, Y, Z): {scale.X:F4}, {scale.Y:F4}, {scale.Z:F4}");
+                        ed.WriteMessage($"  Applied Scale Factor (X, Y): {scale.X:F4}, {scale.Y:F4}");
 
-                        double rotation = pdfRef.Rotation * (180.0 / Math.PI); // Convert radians to degrees
+                        double rotation = pdfRef.Rotation * (180.0 / Math.PI);
                         ed.WriteMessage($"  Rotation (Degrees): {rotation:F4}");
 
+                        // --- Dimensions ---
+                        ed.WriteMessage("\n--- Dimensions ---");
                         try
                         {
                             var extents = pdfRef.GeometricExtents;
-                            double widthInDrawingUnits = extents.MaxPoint.X - extents.MinPoint.X;
-                            double heightInDrawingUnits = extents.MaxPoint.Y - extents.MinPoint.Y;
-                            double widthInches = widthInDrawingUnits * toInchesFactor;
-                            double heightInches = heightInDrawingUnits * toInchesFactor;
-                            ed.WriteMessage($"  Width (Inches): {widthInches:F4}");
-                            ed.WriteMessage($"  Height (Inches): {heightInches:F4}");
+                            double scaledWidthDrawingUnits = extents.MaxPoint.X - extents.MinPoint.X;
+                            double scaledHeightDrawingUnits = extents.MaxPoint.Y - extents.MinPoint.Y;
+
+                            double scaledWidthInches = scaledWidthDrawingUnits * toInchesFactor;
+                            double scaledHeightInches = scaledHeightDrawingUnits * toInchesFactor;
+
+                            ed.WriteMessage($"\n  AutoCAD Scaled Width of Clipped Region (Inches): {scaledWidthInches:F4}");
+                            ed.WriteMessage($"\n  AutoCAD Scaled Height of Clipped Region (Inches): {scaledHeightInches:F4}");
+
+                            // Calculate unscaled dimensions by dividing by the scale factor
+                            if (Math.Abs(scale.X) > 1e-9 && Math.Abs(scale.Y) > 1e-9)
+                            {
+                                double unscaledWidthInches = scaledWidthInches / scale.X;
+                                double unscaledHeightInches = scaledHeightInches / scale.Y;
+                                ed.WriteMessage($"\n  Original Unscaled Width of Clipped Region (Inches): {unscaledWidthInches:F4}");
+                                ed.WriteMessage($"\n  Original Unscaled Height of Clipped Region (Inches): {unscaledHeightInches:F4}");
+                            }
                         }
                         catch (Autodesk.AutoCAD.Runtime.Exception)
                         {
-                            ed.WriteMessage("  Width/Height: Not available (object may be off-screen).");
+                            ed.WriteMessage("  Dimensions: Not available (object may be off-screen).");
                         }
 
-                        // --- Clipping Information ---
+                        // --- Clipping ---
+                        ed.WriteMessage("\n--- Clipping ---");
                         ed.WriteMessage($"  Is Clipped: {pdfRef.IsClipped}");
                         if (pdfRef.IsClipped)
                         {
@@ -107,34 +121,24 @@ namespace AutoCADCleanupTool
 
                             if (boundaryPoints != null && boundaryPoints.Length >= 2)
                             {
-                                ed.WriteMessage("  Clip Boundary Points (Local PDF Coords):");
-                                ed.WriteMessage($"    Point 1: ({boundaryPoints[0].X:F4}, {boundaryPoints[0].Y:F4})");
-                                ed.WriteMessage($"    Point 2: ({boundaryPoints[1].X:F4}, {boundaryPoints[1].Y:F4})");
+                                ed.WriteMessage("\n  Clip Boundary Points (relative to original corner) (inches):");
+                                ed.WriteMessage($"\n    Point 1: ({boundaryPoints[0].X:F4}, {boundaryPoints[0].Y:F4})");
+                                ed.WriteMessage($"\n    Point 2: ({boundaryPoints[1].X:F4}, {boundaryPoints[1].Y:F4})");
 
-                                // Find the min X and min Y from the boundary points to define the bottom-left corner of the clip area
-                                double minX_local = boundaryPoints.Min(p => p.X);
-                                double minY_local = boundaryPoints.Min(p => p.Y);
+                                // The min X and Y of the local boundary points ARE the offset in inches
+                                double offsetX_inches = boundaryPoints.Min(p => p.X);
+                                double offsetY_inches = boundaryPoints.Min(p => p.Y);
 
-                                // Create a 3D point representing the local clip origin
-                                Point3d localClipOrigin = new Point3d(minX_local, minY_local, 0);
+                                ed.WriteMessage("\n  Clip Offset from Original Corner Unscaled (Inches):");
+                                ed.WriteMessage($"\n    Distance (X, Y): ({offsetX_inches:F4}, {offsetY_inches:F4})");
 
-                                // Use the PDF's transform matrix to find where this local point ends up in the drawing's world coordinates
-                                Matrix3d transform = pdfRef.Transform;
-                                Point3d worldClipOrigin = localClipOrigin.TransformBy(transform);
-
-                                // The distance vector is the difference between the clipped corner's world position and the original corner's world position
-                                Vector3d offsetVectorDrawingUnits = worldClipOrigin - pdfRef.Position;
-
-                                // Convert the final vector to inches
-                                Vector3d offsetVectorInches = offsetVectorDrawingUnits * toInchesFactor;
-
-                                ed.WriteMessage("  Offset from Original Corner to Clipped Corner:");
-                                ed.WriteMessage($"    Distance (X, Y, Z) (Inches): ({offsetVectorInches.X:F4}, {offsetVectorInches.Y:F4}, {offsetVectorInches.Z:F4})");
+                                ed.WriteMessage("\n  AutoCAD Clip Offset from Original Corner Scaled (Inches):");
+                                ed.WriteMessage($"\n    Distance (X, Y): ({(offsetX_inches * scale.X):F4}, {(offsetY_inches * scale.Y):F4})");
                             }
                         }
 
                         // --- Miscellaneous Information ---
-                        ed.WriteMessage("\nMisc:");
+                        ed.WriteMessage("\n--- Miscellaneous ---");
                         ed.WriteMessage($"  Layer: {pdfRef.Layer}");
                         ed.WriteMessage($"  Object ID: {pdfRef.ObjectId}");
                         if (pdfDef != null)
