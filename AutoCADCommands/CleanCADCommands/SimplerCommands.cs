@@ -174,6 +174,8 @@ namespace AutoCADCleanupTool
         private static ObjectId _savedClayer = ObjectId.Null;
         // Track candidate image definitions for purge after embedding
         private static readonly HashSet<ObjectId> _imageDefsToPurge = new HashSet<ObjectId>();
+        // *** MODIFICATION: Track PDF definitions for detachment ***
+        internal static readonly HashSet<ObjectId> _pdfDefinitionsToDetach = new HashSet<ObjectId>();
         // Chain flag: when true, run FINALIZE after EMBEDFROMXREFS completes
         private static bool _chainFinalizeAfterEmbed = false;
         // Track state for queuing paste insertion points
@@ -289,7 +291,7 @@ namespace AutoCADCleanupTool
         }
 
 
-        // --- NEW: Helper for PDF Cropping in PowerPoint ---
+        // --- Helper for PDF Cropping in PowerPoint ---
         private static bool PrepareClipboardWithCroppedImage(ImagePlacement placement, Editor ed)
         {
             try
@@ -310,12 +312,7 @@ namespace AutoCADCleanupTool
                 // --- Cropping Logic ---
                 if (placement.ClipBoundary != null && placement.ClipBoundary.Length >= 2)
                 {
-                    // For EMBEDFROMPDFS, PowerPoint may auto-scale the inserted image.
-                    // Resetting the scale to 100% of the original image size ensures that
-                    // the pic.Width and pic.Height values used for calculating the crop
-                    // are the true, unscaled dimensions. This programmatic step mirrors
-                    // the manual fix that was found to work. This does not affect
-                    // EMBEDFROMXREFS, as its ClipBoundary is null and this block is skipped.
+                    // Reset scale to ensure accurate crop calculations
                     pic.ScaleHeight(1, MsoTriState.msoTrue, MsoScaleFrom.msoScaleFromTopLeft);
                     pic.ScaleWidth(1, MsoTriState.msoTrue, MsoScaleFrom.msoScaleFromTopLeft);
 
@@ -342,7 +339,7 @@ namespace AutoCADCleanupTool
                         cropBottom = (float)(minY * picHeightInPoints);
                         cropComputed = true;
 
-                        ed.WriteMessage($"\n[DEBUG] Clip Percentages: Left={minX:P2}, Bottom={minY:P2}, Right={maxX:P2}, Top={maxY:P2}");
+                        // ed.WriteMessage($"\n[DEBUG] Clip Percentages: Left={minX:P2}, Bottom={minY:P2}, Right={maxX:P2}, Top={maxY:P2}");
                     }
                     else
                     {
@@ -376,13 +373,9 @@ namespace AutoCADCleanupTool
 
                         ed.WriteMessage($"\nCrop values (pts): L={cropLeft:F2}, T={cropTop:F2}, R={cropRight:F2}, B={cropBottom:F2}");
 
-                        var pso = new PromptStringOptions("\nDEBUG: Paused after cropping in PowerPoint. Press Enter in AutoCAD to continue...");
-                        pso.AllowSpaces = true;
-                        ed.GetString(pso);
+                        // *** MODIFICATION: Removed debug pause ***
                     }
                 }
-
-                // Store original (pre-crop) dimensions for later scaling
 
                 try { System.Windows.Forms.Clipboard.Clear(); } catch { }
 
@@ -424,12 +417,9 @@ namespace AutoCADCleanupTool
             }
         }
 
-        // --- OLD Helper for XREF Images (uncropped) ---
+        // --- Helper for XREF Images (uncropped) ---
         private static bool PrepareClipboardWithImageShared(ImagePlacement placement, Editor ed)
         {
-            // This is the same function as before, now repurposed for the XREF workflow specifically.
-            // It will be called by EMBEDFROMXREFS.
-            // The new EMBEDFROMPDFS will call PrepareClipboardWithCroppedImage.
             placement.ClipBoundary = null; // Ensure no cropping happens for this path
             return PrepareClipboardWithCroppedImage(placement, ed);
         }
@@ -667,6 +657,79 @@ namespace AutoCADCleanupTool
             }
         }
 
+        // *** MODIFICATION: Detach PDF definitions ***
+        private static void DetachPdfDefinitions(Database db, Editor ed)
+        {
+            if (_pdfDefinitionsToDetach.Count == 0) return;
+            ed.WriteMessage($"\nAttempting to detach {_pdfDefinitionsToDetach.Count} PDF definition(s)...");
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    // PDF definitions are stored in the ACAD_PDFDEFINITIONS dictionary
+                    var named = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+                    if (!named.Contains("ACAD_PDFDEFINITIONS"))
+                    {
+                        tr.Commit();
+                        return;
+                    }
+
+                    var pdfDict = (DBDictionary)tr.GetObject(named.GetAt("ACAD_PDFDEFINITIONS"), OpenMode.ForWrite);
+                    int detachedCount = 0;
+
+                    // Create a list of entries to remove to avoid modifying the collection while iterating
+                    var entriesToRemove = new List<string>();
+
+                    foreach (DBDictionaryEntry entry in pdfDict)
+                    {
+                        if (_pdfDefinitionsToDetach.Contains(entry.Value))
+                        {
+                            entriesToRemove.Add(entry.Key);
+                            try
+                            {
+                                // Erasing the definition object itself
+                                var defObj = tr.GetObject(entry.Value, OpenMode.ForWrite);
+                                if (!defObj.IsErased)
+                                {
+                                    defObj.Erase();
+                                }
+                            }
+                            catch (System.Exception ex)
+                            {
+                                ed.WriteMessage($"\nFailed to erase PDF definition object: {ex.Message}");
+                            }
+                        }
+                    }
+
+                    // Remove entries from the dictionary
+                    foreach (string key in entriesToRemove)
+                    {
+                        try
+                        {
+                            pdfDict.Remove(key);
+                            detachedCount++;
+                        }
+                        catch (System.Exception ex)
+                        {
+                            ed.WriteMessage($"\nFailed to remove PDF dictionary entry '{key}': {ex.Message}");
+                        }
+                    }
+
+                    ed.WriteMessage($"\nSuccessfully detached {detachedCount} PDF definition(s).");
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nError during PDF detachment: {ex.Message}");
+            }
+            finally
+            {
+                _pdfDefinitionsToDetach.Clear();
+            }
+        }
+
         private static void Db_ObjectAppended(object sender, ObjectEventArgs e)
         {
             try
@@ -810,7 +873,7 @@ namespace AutoCADCleanupTool
                                 return;
                             }
 
-                            // *** MODIFICATION START: Preserve aspect ratio ***
+                            // Preserve aspect ratio
                             double oleAspectRatio = oleWidth / oleHeight;
                             double destAspectRatio = destWidth / destHeight;
 
@@ -839,7 +902,6 @@ namespace AutoCADCleanupTool
                                     finalPos = target.Pos + (destU - finalU) / 2.0;
                                 }
                             }
-                            // *** MODIFICATION END ***
 
                             Vector3d destNormal = finalU.CrossProduct(finalV);
                             if (destNormal.Length < 1e-8)
@@ -865,9 +927,31 @@ namespace AutoCADCleanupTool
                             ole.TransformBy(align);
 
                             var finalExt = ole.GeometricExtents;
-                            ed.WriteMessage($"\n[DEBUG] Transform complete: src=({oleWidth:F4},{oleHeight:F4}) dest=({destWidth:F4},{destHeight:F4}) final=({finalExt.MaxPoint.X - finalExt.MinPoint.X:F4},{finalExt.MaxPoint.Y - finalExt.MinPoint.Y:F4}) pos=({finalPos.X:F4},{finalPos.Y:F4},{finalPos.Z:F4})");
+                            // ed.WriteMessage($"\n[DEBUG] Transform complete: src=({oleWidth:F4},{oleHeight:F4}) dest=({destWidth:F4},{destHeight:F4}) final=({finalExt.MaxPoint.X - finalExt.MinPoint.X:F4},{finalExt.MaxPoint.Y - finalExt.MinPoint.Y:F4}) pos=({finalPos.X:F4},{finalPos.Y:F4},{finalPos.Z:F4})");
 
                             try { ole.Layer = "0"; } catch { }
+
+                            // *** MODIFICATION: Match draw order of the original entity ***
+                            try
+                            {
+                                // Get the BlockTableRecord that owns the OLE (and the original entity)
+                                var btr = tr.GetObject(ole.OwnerId, OpenMode.ForWrite) as BlockTableRecord;
+                                if (btr != null)
+                                {
+                                    var dot = tr.GetObject(btr.DrawOrderTableId, OpenMode.ForWrite) as DrawOrderTable;
+                                    if (dot != null)
+                                    {
+                                        var idsToMove = new ObjectIdCollection();
+                                        idsToMove.Add(ole.ObjectId);
+                                        // Move the new OLE to be right above the original entity it is replacing
+                                        dot.MoveAbove(idsToMove, target.OriginalEntityId);
+                                    }
+                                }
+                            }
+                            catch (System.Exception exOrder)
+                            {
+                                ed.WriteMessage($"\nWarning: Could not match draw order: {exOrder.Message}");
+                            }
                         }
                         catch (System.Exception ex1)
                         {
@@ -897,7 +981,7 @@ namespace AutoCADCleanupTool
                                 layer.IsLocked = false;
                                 relock = true;
                             }
-                            originalEnt.Erase();
+                            originalEnt.Erase(); // Erase the original after setting draw order
                             if (relock)
                             {
                                 layer.IsLocked = true;
@@ -953,6 +1037,8 @@ namespace AutoCADCleanupTool
 
                 DetachHandlers(db, doc);
                 PurgeEmbeddedImageDefs(db, ed);
+                // *** MODIFICATION: Call PDF detachment ***
+                DetachPdfDefinitions(db, ed);
                 DetachXrefs(db, ed);
                 ClosePowerPoint(ed);
 
@@ -1093,7 +1179,6 @@ namespace AutoCADCleanupTool
                 return;
             }
 
-            // --- MODIFIED: Use the appropriate clipboard prep function ---
             bool clipboardReady;
             if (target.ClipBoundary != null)
             {
@@ -1103,7 +1188,6 @@ namespace AutoCADCleanupTool
             {
                 clipboardReady = PrepareClipboardWithImageShared(target, ed);
             }
-            // --- END MODIFICATION ---
 
             if (!clipboardReady)
             {

@@ -22,6 +22,8 @@ namespace AutoCADCleanupTool
             ed.WriteMessage("\n--- Starting EMBEDFROMPDFS ---");
 
             _pending.Clear();
+            // *** MODIFICATION: Clear the list of PDFs to detach ***
+            _pdfDefinitionsToDetach.Clear();
             _lastPastedOle = ObjectId.Null;
             _isEmbeddingProcessActive = false;
             _finalPastedOleForZoom = ObjectId.Null;
@@ -104,6 +106,7 @@ namespace AutoCADCleanupTool
                     ClosePowerPoint(ed);
                     RestoreOriginalLayer(db, originalClayer);
                     _pending.Clear();
+                    _pdfDefinitionsToDetach.Clear();
                 }
             }
         }
@@ -169,6 +172,8 @@ namespace AutoCADCleanupTool
 
                         placement.TargetBtrId = btrId;
                         _pending.Enqueue(placement);
+                        // *** MODIFICATION: Mark definition for detachment ***
+                        _pdfDefinitionsToDetach.Add(pdfDef.ObjectId);
                         queued++;
                     }
                 }
@@ -272,7 +277,7 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage($"\nWarning: Failed to evaluate PDF clip boundary: {ex.Message}");
                 }
             }
-            else // --- START MODIFICATION: Handle unclipped PDFs ---
+            else // Handle unclipped PDFs
             {
                 try
                 {
@@ -300,7 +305,6 @@ namespace AutoCADCleanupTool
                     else
                     {
                         ed.WriteMessage($"\nWarning: Could not determine original sheet size for '{Path.GetFileName(resolvedPdfPath)}'. Placement may be incorrect.");
-                        // Fallback to original (potentially incorrect) vectors
                     }
                 }
                 catch (System.Exception ex)
@@ -308,13 +312,12 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage($"\nWarning: Failed to calculate placement for unclipped PDF: {ex.Message}");
                 }
             }
-            // --- END MODIFICATION ---
 
             string fileLabel = string.IsNullOrEmpty(resolvedPdfPath) ? "<unknown>" : Path.GetFileName(resolvedPdfPath);
             string clipDebug = clipDerived
                 ? $"clip rawX=[{FormatPerc(rawMinX)},{FormatPerc(rawMaxX)}] rawY=[{FormatPerc(rawMinY)},{FormatPerc(rawMaxY)}] perc=[L={FormatPerc(leftPercent)},B={FormatPerc(bottomPercent)},R={FormatPerc(rightPercent)},T={FormatPerc(topPercent)}]"
                 : "clip none";
-            ed?.WriteMessage($"\n[DEBUG] Placement '{fileLabel}' page {pageNumber}: origin=({placementOrigin.X:F4},{placementOrigin.Y:F4},{placementOrigin.Z:F4}), Ulen={placementU.Length:F4}, Vlen={placementV.Length:F4}; {clipDebug}");
+            // ed?.WriteMessage($"\n[DEBUG] Placement '{fileLabel}' page {pageNumber}: origin=({placementOrigin.X:F4},{placementOrigin.Y:F4},{placementOrigin.Z:F4}), Ulen={placementU.Length:F4}, Vlen={placementV.Length:F4}; {clipDebug}");
             if (placementU.Length < 1e-8 || placementV.Length < 1e-8)
             {
                 ed.WriteMessage("\nSkipping PDF underlay due to zero-sized placement vectors.");
