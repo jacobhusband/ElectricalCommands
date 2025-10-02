@@ -233,10 +233,6 @@ namespace AutoCADCleanupTool
                             rawMaxX = maxX;
                             rawMaxY = maxY;
 
-                            // --- START MODIFICATION ---
-                            // 1. Calculate the precise placement in AutoCAD's World Coordinate System
-                            //    by transforming the local clip boundary points. This correctly handles
-                            //    the PDF's position, scale, and rotation, fixing the shift and scale issues.
                             Point3d localBottomLeft = new Point3d(minX, minY, 0);
                             Point3d localBottomRight = new Point3d(maxX, minY, 0);
                             Point3d localTopLeft = new Point3d(minX, maxY, 0);
@@ -249,8 +245,6 @@ namespace AutoCADCleanupTool
                             placementU = worldBottomRight - worldBottomLeft;
                             placementV = worldTopLeft - worldBottomLeft;
 
-                            // 2. Separately, calculate the crop percentages required by PowerPoint.
-                            //    This is based on the PDF's original sheet size.
                             var clipResult = ComputeClipPercentages(resolvedPdfPath, pageNumber, minX, minY, maxX, maxY, transform, origin, uVec, vVec, ed);
                             percentageClipBoundary = clipResult.clip;
                             leftPercent = clipResult.left;
@@ -260,7 +254,6 @@ namespace AutoCADCleanupTool
 
                             clipDerived = true;
 
-                            // 3. Check for zero-area clip to prevent errors.
                             if (placementU.Length < 1e-6 || placementV.Length < 1e-6)
                             {
                                 ed.WriteMessage("\nSkipping PDF underlay with zero-area clip boundary.");
@@ -271,7 +264,6 @@ namespace AutoCADCleanupTool
                             {
                                 ed.WriteMessage("\nWarning: Could not derive crop percentages for PowerPoint. The image may not be cropped correctly.");
                             }
-                            // --- END MODIFICATION ---
                         }
                     }
                 }
@@ -280,6 +272,43 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage($"\nWarning: Failed to evaluate PDF clip boundary: {ex.Message}");
                 }
             }
+            else // --- START MODIFICATION: Handle unclipped PDFs ---
+            {
+                try
+                {
+                    Point2d? sheetSize = GetPdfPageSizeInches(resolvedPdfPath, pageNumber);
+                    if (sheetSize.HasValue)
+                    {
+                        double sheetWidth = sheetSize.Value.X;
+                        double sheetHeight = sheetSize.Value.Y;
+
+                        // Define corners in PDF's local space (0,0 to width,height)
+                        Point3d localBottomLeft = new Point3d(0, 0, 0);
+                        Point3d localBottomRight = new Point3d(sheetWidth, 0, 0);
+                        Point3d localTopLeft = new Point3d(0, sheetHeight, 0);
+
+                        // Transform these corners to world coordinates using the PDF's transform matrix
+                        Point3d worldBottomLeft = localBottomLeft.TransformBy(transform);
+                        Point3d worldBottomRight = localBottomRight.TransformBy(transform);
+                        Point3d worldTopLeft = localTopLeft.TransformBy(transform);
+
+                        // Set the final placement vectors from the transformed corners
+                        placementOrigin = worldBottomLeft;
+                        placementU = worldBottomRight - worldBottomLeft;
+                        placementV = worldTopLeft - worldBottomLeft;
+                    }
+                    else
+                    {
+                        ed.WriteMessage($"\nWarning: Could not determine original sheet size for '{Path.GetFileName(resolvedPdfPath)}'. Placement may be incorrect.");
+                        // Fallback to original (potentially incorrect) vectors
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nWarning: Failed to calculate placement for unclipped PDF: {ex.Message}");
+                }
+            }
+            // --- END MODIFICATION ---
 
             string fileLabel = string.IsNullOrEmpty(resolvedPdfPath) ? "<unknown>" : Path.GetFileName(resolvedPdfPath);
             string clipDebug = clipDerived
