@@ -13,10 +13,6 @@ namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
     {
-        /// <summary>
-        /// Finds a likely title block reference in the Model Space and explodes it.
-        /// This is used to "unpack" a composite title block so that nested images can be found for embedding.
-        /// </summary>
         public static void FindAndExplodeTitleBlockReference()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -28,7 +24,6 @@ namespace AutoCADCleanupTool
             {
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
-                    // Target the Model Space for the search.
                     var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                     var modelSpace = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
 
@@ -37,49 +32,34 @@ namespace AutoCADCleanupTool
                     string matchedName = "";
                     double maxArea = 0;
 
-                    // Find the largest block reference in Model Space that looks like a title block.
                     foreach (ObjectId id in modelSpace)
                     {
                         var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
                         if (br == null) continue;
 
                         var potentialNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                        // Defensively gather all possible names associated with the block reference.
-                        // 1. Get name from main BlockTableRecord.
                         try
                         {
                             var btr = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
                             if (btr != null)
                             {
-                                if (!string.IsNullOrEmpty(btr.Name))
-                                {
-                                    potentialNames.Add(btr.Name);
-                                }
-                                // 2. Get XREF filename if applicable.
+                                if (!string.IsNullOrEmpty(btr.Name)) potentialNames.Add(btr.Name);
                                 if (btr.IsFromExternalReference && !string.IsNullOrEmpty(btr.PathName))
-                                {
                                     potentialNames.Add(Path.GetFileNameWithoutExtension(btr.PathName));
-                                }
                             }
                         }
-                        catch { /* Ignore errors reading primary BTR */ }
+                        catch { }
 
-                        // 3. Get name from Dynamic BlockTableRecord if it's a dynamic block.
                         if (br.IsDynamicBlock)
                         {
                             try
                             {
                                 var dynBtr = tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
-                                if (dynBtr != null && !string.IsNullOrEmpty(dynBtr.Name))
-                                {
-                                    potentialNames.Add(dynBtr.Name);
-                                }
+                                if (dynBtr != null && !string.IsNullOrEmpty(dynBtr.Name)) potentialNames.Add(dynBtr.Name);
                             }
-                            catch { /* Ignore errors reading dynamic BTR */ }
+                            catch { }
                         }
 
-                        // Now, check all gathered names against the hints.
                         bool isMatch = false;
                         string currentMatch = "";
                         foreach (var name in potentialNames)
@@ -109,29 +89,24 @@ namespace AutoCADCleanupTool
                                     matchedName = currentMatch;
                                 }
                             }
-                            catch { /* Ignore blocks that fail to get extents */ }
+                            catch { }
                         }
                     }
 
                     if (bestCandidate != null)
                     {
                         ed.WriteMessage($"\nFound title block reference in Model Space matching name '{matchedName}'. Exploding it...");
-
                         var explodedEntities = new DBObjectCollection();
                         bestCandidate.UpgradeOpen();
                         bestCandidate.Explode(explodedEntities);
-
                         foreach (DBObject obj in explodedEntities)
                         {
-                            var ent = obj as Entity;
-                            if (ent != null)
+                            if (obj is Entity ent)
                             {
-                                // Add the exploded entities to Model Space.
                                 modelSpace.AppendEntity(ent);
                                 tr.AddNewlyCreatedDBObject(ent, true);
                             }
                         }
-
                         bestCandidate.Erase();
                         ed.WriteMessage("\nExplode complete.");
                     }
@@ -139,7 +114,6 @@ namespace AutoCADCleanupTool
                     {
                         ed.WriteMessage("\nNo composite title block reference found to explode in Model Space.");
                     }
-
                     tr.Commit();
                 }
             }
@@ -160,32 +134,17 @@ namespace AutoCADCleanupTool
 
             ed.WriteMessage("\n--- Starting EMBEDFROMXREFS ---");
 
-            // --- Phase 1: Preparation ---
             _pending.Clear();
             _lastPastedOle = ObjectId.Null;
-            _isEmbeddingProcessActive = false;
-            _finalPastedOleForZoom = ObjectId.Null;
-
-            try
-            {
-                DeleteOldEmbedTemps(daysOld: 7);
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\n[Warning] Could not delete old temp files: {ex.Message}");
-            }
 
             ObjectId originalClayer = db.Clayer;
-            // *** MODIFICATION START ***
-            // Save the current UCS and switch to WCS to ensure predictable geometry for pasted objects.
-            // This is critical for the transformation logic to work correctly and prevents freezes.
             Matrix3d originalUcs = ed.CurrentUserCoordinateSystem;
 
             try
             {
-                ed.CurrentUserCoordinateSystem = Matrix3d.Identity; // Set UCS to World
+                DeleteOldEmbedTemps(daysOld: 7);
+                ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
 
-                // --- Phase 2: Image Collection and Processing ---
                 try
                 {
                     using (var tr = db.TransactionManager.StartTransaction())
@@ -205,16 +164,14 @@ namespace AutoCADCleanupTool
                         }
                         tr.Commit();
                     }
-
                     CollectAndPreflightImages(doc);
                 }
                 catch (System.Exception ex)
                 {
                     ed.WriteMessage($"\n[!] A critical error occurred during image collection: {ex.Message}");
-                    return; // Exit before starting the paste process
+                    return;
                 }
 
-                // --- Phase 3: Embedding Logic ---
                 if (_pending.Count == 0)
                 {
                     ed.WriteMessage("\nNo valid raster images found to embed.");
@@ -223,7 +180,7 @@ namespace AutoCADCleanupTool
                         _chainFinalizeAfterEmbed = false;
                         doc.SendStringToExecute("_.FINALIZE ", true, false, false);
                     }
-                    return; // Return here, finally block will handle cleanup
+                    return;
                 }
 
                 ed.WriteMessage($"\nSuccessfully queued {_pending.Count} image(s).");
@@ -239,39 +196,64 @@ namespace AutoCADCleanupTool
                     WindowOrchestrator.EnsureSeparationOrSafeOverlap(ed, pptHwnd, preferDifferentMonitor: true);
                 }
 
-                AttachHandlers(db, doc);
-                ed.WriteMessage($"\nStarting paste process for {_pending.Count} raster image(s)...");
-                _isEmbeddingProcessActive = true;
-                ProcessNextPaste(doc, ed);
+                // --- MODIFICATION: Synchronous processing loop ---
+                db.ObjectAppended += Db_ObjectAppended;
+
+                while (_pending.Count > 0)
+                {
+                    var placement = _pending.Dequeue();
+                    _lastPastedOle = ObjectId.Null; // Reset for each item
+
+                    if (!PrepareClipboardWithImageShared(placement, ed))
+                    {
+                        ed.WriteMessage($"\nSkipping item '{Path.GetFileName(placement.Path)}' due to clipboard preparation failure.");
+                        continue;
+                    }
+
+                    StartOleTextSizeDialogCloser(120);
+
+                    try
+                    {
+                        ed.Command("_.PASTECLIP", placement.Pos);
+                    }
+                    catch (System.Exception cmdEx)
+                    {
+                        ed.WriteMessage($"\nPASTECLIP command failed: {cmdEx.Message}. Skipping item.");
+                        continue;
+                    }
+
+                    if (_lastPastedOle.IsNull)
+                    {
+                        ed.WriteMessage("\nPaste did not create an OLE object. Skipping item.");
+                        continue;
+                    }
+
+                    // Process the new OLE object immediately
+                    ProcessPastedOle(_lastPastedOle, placement, db, ed);
+                }
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\n[!] An error occurred during the PowerPoint embedding process: {ex.Message}");
-                // The finally block will handle cleanup
+                ed.WriteMessage($"\n[!] An error occurred during the embedding process: {ex.Message}");
             }
             finally
             {
-                // *** MODIFICATION: Ensure robust cleanup occurs in all scenarios ***
-                if (!_isEmbeddingProcessActive && _pending.Count == 0)
-                {
-                    // This block runs if the process completed successfully or found no images
-                    ClosePowerPoint(ed);
-                    RestoreOriginalLayer(db, originalClayer);
-                }
-                else if (!_isEmbeddingProcessActive && _pending.Count > 0)
-                {
-                    // This block runs if an error occurred before the process could complete
-                    ed.WriteMessage("\nAborting embedding process due to an earlier error.");
-                    DetachHandlers(db, doc);
-                    ClosePowerPoint(ed);
-                    RestoreOriginalLayer(db, originalClayer);
-                    _pending.Clear();
-                }
-                // If _isEmbeddingProcessActive is true, the async handlers will call FinishEmbeddingRun later
+                // --- MODIFICATION: Centralized cleanup ---
+                db.ObjectAppended -= Db_ObjectAppended;
+                ed.CurrentUserCoordinateSystem = originalUcs;
+                RestoreOriginalLayer(db, originalClayer);
+                ClosePowerPoint(ed);
+                DetachXrefs(db, ed);
+                PurgeEmbeddedImageDefs(db, ed);
+                _pending.Clear();
+                _savedClayer = ObjectId.Null;
 
-                ed.CurrentUserCoordinateSystem = originalUcs; // ALWAYS restore original UCS
+                if (_chainFinalizeAfterEmbed)
+                {
+                    _chainFinalizeAfterEmbed = false;
+                    doc.SendStringToExecute("_.FINALIZE ", true, false, false);
+                }
             }
-            // *** MODIFICATION END ***
         }
 
         private static void CollectAndPreflightImages(Document doc)
@@ -294,7 +276,6 @@ namespace AutoCADCleanupTool
                     var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead) as RasterImageDef;
                     if (def == null) continue;
 
-                    // Check if the image is part of an XREF and add the XREF's ObjectId to the detachment list
                     var ownerBtr = tr.GetObject(img.OwnerId, OpenMode.ForRead) as BlockTableRecord;
                     if (ownerBtr != null && ownerBtr.IsFromExternalReference)
                     {
@@ -333,7 +314,6 @@ namespace AutoCADCleanupTool
                         Pos = cs.Origin,
                         U = cs.Xaxis,
                         V = cs.Yaxis,
-                        // --- THIS IS THE FIX ---
                         OriginalEntityId = img.ObjectId
                     };
 
@@ -345,16 +325,12 @@ namespace AutoCADCleanupTool
             }
         }
 
-        /// <summary>
-        /// Safely restores the original current layer.
-        /// </summary>
         private static void RestoreOriginalLayer(Database db, ObjectId originalClayer)
         {
             if (db != null && !originalClayer.IsNull && db.Clayer != originalClayer)
             {
                 try
                 {
-                    // Check if the original layer is valid and not frozen before restoring
                     using (var tr = db.TransactionManager.StartOpenCloseTransaction())
                     {
                         var ltr = (LayerTableRecord)tr.GetObject(originalClayer, OpenMode.ForRead);
@@ -372,125 +348,10 @@ namespace AutoCADCleanupTool
             }
         }
 
-        private static bool TryGetTitleBlockOutlinePointsForEmbed(Database db, out Point3d[] poly)
-        {
-            poly = null;
-            try
-            {
-                using (var tr = db.TransactionManager.StartTransaction())
-                {
-                    var lm = LayoutManager.Current;
-                    if (lm == null) return false;
-
-                    var layId = lm.GetLayoutId(lm.CurrentLayout);
-                    var layout = (Layout)tr.GetObject(layId, OpenMode.ForRead);
-
-                    var psId = layout.BlockTableRecordId;
-                    var psBtr = (BlockTableRecord)tr.GetObject(psId, OpenMode.ForRead);
-
-                    string[] hints = { "x-tb", "title", "tblock", "border", "sheet" };
-                    BlockReference best = null;
-                    double bestArea = 0;
-
-                    foreach (ObjectId id in psBtr)
-                    {
-                        var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
-                        if (br == null) continue;
-
-                        string name = null;
-                        try
-                        {
-                            if (br.IsDynamicBlock)
-                            {
-                                var dyn = (BlockTableRecord)tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead);
-                                name = dyn?.Name;
-                            }
-                            else
-                            {
-                                var btr = (BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead);
-                                name = btr?.Name;
-                            }
-                        }
-                        catch { }
-
-                        if (string.IsNullOrEmpty(name)) continue;
-
-                        var lname = name.ToLowerInvariant();
-                        bool matches = false;
-                        foreach (var h in hints) { if (lname.Contains(h)) { matches = true; break; } }
-                        if (!matches) continue;
-
-                        Extents3d ext;
-                        try { ext = br.GeometricExtents; } catch { continue; }
-
-                        double area = Math.Abs((ext.MaxPoint.X - ext.MinPoint.X) * (ext.MaxPoint.Y - ext.MinPoint.Y));
-                        if (area > bestArea)
-                        {
-                            best = br;
-                            bestArea = area;
-                        }
-                    }
-
-                    if (best != null)
-                    {
-                        var ex = best.GeometricExtents;
-                        var pmin = ex.MinPoint;
-                        var pmax = ex.MaxPoint;
-
-                        poly = new[]
-                        {
-                        new Point3d(pmin.X, pmin.Y, 0), new Point3d(pmax.X, pmin.Y, 0),
-                        new Point3d(pmax.X, pmax.Y, 0), new Point3d(pmin.X, pmax.Y, 0)
-                    };
-                        return true;
-                    }
-
-                    var pMin = db.Pextmin;
-                    var pMax = db.Pextmax;
-                    poly = new[]
-                    {
-                    new Point3d(pMin.X, pMin.Y, 0), new Point3d(pMax.X, pMin.Y, 0),
-                    new Point3d(pMax.X, pMax.Y, 0), new Point3d(pMin.X, pMax.Y, 0)
-                };
-                    return true;
-                }
-            }
-            catch { return false; }
-        }
-
-        private static void ZoomToTitleBlockForEmbed(Editor ed, Point3d[] poly)
-        {
-            if (ed == null || poly == null || poly.Length < 2) return;
-            try
-            {
-                var ext = new Extents3d(poly[0], poly[1]);
-                for (int i = 2; i < poly.Length; i++) ext.AddPoint(poly[i]);
-
-                double margin = Math.Max(ext.MaxPoint.X - ext.MinPoint.X, ext.MaxPoint.Y - ext.MinPoint.Y) * 0.05;
-
-                Point3d pMin = new Point3d(ext.MinPoint.X - margin, ext.MinPoint.Y - margin, 0);
-                Point3d pMax = new Point3d(ext.MaxPoint.X + margin, ext.MaxPoint.Y + margin, 0);
-
-                using (var view = ed.GetCurrentView())
-                {
-                    view.Width = pMax.X - pMin.X;
-                    view.Height = pMax.Y - pMin.Y;
-                    view.CenterPoint = new Point2d((pMin.X + pMax.X) / 2.0, (pMin.Y + pMax.Y) / 2.0);
-                    ed.SetCurrentView(view);
-                }
-                ed.Regen();
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nError during zoom: {ex.Message}");
-            }
-        }
-
         private static string PreflightRasterForPpt(string srcPath)
         {
             string tempDir = Path.Combine(Path.GetTempPath(), "AutoCADCleanupTool", "embed");
             Directory.CreateDirectory(tempDir);
-            // Add a unique identifier to prevent file collisions from different drawings with same image name
             string outPath = Path.Combine(
                 tempDir,
                 Path.GetFileNameWithoutExtension(srcPath) + "_ppt_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".png"
@@ -504,7 +365,7 @@ namespace AutoCADCleanupTool
                     if (orig.GetFrameCount(fd) > 1)
                         orig.SelectActiveFrame(fd, 0);
                 }
-                catch { /* not multi-frame; ignore */ }
+                catch { }
 
                 int maxSide = 8000;
                 int w = orig.Width, h = orig.Height;
@@ -543,7 +404,7 @@ namespace AutoCADCleanupTool
                     var info = new FileInfo(f);
                     if (info.LastWriteTime < cutoff) info.Delete();
                 }
-                catch { /* ignore; file might be in use */ }
+                catch { }
             }
         }
     }

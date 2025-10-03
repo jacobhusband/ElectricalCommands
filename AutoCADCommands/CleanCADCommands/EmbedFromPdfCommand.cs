@@ -22,27 +22,16 @@ namespace AutoCADCleanupTool
             ed.WriteMessage("\n--- Starting EMBEDFROMPDFS ---");
 
             _pending.Clear();
-            // *** MODIFICATION: Clear the list of PDFs to detach ***
             _pdfDefinitionsToDetach.Clear();
             _lastPastedOle = ObjectId.Null;
-            _isEmbeddingProcessActive = false;
-            _finalPastedOleForZoom = ObjectId.Null;
-
-            try
-            {
-                DeleteOldEmbedTemps(daysOld: 7);
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\n[Warning] Could not delete old temp files: {ex.Message}");
-            }
 
             ObjectId originalClayer = db.Clayer;
             Matrix3d originalUcs = ed.CurrentUserCoordinateSystem;
 
             try
             {
-                ed.CurrentUserCoordinateSystem = Matrix3d.Identity; // Work in WCS for consistent transforms
+                DeleteOldEmbedTemps(daysOld: 7);
+                ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
                 _savedClayer = originalClayer;
 
                 try
@@ -50,14 +39,7 @@ namespace AutoCADCleanupTool
                     using (var tr = db.TransactionManager.StartTransaction())
                     {
                         var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-                        if (lt.Has("0"))
-                        {
-                            var zeroId = lt["0"];
-                            if (db.Clayer != zeroId)
-                            {
-                                db.Clayer = zeroId;
-                            }
-                        }
+                        if (lt.Has("0")) db.Clayer = lt["0"];
                         tr.Commit();
                     }
                 }
@@ -70,7 +52,6 @@ namespace AutoCADCleanupTool
                 if (queuedCount == 0)
                 {
                     ed.WriteMessage("\nNo PDF underlays found to embed.");
-                    RestoreOriginalLayer(db, originalClayer);
                     return;
                 }
 
@@ -79,7 +60,6 @@ namespace AutoCADCleanupTool
                 if (!EnsurePowerPoint(ed))
                 {
                     ed.WriteMessage("\n[!] Failed to start or connect to PowerPoint. Aborting.");
-                    RestoreOriginalLayer(db, originalClayer);
                     return;
                 }
 
@@ -88,9 +68,45 @@ namespace AutoCADCleanupTool
                     WindowOrchestrator.EnsureSeparationOrSafeOverlap(ed, pptHwnd, preferDifferentMonitor: true);
                 }
 
-                AttachHandlers(db, doc);
-                _isEmbeddingProcessActive = true;
-                ProcessNextPaste(doc, ed);
+                db.ObjectAppended += Db_ObjectAppended;
+
+                while (_pending.Count > 0)
+                {
+                    var placement = _pending.Dequeue();
+                    _lastPastedOle = ObjectId.Null;
+
+                    if (!EnsurePlacementSpace(doc, placement, ed))
+                    {
+                        ed.WriteMessage("\nSkipping item because its target space could not be activated.");
+                        continue;
+                    }
+
+                    if (!PrepareClipboardWithCroppedImage(placement, ed))
+                    {
+                        ed.WriteMessage($"\nSkipping item '{Path.GetFileName(placement.Path)}' due to clipboard preparation failure.");
+                        continue;
+                    }
+
+                    StartOleTextSizeDialogCloser(120);
+
+                    try
+                    {
+                        ed.Command("_.PASTECLIP", placement.Pos);
+                    }
+                    catch (System.Exception cmdEx)
+                    {
+                        ed.WriteMessage($"\nPASTECLIP command failed: {cmdEx.Message}. Skipping item.");
+                        continue;
+                    }
+
+                    if (_lastPastedOle.IsNull)
+                    {
+                        ed.WriteMessage("\nPaste did not create an OLE object. Skipping item.");
+                        continue;
+                    }
+
+                    ProcessPastedOle(_lastPastedOle, placement, db, ed);
+                }
             }
             catch (System.Exception ex)
             {
@@ -98,16 +114,14 @@ namespace AutoCADCleanupTool
             }
             finally
             {
+                db.ObjectAppended -= Db_ObjectAppended;
                 ed.CurrentUserCoordinateSystem = originalUcs;
-
-                if (!_isEmbeddingProcessActive)
-                {
-                    DetachHandlers(db, doc);
-                    ClosePowerPoint(ed);
-                    RestoreOriginalLayer(db, originalClayer);
-                    _pending.Clear();
-                    _pdfDefinitionsToDetach.Clear();
-                }
+                RestoreOriginalLayer(db, originalClayer);
+                ClosePowerPoint(ed);
+                DetachPdfDefinitions(db, ed);
+                PurgeEmbeddedImageDefs(db, ed);
+                _pending.Clear();
+                _savedClayer = ObjectId.Null;
             }
         }
 
@@ -172,7 +186,6 @@ namespace AutoCADCleanupTool
 
                         placement.TargetBtrId = btrId;
                         _pending.Enqueue(placement);
-                        // *** MODIFICATION: Mark definition for detachment ***
                         _pdfDefinitionsToDetach.Add(pdfDef.ObjectId);
                         queued++;
                     }
@@ -187,10 +200,7 @@ namespace AutoCADCleanupTool
         private static ImagePlacement BuildPlacementForPdf(UnderlayReference pdfRef, UnderlayDefinition pdfDef, string pngPath, string resolvedPdfPath, int pageNumber, Editor ed)
         {
             var transform = pdfRef.Transform;
-            double rawMinX = double.NaN, rawMinY = double.NaN, rawMaxX = double.NaN, rawMaxY = double.NaN;
             double leftPercent = double.NaN, bottomPercent = double.NaN, rightPercent = double.NaN, topPercent = double.NaN;
-            bool clipDerived = false;
-            string FormatPerc(double value) => double.IsNaN(value) || double.IsInfinity(value) ? "NaN" : value.ToString("F4");
             Point3d origin = transform.CoordinateSystem3d.Origin;
             Vector3d uVec = transform.CoordinateSystem3d.Xaxis;
             Vector3d vVec = transform.CoordinateSystem3d.Yaxis;
@@ -233,11 +243,6 @@ namespace AutoCADCleanupTool
 
                         if (minX <= maxX && minY <= maxY)
                         {
-                            rawMinX = minX;
-                            rawMinY = minY;
-                            rawMaxX = maxX;
-                            rawMaxY = maxY;
-
                             Point3d localBottomLeft = new Point3d(minX, minY, 0);
                             Point3d localBottomRight = new Point3d(maxX, minY, 0);
                             Point3d localTopLeft = new Point3d(minX, maxY, 0);
@@ -256,8 +261,6 @@ namespace AutoCADCleanupTool
                             bottomPercent = clipResult.bottom;
                             rightPercent = clipResult.right;
                             topPercent = clipResult.top;
-
-                            clipDerived = true;
 
                             if (placementU.Length < 1e-6 || placementV.Length < 1e-6)
                             {
@@ -287,17 +290,14 @@ namespace AutoCADCleanupTool
                         double sheetWidth = sheetSize.Value.X;
                         double sheetHeight = sheetSize.Value.Y;
 
-                        // Define corners in PDF's local space (0,0 to width,height)
                         Point3d localBottomLeft = new Point3d(0, 0, 0);
                         Point3d localBottomRight = new Point3d(sheetWidth, 0, 0);
                         Point3d localTopLeft = new Point3d(0, sheetHeight, 0);
 
-                        // Transform these corners to world coordinates using the PDF's transform matrix
                         Point3d worldBottomLeft = localBottomLeft.TransformBy(transform);
                         Point3d worldBottomRight = localBottomRight.TransformBy(transform);
                         Point3d worldTopLeft = localTopLeft.TransformBy(transform);
 
-                        // Set the final placement vectors from the transformed corners
                         placementOrigin = worldBottomLeft;
                         placementU = worldBottomRight - worldBottomLeft;
                         placementV = worldTopLeft - worldBottomLeft;
@@ -313,11 +313,6 @@ namespace AutoCADCleanupTool
                 }
             }
 
-            string fileLabel = string.IsNullOrEmpty(resolvedPdfPath) ? "<unknown>" : Path.GetFileName(resolvedPdfPath);
-            string clipDebug = clipDerived
-                ? $"clip rawX=[{FormatPerc(rawMinX)},{FormatPerc(rawMaxX)}] rawY=[{FormatPerc(rawMinY)},{FormatPerc(rawMaxY)}] perc=[L={FormatPerc(leftPercent)},B={FormatPerc(bottomPercent)},R={FormatPerc(rightPercent)},T={FormatPerc(topPercent)}]"
-                : "clip none";
-            // ed?.WriteMessage($"\n[DEBUG] Placement '{fileLabel}' page {pageNumber}: origin=({placementOrigin.X:F4},{placementOrigin.Y:F4},{placementOrigin.Z:F4}), Ulen={placementU.Length:F4}, Vlen={placementV.Length:F4}; {clipDebug}");
             if (placementU.Length < 1e-8 || placementV.Length < 1e-8)
             {
                 ed.WriteMessage("\nSkipping PDF underlay due to zero-sized placement vectors.");

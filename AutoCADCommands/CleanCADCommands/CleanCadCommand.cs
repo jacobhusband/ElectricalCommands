@@ -83,12 +83,12 @@ namespace AutoCADCleanupTool
                 CleanupCommands.RunKeepOnlyAfterFinalize = false;
                 _chainFinalizeAfterEmbed = false; // Ensure EMBEDFROMXREFS doesn't chain a command on its own.
 
-                ed.WriteMessage("\nCLEANSHEET: Queuing EMBEDFROMXREFS → CLEANPS → VP2PL → FINALIZE → REMOVEREMAININGXREFS → ZOOMTOLASTTB ...");
+                ed.WriteMessage("\nCLEANSHEET: Queuing EMBEDFROMXREFS → EMBEDFROMPDFS → CLEANPS → VP2PL → FINALIZE → REMOVEREMAININGXREFS → ZOOMTOLASTTB ...");
 
                 // Queue the entire sequence of commands in a single string.
                 // AutoCAD will execute them one by one after the current command scope ends.
                 // The space at the end ensures the last command is executed.
-                doc.SendStringToExecute("_.EMBEDFROMXREFS _.CLEANPS _.VP2PL _.FINALIZE _.REMOVEREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
+                doc.SendStringToExecute("_.EMBEDFROMXREFS _.EMBEDFROMPDFS _.CLEANPS _.VP2PL _.FINALIZE _.REMOVEREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
             }
             catch (System.Exception ex)
             {
