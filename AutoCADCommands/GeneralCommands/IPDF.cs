@@ -34,6 +34,7 @@ namespace ElectricalCommands
 
       string pdfPath = ofd.FileName;
       string baseName = Path.GetFileNameWithoutExtension(pdfPath);
+      // Create a stable, unique prefix for definitions based on the file path
       string defPrefix = $"{baseName}_{ComputeStableHashSuffix(pdfPath)}";
 
       if (!TryGetPdfPageCount(pdfPath, out int pageCount))
@@ -56,19 +57,16 @@ namespace ElectricalCommands
         DBDictionary nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
         const string PDF_DICT_NAME = "ACAD_PDFDEFINITIONS";
 
-        ObjectId pdfDictId = ObjectId.Null;
         DBDictionary pdfDict;
-
         if (nod.Contains(PDF_DICT_NAME))
         {
-          pdfDictId = nod.GetAt(PDF_DICT_NAME);
-          pdfDict = (DBDictionary)tr.GetObject(pdfDictId, OpenMode.ForRead);
+          pdfDict = (DBDictionary)tr.GetObject(nod.GetAt(PDF_DICT_NAME), OpenMode.ForRead);
         }
         else
         {
           nod.UpgradeOpen();
           pdfDict = new DBDictionary();
-          pdfDictId = nod.SetAt(PDF_DICT_NAME, pdfDict);
+          nod.SetAt(PDF_DICT_NAME, pdfDict);
           tr.AddNewlyCreatedDBObject(pdfDict, true);
         }
 
@@ -85,18 +83,17 @@ namespace ElectricalCommands
         int col = 0, row = 0;
         Vector3d pageW = Vector3d.XAxis, pageH = Vector3d.YAxis;
         bool firstPlaced = false;
+        int successfulPages = 0;
 
+        // Loop through the expected number of pages
         for (int page = 1; page <= pageCount; page++)
         {
           string defKey = $"{defPrefix} - {page}";
           ObjectId defId;
           bool definitionCreated = false;
 
-          if (pdfDict.Contains(defKey))
-          {
-            defId = pdfDict.GetAt(defKey);
-          }
-          else
+          // Ensure the dictionary is writable before creating a new definition
+          if (!pdfDict.Contains(defKey))
           {
             if (!pdfDict.IsWriteEnabled)
             {
@@ -106,12 +103,16 @@ namespace ElectricalCommands
             var pdfDef = new PdfDefinition
             {
               SourceFileName = pdfPath,
-              ItemName = page.ToString()
+              ItemName = page.ToString() // Page number is a string
             };
 
             defId = pdfDict.SetAt(defKey, pdfDef);
             tr.AddNewlyCreatedDBObject(pdfDef, true);
             definitionCreated = true;
+          }
+          else
+          {
+            defId = pdfDict.GetAt(defKey);
           }
 
           var pref = new PdfReference
@@ -128,20 +129,36 @@ namespace ElectricalCommands
             ps.AppendEntity(pref);
             tr.AddNewlyCreatedDBObject(pref, true);
 
-            if (!firstPlaced)
-            {
-              Extents3d extents = pref.GeometricExtents;
-              double w = Math.Abs(extents.MaxPoint.X - extents.MinPoint.X);
-              double h = Math.Abs(extents.MaxPoint.Y - extents.MinPoint.Y);
+            // *** KEY CHANGE: Validate the created reference ***
+            // If AutoCAD can't find the page, the extents will be invalid.
+            Extents3d extents = pref.GeometricExtents;
+            double w = Math.Abs(extents.MaxPoint.X - extents.MinPoint.X);
+            double h = Math.Abs(extents.MaxPoint.Y - extents.MinPoint.Y);
 
-              if (w <= Tolerance.Global.EqualPoint || h <= Tolerance.Global.EqualPoint)
+            // Check if the geometry is valid (has a non-zero area)
+            if (w <= Tolerance.Global.EqualPoint || h <= Tolerance.Global.EqualPoint)
+            {
+              // This indicates the page number does not exist in the PDF.
+              ed.WriteMessage($"\nStopped at page {page}. Assumed end of document.");
+
+              // Clean up the invalid objects that were just created
+              TryEraseReference(pref);
+              if (definitionCreated)
               {
-                throw new InvalidOperationException("Unable to determine PDF page dimensions.");
+                TryRemoveDefinition(pdfDict, defKey);
               }
 
+              // Exit the loop
+              break;
+            }
+
+            // --- Placement Logic ---
+            if (!firstPlaced)
+            {
               pageW = new Vector3d(w, 0, 0);
               pageH = new Vector3d(0, h, 0);
 
+              // Position the first page based on its calculated dimensions
               pref.UpgradeOpen();
               pref.Position = new Point3d(anchorTR.X - w, anchorTR.Y - h, 0);
               pref.DowngradeOpen();
@@ -150,18 +167,21 @@ namespace ElectricalCommands
             }
             else
             {
+              // Calculate the bottom-left point for subsequent pages
               Point3d ll = new Point3d(
-                anchorTR.X - ((col + 1) * pageW.X),
-                anchorTR.Y - ((row + 1) * pageH.Y),
-                0);
+                  (anchorTR.X - pageW.X) - (col * pageW.X), // Start from first page's left edge
+                  (anchorTR.Y - pageH.Y) - (row * pageH.Y), // Start from first page's bottom edge
+                  0);
 
               pref.UpgradeOpen();
               pref.Position = ll;
               pref.DowngradeOpen();
             }
 
+            // --- Grid Logic ---
+            successfulPages++;
             col++;
-            if (col % perRow == 0)
+            if (col >= perRow)
             {
               row++;
               col = 0;
@@ -169,22 +189,28 @@ namespace ElectricalCommands
           }
           catch (System.Exception ex)
           {
-            ed.WriteMessage($"\nStopped inserting at page {page}: {ex.Message}");
+            ed.WriteMessage($"\nAn error occurred while inserting page {page}: {ex.Message}");
             TryEraseReference(pref);
-
             if (definitionCreated)
             {
               TryRemoveDefinition(pdfDict, defKey);
             }
-
             break;
           }
+        }
+
+        if (successfulPages > 0)
+        {
+          ed.WriteMessage($"\nSuccessfully inserted {successfulPages} page(s).");
+        }
+        else
+        {
+          ed.WriteMessage("\nNo pages were inserted.");
         }
 
         tr.Commit();
       }
     }
-
     private static bool TryGetPdfPageCount(string pdfPath, out int pageCount)
     {
       try
@@ -289,12 +315,12 @@ namespace ElectricalCommands
     {
       switch (u)
       {
-        case UnitsValue.Inches:       return 1.0;
-        case UnitsValue.Feet:         return 1.0 / 12.0;
-        case UnitsValue.Millimeters:  return 25.4;
-        case UnitsValue.Centimeters:  return 2.54;
-        case UnitsValue.Meters:       return 0.0254;
-        default:                      return 1.0;
+        case UnitsValue.Inches: return 1.0;
+        case UnitsValue.Feet: return 1.0 / 12.0;
+        case UnitsValue.Millimeters: return 25.4;
+        case UnitsValue.Centimeters: return 2.54;
+        case UnitsValue.Meters: return 0.0254;
+        default: return 1.0;
       }
     }
   }
