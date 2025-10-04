@@ -21,6 +21,8 @@ namespace AutoCADCleanupTool
             int dwgDetached = 0;
             int imagesErased = 0;
             int imageDefsRemoved = 0;
+            int pdfsErased = 0;
+            int pdfDefsRemoved = 0;
             int blockRefsErased = 0;
 
             try
@@ -92,7 +94,7 @@ namespace AutoCADCleanupTool
                         {
                             try
                             {
-                                db.DetachXref(xrefId); //[[1](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQE4CuoOZyr5oDJbSUGNuF93G_8g1MUkcJMPsgdm7hS2h8KljfMbtCrxBtxwy7utCvZobQDkVv23P_0zIqCwx-kVi0GGq5z2dj8nRrgNVqPrpx2HAtOKQLpcpT90Z5ncd0QZmoD_mlL1A30702UXEMbfnV2CdFA5O74O7RdmyGQaheEbORBGO1o0rrbx)][[2](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQE1Ze73Z3sre-eR_VHs2CJW7-Yud-P7pA-3k31dWC9DHr5YWSw1KjjSllU7QP1YARu2ITRR62JGWNZWw9DOJHHI_gnQJsUbVVT4Eoa5FBTIkoKl_Jnu1f0tyIPEVHFJMw5y3daEzrJUuRm4OHmd8ADuw7_uspaXsYDgpOlgsqJWDvdHjtHk7iZk)]
+                                db.DetachXref(xrefId);
                                 dwgDetached++;
                             }
                             catch (System.Exception ex)
@@ -152,7 +154,7 @@ namespace AutoCADCleanupTool
                     var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
                     if (nod.Contains("ACAD_IMAGE_DICT"))
                     {
-                        var imageDict = (DBDictionary)tr.GetObject(nod.GetAt("ACAD_IMAGE_DICT"), OpenMode.ForWrite); //[[3](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQFZyjc41w1ZabXoBlIgfzj3hiJRrDxkWJbwL50aixnre3MscR5UUO8uYZ0HnXAIoAoG5FPCTOwDsy8eHDzvDZRNgCnkkw1ktjtcWav41kiskLV4M03O8wMabAWznHQdAFkcemI1DOTmX9DRzQTHpRZcjp4X_eABZOBRThRXR-w%3D)]
+                        var imageDict = (DBDictionary)tr.GetObject(nod.GetAt("ACAD_IMAGE_DICT"), OpenMode.ForWrite);
                         var defsToRemove = new Dictionary<string, ObjectId>();
 
                         foreach (DBDictionaryEntry entry in imageDict)
@@ -164,9 +166,9 @@ namespace AutoCADCleanupTool
                         {
                             try
                             {
-                                imageDict.Remove(kvp.Key); //[[4](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQEicoE-wX6wwTilwuNUP3NhaLdkDGAsHTOHseofBOXE6VOwf3xOKYI5q_NGGb1I9q83kswv0g12Xv02cPN8QPrzmj9BNI-B6v1qSsdj-d6teTFerx6NGzmHgpLMITEY-yE38aez82aIcpKSe5_yXq_EWKFLwXutPEp8ZN5KqilWh_njWJnpFZeumxugWPfO6whXap3f)][[5](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQHc3jcFZB_eedF7s0eCw_Xrru3rRC7OH6pGdn8_xZSvYRmLAVXRvYAH95Y55O7Bm2TqpidpnQ3fKZBbYjgN47WpVpn8FJz4RKWoC14YIpMRLVXbuf4w9_GFUxXZip7kHI1vVipRjbciy38ISyUSoqytMwBd8lKWye-jmn_VYgGBEG9d5eGwWvYP980liOBgrGjIGWJDvw6OfA%3D%3D)]
+                                imageDict.Remove(kvp.Key);
                                 var def = tr.GetObject(kvp.Value, OpenMode.ForWrite);
-                                def.Erase(); //[[4](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQEicoE-wX6wwTilwuNUP3NhaLdkDGAsHTOHseofBOXE6VOwf3xOKYI5q_NGGb1I9q83kswv0g12Xv02cPN8QPrzmj9BNI-B6v1qSsdj-d6teTFerx6NGzmHgpLMITEY-yE38aez82aIcpKSe5_yXq_EWKFLwXutPEp8ZN5KqilWh_njWJnpFZeumxugWPfO6whXap3f)][[5](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQHc3jcFZB_eedF7s0eCw_Xrru3rRC7OH6pGdn8_xZSvYRmLAVXRvYAH95Y55O7Bm2TqpidpnQ3fKZBbYjgN47WpVpn8FJz4RKWoC14YIpMRLVXbuf4w9_GFUxXZip7kHI1vVipRjbciy38ISyUSoqytMwBd8lKWye-jmn_VYgGBEG9d5eGwWvYP980liOBgrGjIGWJDvw6OfA%3D%3D)]
+                                def.Erase();
                                 imageDefsRemoved++;
                             }
                             catch (System.Exception ex)
@@ -178,11 +180,88 @@ namespace AutoCADCleanupTool
                     tr.Commit();
                 }
 
+                // --- Part 3: Remove ALL PDF References and Definitions ---
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    // Step A: Erase all PdfUnderlay entities from all spaces
+                    var pdfsToErase = new List<ObjectId>();
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    foreach (ObjectId spaceId in bt)
+                    {
+                        var spaceBtr = (BlockTableRecord)tr.GetObject(spaceId, OpenMode.ForRead);
+                        foreach (ObjectId entId in spaceBtr)
+                        {
+                            if (entId.ObjectClass.DxfName.Equals("PDFUNDERLAY", StringComparison.OrdinalIgnoreCase))
+                            {
+                                pdfsToErase.Add(entId);
+                            }
+                        }
+                    }
+
+                    foreach (var pdfId in pdfsToErase)
+                    {
+                        try
+                        {
+                            var pdf = tr.GetObject(pdfId, OpenMode.ForWrite) as UnderlayReference;
+                            if (pdf != null && !pdf.IsErased)
+                            {
+                                var layer = (LayerTableRecord)tr.GetObject(pdf.LayerId, OpenMode.ForRead);
+                                bool relock = false;
+                                if (layer.IsLocked)
+                                {
+                                    layer.UpgradeOpen();
+                                    layer.IsLocked = false;
+                                    relock = true;
+                                }
+                                pdf.Erase();
+                                pdfsErased++;
+                                if (relock) layer.IsLocked = true;
+                            }
+                        }
+                        catch (System.Exception ex)
+                        {
+                            ed.WriteMessage($"\nCould not erase PDF underlay {pdfId}: {ex.Message}");
+                        }
+                    }
+
+                    // Step B: Collect and remove all PDF definitions
+                    var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+                    if (nod.Contains("ACAD_PDFDEFINITIONS"))
+                    {
+                        var pdfDict = (DBDictionary)tr.GetObject(nod.GetAt("ACAD_PDFDEFINITIONS"), OpenMode.ForWrite);
+                        var defsToRemove = new Dictionary<string, ObjectId>();
+
+                        foreach (DBDictionaryEntry entry in pdfDict)
+                        {
+                            defsToRemove.Add(entry.Key, entry.Value);
+                        }
+
+                        foreach (var kvp in defsToRemove)
+                        {
+                            try
+                            {
+                                pdfDict.Remove(kvp.Key);
+                                var def = tr.GetObject(kvp.Value, OpenMode.ForWrite);
+                                def.Erase();
+                                pdfDefsRemoved++;
+                            }
+                            catch (System.Exception ex)
+                            {
+                                ed.WriteMessage($"\nFailed to remove PDF def '{kvp.Key}': {ex.Message}");
+                            }
+                        }
+                    }
+                    tr.Commit();
+                }
+
+
                 ed.WriteMessage($"\n--- XREF Removal Summary ---");
                 ed.WriteMessage($"\nErased {blockRefsErased} DWG XREF block reference(s).");
                 ed.WriteMessage($"\nDetached {dwgDetached} DWG XREF definition(s).");
                 ed.WriteMessage($"\nErased {imagesErased} image reference(s).");
                 ed.WriteMessage($"\nRemoved {imageDefsRemoved} image definition(s).");
+                ed.WriteMessage($"\nErased {pdfsErased} PDF reference(s).");
+                ed.WriteMessage($"\nRemoved {pdfDefsRemoved} PDF definition(s).");
                 ed.WriteMessage($"\nCleanup complete.");
             }
             catch (System.Exception ex)
