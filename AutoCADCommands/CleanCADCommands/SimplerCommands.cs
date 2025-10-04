@@ -294,11 +294,18 @@ namespace AutoCADCleanupTool
         // --- Helper for PDF Cropping in PowerPoint ---
         private static bool PrepareClipboardWithCroppedImage(ImagePlacement placement, Editor ed)
         {
+            dynamic slide = null;
+            dynamic shapes = null;
+            Shape pic = null;
+            dynamic picFormat = null;
+            dynamic pngRange = null;
+            Shape pngShape = null;
+
             try
             {
                 if (!EnsurePowerPoint(ed)) return false;
-                dynamic slide = _pptPresentationShared.Slides[1]; // 1-based
-                var shapes = slide.Shapes;
+                slide = _pptPresentationShared.Slides[1]; // 1-based
+                shapes = slide.Shapes;
                 // Clear previous shapes
                 for (int i = shapes.Count; i >= 1; i--)
                 {
@@ -306,7 +313,7 @@ namespace AutoCADCleanupTool
                 }
 
                 string path = placement.Path;
-                Shape pic = shapes.AddPicture(path, MsoTriState.msoFalse, MsoTriState.msoTrue, 10, 10);
+                pic = shapes.AddPicture(path, MsoTriState.msoFalse, MsoTriState.msoTrue, 10, 10);
 
 
                 // --- Cropping Logic ---
@@ -365,7 +372,7 @@ namespace AutoCADCleanupTool
 
                     if (cropComputed)
                     {
-                        var picFormat = pic.PictureFormat;
+                        picFormat = pic.PictureFormat;
                         picFormat.CropLeft = cropLeft;
                         picFormat.CropTop = cropTop;
                         picFormat.CropRight = cropRight;
@@ -381,11 +388,9 @@ namespace AutoCADCleanupTool
 
                 pic.Copy();
 
-                dynamic pngRange = null;
                 try
                 {
                     pngRange = slide.Shapes.PasteSpecial(PowerPoint.PpPasteDataType.ppPastePNG);
-                    Shape pngShape = null;
                     try { pngShape = pngRange[1]; } catch { }
                     if (pngShape != null)
                     {
@@ -398,13 +403,7 @@ namespace AutoCADCleanupTool
                     }
                 }
                 catch { }
-                finally
-                {
-                    if (pngRange != null)
-                    {
-                        try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(pngRange); } catch { }
-                    }
-                }
+
 
                 try { pic.Delete(); } catch { }
 
@@ -414,6 +413,17 @@ namespace AutoCADCleanupTool
             {
                 ed.WriteMessage($"\nFailed to prepare clipboard for '{placement.Path}': {ex.Message}");
                 return false;
+            }
+            finally
+            {
+                // This is the fix: Proactively release COM objects to prevent resource buildup
+                // that can cause mid-process freezes.
+                if (pngShape != null) Marshal.ReleaseComObject(pngShape);
+                if (pngRange != null) Marshal.ReleaseComObject(pngRange);
+                if (picFormat != null) Marshal.ReleaseComObject(picFormat);
+                if (pic != null) Marshal.ReleaseComObject(pic);
+                if (shapes != null) Marshal.ReleaseComObject(shapes);
+                if (slide != null) Marshal.ReleaseComObject(slide);
             }
         }
 
@@ -995,6 +1005,12 @@ namespace AutoCADCleanupTool
                     tr.Commit();
                 }
 
+                // This is the fix: Proactively manage memory and UI thread responsiveness
+                // after each paste operation to prevent a large, blocking freeze.
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                Thread.Sleep(50); // A brief pause to let message pumps catch up.
+
                 if (_pending.Count > 0)
                 {
                     ProcessNextPaste(doc, ed);
@@ -1040,6 +1056,12 @@ namespace AutoCADCleanupTool
                 // *** MODIFICATION: Call PDF detachment ***
                 DetachPdfDefinitions(db, ed);
                 DetachXrefs(db, ed);
+
+                // This is the fix: Safely manage window focus before closing PowerPoint.
+                // This helps prevent freezes by ensuring AutoCAD has focus and PowerPoint is
+                // in a stable (minimized) state before issuing the quit command via COM.
+                WindowOrchestrator.EndPptInteraction();
+
                 ClosePowerPoint(ed);
 
                 try
