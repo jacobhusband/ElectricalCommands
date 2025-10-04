@@ -23,8 +23,6 @@ namespace AutoCADCleanupTool
             ed.WriteMessage("\n--- Starting EMBEDFROMPDFS ---");
 
             _pending.Clear();
-            // *** MODIFICATION: Clear the list of PDFs to detach ***
-            _pdfDefinitionsToDetach.Clear();
             _lastPastedOle = ObjectId.Null;
             _isEmbeddingProcessActive = false;
             _finalPastedOleForZoom = ObjectId.Null;
@@ -107,7 +105,6 @@ namespace AutoCADCleanupTool
                     ClosePowerPoint(ed);
                     RestoreOriginalLayer(db, originalClayer);
                     _pending.Clear();
-                    _pdfDefinitionsToDetach.Clear();
                 }
             }
         }
@@ -173,8 +170,6 @@ namespace AutoCADCleanupTool
 
                         placement.TargetBtrId = btrId;
                         _pending.Enqueue(placement);
-                        // *** MODIFICATION: Mark definition for detachment ***
-                        _pdfDefinitionsToDetach.Add(pdfDef.ObjectId);
                         queued++;
                     }
                 }
