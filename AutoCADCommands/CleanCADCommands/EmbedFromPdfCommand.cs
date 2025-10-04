@@ -200,11 +200,13 @@ namespace AutoCADCleanupTool
             Vector3d placementV = vVec;
             Point2d[] percentageClipBoundary = null;
 
+            bool isEffectivelyClipped = false;
+            Point2d[] boundaryPoints = null;
+
             if (pdfRef.IsClipped)
             {
                 try
                 {
-                    Point2d[] boundaryPoints = null;
                     object rawBoundary = pdfRef.GetClipBoundary();
                     if (rawBoundary is Point2dCollection collection)
                     {
@@ -218,57 +220,101 @@ namespace AutoCADCleanupTool
 
                     if (boundaryPoints != null && boundaryPoints.Length >= 2)
                     {
-                        double minX = double.PositiveInfinity;
-                        double minY = double.PositiveInfinity;
-                        double maxX = double.NegativeInfinity;
-                        double maxY = double.NegativeInfinity;
-
-                        foreach (var pt in boundaryPoints)
+                        Point2d? sheetSize = GetPdfPageSizeInches(resolvedPdfPath, pageNumber);
+                        if (sheetSize.HasValue)
                         {
-                            if (pt.X < minX) minX = pt.X;
-                            if (pt.Y < minY) minY = pt.Y;
-                            if (pt.X > maxX) maxX = pt.X;
-                            if (pt.Y > maxY) maxY = pt.Y;
+                            double minClipX = double.PositiveInfinity, minClipY = double.PositiveInfinity;
+                            double maxClipX = double.NegativeInfinity, maxClipY = double.NegativeInfinity;
+                            foreach (var pt in boundaryPoints)
+                            {
+                                if (pt.X < minClipX) minClipX = pt.X;
+                                if (pt.Y < minClipY) minClipY = pt.Y;
+                                if (pt.X > maxClipX) maxClipX = pt.X;
+                                if (pt.Y > maxClipY) maxClipY = pt.Y;
+                            }
+
+                            double pageWidth = sheetSize.Value.X;
+                            double pageHeight = sheetSize.Value.Y;
+                            double tolerance = 1e-4;
+
+                            bool isDefaultBoundary =
+                                Math.Abs(minClipX) < tolerance &&
+                                Math.Abs(minClipY) < tolerance &&
+                                Math.Abs(maxClipX - pageWidth) < tolerance &&
+                                Math.Abs(maxClipY - pageHeight) < tolerance;
+
+                            if (!isDefaultBoundary)
+                            {
+                                isEffectivelyClipped = true;
+                            }
+                        }
+                        else
+                        {
+                            isEffectivelyClipped = true; // Fallback: trust AutoCAD if we can't get sheet size
+                        }
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nWarning: Failed to evaluate PDF clip boundary to check for clipping status: {ex.Message}");
+                    isEffectivelyClipped = true; // In case of error, assume it is clipped to be safe and preserve original behavior
+                }
+            }
+
+            if (isEffectivelyClipped && boundaryPoints != null) // This is the logic for TRULY clipped PDFs
+            {
+                try
+                {
+                    double minX = double.PositiveInfinity;
+                    double minY = double.PositiveInfinity;
+                    double maxX = double.NegativeInfinity;
+                    double maxY = double.NegativeInfinity;
+
+                    foreach (var pt in boundaryPoints)
+                    {
+                        if (pt.X < minX) minX = pt.X;
+                        if (pt.Y < minY) minY = pt.Y;
+                        if (pt.X > maxX) maxX = pt.X;
+                        if (pt.Y > maxY) maxY = pt.Y;
+                    }
+
+                    if (minX <= maxX && minY <= maxY)
+                    {
+                        rawMinX = minX;
+                        rawMinY = minY;
+                        rawMaxX = maxX;
+                        rawMaxY = maxY;
+
+                        Point3d localBottomLeft = new Point3d(minX, minY, 0);
+                        Point3d localBottomRight = new Point3d(maxX, minY, 0);
+                        Point3d localTopLeft = new Point3d(minX, maxY, 0);
+
+                        Point3d worldBottomLeft = localBottomLeft.TransformBy(transform);
+                        Point3d worldBottomRight = localBottomRight.TransformBy(transform);
+                        Point3d worldTopLeft = localTopLeft.TransformBy(transform);
+
+                        placementOrigin = worldBottomLeft;
+                        placementU = worldBottomRight - worldBottomLeft;
+                        placementV = worldTopLeft - worldBottomLeft;
+
+                        var clipResult = ComputeClipPercentages(resolvedPdfPath, pageNumber, minX, minY, maxX, maxY, transform, origin, uVec, vVec, ed);
+                        percentageClipBoundary = clipResult.clip;
+                        leftPercent = clipResult.left;
+                        bottomPercent = clipResult.bottom;
+                        rightPercent = clipResult.right;
+                        topPercent = clipResult.top;
+
+                        clipDerived = true;
+
+                        if (placementU.Length < 1e-6 || placementV.Length < 1e-6)
+                        {
+                            ed.WriteMessage("\nSkipping PDF underlay with zero-area clip boundary.");
+                            return null;
                         }
 
-                        if (minX <= maxX && minY <= maxY)
+                        if (percentageClipBoundary == null)
                         {
-                            rawMinX = minX;
-                            rawMinY = minY;
-                            rawMaxX = maxX;
-                            rawMaxY = maxY;
-
-                            Point3d localBottomLeft = new Point3d(minX, minY, 0);
-                            Point3d localBottomRight = new Point3d(maxX, minY, 0);
-                            Point3d localTopLeft = new Point3d(minX, maxY, 0);
-
-                            Point3d worldBottomLeft = localBottomLeft.TransformBy(transform);
-                            Point3d worldBottomRight = localBottomRight.TransformBy(transform);
-                            Point3d worldTopLeft = localTopLeft.TransformBy(transform);
-
-                            placementOrigin = worldBottomLeft;
-                            placementU = worldBottomRight - worldBottomLeft;
-                            placementV = worldTopLeft - worldBottomLeft;
-
-                            var clipResult = ComputeClipPercentages(resolvedPdfPath, pageNumber, minX, minY, maxX, maxY, transform, origin, uVec, vVec, ed);
-                            percentageClipBoundary = clipResult.clip;
-                            leftPercent = clipResult.left;
-                            bottomPercent = clipResult.bottom;
-                            rightPercent = clipResult.right;
-                            topPercent = clipResult.top;
-
-                            clipDerived = true;
-
-                            if (placementU.Length < 1e-6 || placementV.Length < 1e-6)
-                            {
-                                ed.WriteMessage("\nSkipping PDF underlay with zero-area clip boundary.");
-                                return null;
-                            }
-
-                            if (percentageClipBoundary == null)
-                            {
-                                ed.WriteMessage("\nWarning: Could not derive crop percentages for PowerPoint. The image may not be cropped correctly.");
-                            }
+                            ed.WriteMessage("\nWarning: Could not derive crop percentages for PowerPoint. The image may not be cropped correctly.");
                         }
                     }
                 }
@@ -277,7 +323,7 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage($"\nWarning: Failed to evaluate PDF clip boundary: {ex.Message}");
                 }
             }
-            else // Handle unclipped PDFs
+            else // Handle unclipped PDFs (or PDFs "clipped" to their full boundary)
             {
                 try
                 {
@@ -287,17 +333,14 @@ namespace AutoCADCleanupTool
                         double sheetWidth = sheetSize.Value.X;
                         double sheetHeight = sheetSize.Value.Y;
 
-                        // Define corners in PDF's local space (0,0 to width,height)
                         Point3d localBottomLeft = new Point3d(0, 0, 0);
                         Point3d localBottomRight = new Point3d(sheetWidth, 0, 0);
                         Point3d localTopLeft = new Point3d(0, sheetHeight, 0);
 
-                        // Transform these corners to world coordinates using the PDF's transform matrix
                         Point3d worldBottomLeft = localBottomLeft.TransformBy(transform);
                         Point3d worldBottomRight = localBottomRight.TransformBy(transform);
                         Point3d worldTopLeft = localTopLeft.TransformBy(transform);
 
-                        // Set the final placement vectors from the transformed corners
                         placementOrigin = worldBottomLeft;
                         placementU = worldBottomRight - worldBottomLeft;
                         placementV = worldTopLeft - worldBottomLeft;
