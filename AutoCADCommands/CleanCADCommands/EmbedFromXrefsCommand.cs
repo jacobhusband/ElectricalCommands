@@ -165,6 +165,7 @@ namespace AutoCADCleanupTool
             _lastPastedOle = ObjectId.Null;
             _isEmbeddingProcessActive = false;
             _finalPastedOleForZoom = ObjectId.Null;
+            _xrefsToDetach.Clear(); // Ensure this is cleared for a new run
 
             try
             {
@@ -176,10 +177,8 @@ namespace AutoCADCleanupTool
             }
 
             ObjectId originalClayer = db.Clayer;
-            // *** MODIFICATION START ***
-            // Save the current UCS and switch to WCS to ensure predictable geometry for pasted objects.
-            // This is critical for the transformation logic to work correctly and prevents freezes.
             Matrix3d originalUcs = ed.CurrentUserCoordinateSystem;
+            string originalLayout = LayoutManager.Current.CurrentLayout; // Save original layout
 
             try
             {
@@ -206,7 +205,33 @@ namespace AutoCADCleanupTool
                         tr.Commit();
                     }
 
-                    CollectAndPreflightImages(doc);
+                    // *** MODIFICATION: Iterate through all layouts to collect images ***
+                    ed.WriteMessage("\nScanning all layouts for raster images...");
+                    using (var tr = db.TransactionManager.StartTransaction())
+                    {
+                        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                        var modelSpaceId = bt[BlockTableRecord.ModelSpace];
+
+                        ed.WriteMessage("\n- Scanning Model Space...");
+                        CollectAndPreflightImagesInLayout(doc, modelSpaceId);
+
+                        var layoutDictId = db.LayoutDictionaryId;
+                        var layoutDict = (DBDictionary)tr.GetObject(layoutDictId, OpenMode.ForRead);
+
+                        foreach (DBDictionaryEntry entry in layoutDict)
+                        {
+                            if (entry.Key.Equals("Model", StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue; // Already processed Model Space
+                            }
+
+                            var layoutId = entry.Value;
+                            var layout = (Layout)tr.GetObject(layoutId, OpenMode.ForRead);
+                            ed.WriteMessage($"\n- Scanning layout: {layout.LayoutName}...");
+                            CollectAndPreflightImagesInLayout(doc, layout.BlockTableRecordId);
+                        }
+                        tr.Commit();
+                    }
                 }
                 catch (System.Exception ex)
                 {
@@ -218,15 +243,9 @@ namespace AutoCADCleanupTool
                 if (_pending.Count == 0)
                 {
                     ed.WriteMessage("\nNo valid raster images found to embed.");
-
-                    // The process is "active" just long enough to trigger the cleanup
-                    // and command chaining logic.
                     _isEmbeddingProcessActive = true;
-
-                    // Immediately call the finish routine to continue the CLEANCAD sequence.
                     FinishEmbeddingRun(doc, ed, db);
-
-                    return; // Exit this method, as the rest is for processing images.
+                    return;
                 }
 
                 ed.WriteMessage($"\nSuccessfully queued {_pending.Count} image(s).");
@@ -245,24 +264,25 @@ namespace AutoCADCleanupTool
                 AttachHandlers(db, doc);
                 ed.WriteMessage($"\nStarting paste process for {_pending.Count} raster image(s)...");
                 _isEmbeddingProcessActive = true;
+
+                // *** MODIFICATION: Removed the explicit layout switch from the previous attempt ***
+                // The new ProcessNextPaste method now handles layout switching robustly.
+
                 ProcessNextPaste(doc, ed);
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\n[!] An error occurred during the PowerPoint embedding process: {ex.Message}");
-                // The finally block will handle cleanup
             }
             finally
             {
                 if (!_isEmbeddingProcessActive && _pending.Count == 0)
                 {
-                    // This block runs if the process completed successfully or found no images
                     ClosePowerPoint(ed);
                     RestoreOriginalLayer(db, originalClayer);
                 }
                 else if (!_isEmbeddingProcessActive && _pending.Count > 0)
                 {
-                    // This block runs if an error occurred before the process could complete
                     ed.WriteMessage("\nAborting embedding process due to an earlier error.");
                     DetachHandlers(db, doc);
                     ClosePowerPoint(ed);
@@ -271,18 +291,30 @@ namespace AutoCADCleanupTool
                 }
 
                 ed.CurrentUserCoordinateSystem = originalUcs;
+
+                // Restore original layout
+                try
+                {
+                    if (LayoutManager.Current.CurrentLayout != originalLayout)
+                    {
+                        LayoutManager.Current.CurrentLayout = originalLayout;
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nWarning: Could not restore original layout: {ex.Message}");
+                }
             }
         }
 
-        private static void CollectAndPreflightImages(Document doc)
+        private static void CollectAndPreflightImagesInLayout(Document doc, ObjectId spaceId)
         {
             var db = doc.Database;
             var ed = doc.Editor;
-            int queuedCount = 0;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                var space = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForRead);
+                var space = (BlockTableRecord)tr.GetObject(spaceId, OpenMode.ForRead);
 
                 foreach (ObjectId id in space)
                 {
@@ -333,13 +365,12 @@ namespace AutoCADCleanupTool
                         Pos = cs.Origin,
                         U = cs.Xaxis,
                         V = cs.Yaxis,
-                        // --- THIS IS THE FIX ---
-                        OriginalEntityId = img.ObjectId
+                        OriginalEntityId = img.ObjectId,
+                        TargetBtrId = spaceId // Store the BTR of the layout where the image was found
                     };
 
                     _pending.Enqueue(placement);
-                    queuedCount++;
-                    ed.WriteMessage($"\nQueued [{queuedCount}]: {Path.GetFileName(placement.Path)}");
+                    ed.WriteMessage($"\nQueued [{_pending.Count}]: {Path.GetFileName(placement.Path)}");
                 }
                 tr.Commit();
             }

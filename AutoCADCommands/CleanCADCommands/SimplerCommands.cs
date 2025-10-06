@@ -1130,62 +1130,45 @@ namespace AutoCADCleanupTool
             AutoCADApp.Idle += FinalCleanupOnIdle;
         }
 
-        private static bool EnsurePlacementSpace(Document doc, ImagePlacement placement, Editor ed)
+        // *** MODIFICATION: This helper function is new ***
+        /// <summary>
+        /// Gets the name of a layout from its BlockTableRecord ObjectId.
+        /// </summary>
+        private static string GetLayoutNameFromBtrId(Database db, ObjectId btrId)
         {
-            if (doc == null || placement == null || placement.TargetBtrId.IsNull)
-            {
-                return true;
-            }
-
-            var db = doc.Database;
-            if (db.CurrentSpaceId == placement.TargetBtrId)
-            {
-                return true;
-            }
+            // Default to "Model" for Model Space or if lookup fails
+            string layoutName = "Model";
+            if (btrId.IsNull) return layoutName;
 
             try
             {
-                string layoutName = null;
                 using (var tr = db.TransactionManager.StartOpenCloseTransaction())
                 {
-                    var btr = tr.GetObject(placement.TargetBtrId, OpenMode.ForRead) as BlockTableRecord;
-                    if (btr == null || !btr.IsLayout)
+                    var btr = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
+                    if (btr != null && btr.IsLayout)
                     {
-                        ed?.WriteMessage("\nSkipping placement: owner space is not a layout or is unavailable.");
-                        return false;
+                        var layout = tr.GetObject(btr.LayoutId, OpenMode.ForRead) as Layout;
+                        if (layout != null)
+                        {
+                            layoutName = layout.LayoutName;
+                        }
                     }
-
-                    var layout = tr.GetObject(btr.LayoutId, OpenMode.ForRead) as Layout;
-                    if (layout == null)
-                    {
-                        ed?.WriteMessage("\nSkipping placement: layout information could not be resolved.");
-                        return false;
-                    }
-
-                    layoutName = layout.LayoutName;
+                    tr.Commit();
                 }
-
-                var lm = LayoutManager.Current;
-                if (lm == null)
-                {
-                    ed?.WriteMessage("\nUnable to activate layout manager for placement.");
-                    return false;
-                }
-
-                if (!string.Equals(lm.CurrentLayout, layoutName, StringComparison.OrdinalIgnoreCase))
-                {
-                    lm.CurrentLayout = layoutName;
-                }
-
-                return db.CurrentSpaceId == placement.TargetBtrId;
             }
             catch (System.Exception ex)
             {
-                ed?.WriteMessage($"\nFailed to switch to target layout: {ex.Message}");
-                return false;
+                AutoCADApp.DocumentManager.MdiActiveDocument.Editor.WriteMessage($"\nWarning: Could not resolve layout name for BTR {btrId}: {ex.Message}");
             }
+            return layoutName;
         }
 
+
+        // *** MODIFICATION: This function has been removed ***
+        // private static bool EnsurePlacementSpace(Document doc, ImagePlacement placement, Editor ed) { ... }
+
+
+        // *** MODIFICATION: This function has been completely rewritten ***
         private static void ProcessNextPaste(Document doc, Editor ed)
         {
             if (!_isEmbeddingProcessActive || _pending.Count == 0)
@@ -1194,14 +1177,17 @@ namespace AutoCADCleanupTool
                 return;
             }
             var target = _pending.Peek();
+            var db = doc.Database;
 
-            if (!EnsurePlacementSpace(doc, target, ed))
+            // Get the target layout name. If it's invalid, skip this item.
+            string targetLayoutName = GetLayoutNameFromBtrId(db, target.TargetBtrId);
+            if (string.IsNullOrEmpty(targetLayoutName))
             {
                 _pending.Dequeue();
                 _activePlacement = null;
                 _activePasteDocument = null;
-                ed?.WriteMessage("\nSkipping queued item because its target space could not be activated.");
-                ProcessNextPaste(doc, ed);
+                ed?.WriteMessage("\nSkipping queued item because its target layout could not be determined.");
+                ProcessNextPaste(doc, ed); // Process the next one
                 return;
             }
 
@@ -1234,8 +1220,13 @@ namespace AutoCADCleanupTool
                 try { AutoCADApp.Idle -= Application_OnIdleSendPastePoint; } catch { }
                 _pastePointHandlerAttached = false;
             }
-            doc.SendStringToExecute("_.PASTECLIP\n", true, false, false);
-        }
 
+            // Build the command string to switch layout and then paste.
+            // This is the robust way to handle the sequence and avoid race conditions.
+            // Using -LAYOUT command (with hyphen) to suppress the dialog box.
+            string commandString = $"_.-LAYOUT S \"{targetLayoutName}\"\n_.PASTECLIP\n";
+            ed.WriteMessage($"\nActivating layout '{targetLayoutName}' for pasting...");
+            doc.SendStringToExecute(commandString, true, false, false);
+        }
     }
 }
