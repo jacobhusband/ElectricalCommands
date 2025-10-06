@@ -185,6 +185,8 @@ namespace AutoCADCleanupTool
         private static bool _pastePointHandlerAttached = false;
         // State management to prevent re-entrancy and zoom to the final image
         private static bool _isEmbeddingProcessActive = false;
+        private static bool _isCleanSheetWorkflowActive = false;
+
         private static ObjectId _finalPastedOleForZoom = ObjectId.Null;
         // Track XREFs that contained images that were embedded, so they can be detached
         private static readonly HashSet<ObjectId> _xrefsToDetach = new HashSet<ObjectId>();
@@ -1053,15 +1055,10 @@ namespace AutoCADCleanupTool
 
                 DetachHandlers(db, doc);
                 PurgeEmbeddedImageDefs(db, ed);
-                // *** MODIFICATION: Call PDF detachment ***
                 DetachPdfDefinitions(db, ed);
                 DetachXrefs(db, ed);
 
-                // This is the fix: Safely manage window focus before closing PowerPoint.
-                // This helps prevent freezes by ensuring AutoCAD has focus and PowerPoint is
-                // in a stable (minimized) state before issuing the quit command via COM.
                 WindowOrchestrator.EndPptInteraction();
-
                 ClosePowerPoint(ed);
 
                 try
@@ -1075,15 +1072,22 @@ namespace AutoCADCleanupTool
 
                 _savedClayer = ObjectId.Null;
 
-                if (_chainFinalizeAfterEmbed)
+                // *** MODIFICATION START ***
+                // Check if we are in the full workflow. If so, chain the next commands.
+                if (_isCleanSheetWorkflowActive)
                 {
-                    _chainFinalizeAfterEmbed = false;
-                    doc.SendStringToExecute("_.FINALIZE ", true, false, false);
+                    _isCleanSheetWorkflowActive = false; // Reset the flag
+                    ed.WriteMessage("\nEMBEDFROMXREFS complete. Chaining next commands...");
+
+                    // Now, send the REST of the command sequence.
+                    doc.SendStringToExecute("_.EMBEDFROMPDFS _.CLEANPS _.VP2PL _.FINALIZE _.REMOVEREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
                 }
+                // *** MODIFICATION END ***
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nAn error occurred during final cleanup: {ex.Message}");
+                _isCleanSheetWorkflowActive = false; // Ensure flag is reset on error
             }
         }
 

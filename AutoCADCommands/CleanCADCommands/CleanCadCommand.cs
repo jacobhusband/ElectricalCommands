@@ -81,18 +81,21 @@ namespace AutoCADCleanupTool
                 CleanupCommands.SkipBindDuringFinalize = false;
                 CleanupCommands.ForceDetachOriginalXrefs = false;
                 CleanupCommands.RunKeepOnlyAfterFinalize = false;
-                _chainFinalizeAfterEmbed = false; // Ensure EMBEDFROMXREFS doesn't chain a command on its own.
+                _chainFinalizeAfterEmbed = false;
 
-                ed.WriteMessage("\nCLEANSHEET: Queuing EMBEDFROMXREFS → EMBEDFROMPDFS → CLEANPS → VP2PL → FINALIZE → REMOVEREMAININGXREFS → ZOOMTOLASTTB ...");
+                // *** MODIFICATION START ***
+                // Set the workflow flag to true
+                _isCleanSheetWorkflowActive = true;
+                ed.WriteMessage("\nCLEANSHEET: Starting EMBEDFROMXREFS...");
 
-                // Queue the entire sequence of commands in a single string.
-                // AutoCAD will execute them one by one after the current command scope ends.
-                // The space at the end ensures the last command is executed.
-                doc.SendStringToExecute("_.EMBEDFROMXREFS _.EMBEDFROMPDFS _.CLEANPS _.VP2PL _.FINALIZE _.REMOVEREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
+                // Queue ONLY the FIRST command. The rest will be chained.
+                doc.SendStringToExecute("_.EMBEDFROMXREFS ", true, false, false);
+                // *** MODIFICATION END ***
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nCLEANSHEET failed to queue commands: {ex.Message}");
+                _isCleanSheetWorkflowActive = false; // Reset flag on failure
             }
         }
 

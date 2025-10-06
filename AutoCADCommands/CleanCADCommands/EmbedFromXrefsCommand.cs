@@ -218,12 +218,15 @@ namespace AutoCADCleanupTool
                 if (_pending.Count == 0)
                 {
                     ed.WriteMessage("\nNo valid raster images found to embed.");
-                    if (_chainFinalizeAfterEmbed)
-                    {
-                        _chainFinalizeAfterEmbed = false;
-                        doc.SendStringToExecute("_.FINALIZE ", true, false, false);
-                    }
-                    return; // Return here, finally block will handle cleanup
+
+                    // The process is "active" just long enough to trigger the cleanup
+                    // and command chaining logic.
+                    _isEmbeddingProcessActive = true;
+
+                    // Immediately call the finish routine to continue the CLEANCAD sequence.
+                    FinishEmbeddingRun(doc, ed, db);
+
+                    return; // Exit this method, as the rest is for processing images.
                 }
 
                 ed.WriteMessage($"\nSuccessfully queued {_pending.Count} image(s).");
@@ -251,7 +254,6 @@ namespace AutoCADCleanupTool
             }
             finally
             {
-                // *** MODIFICATION: Ensure robust cleanup occurs in all scenarios ***
                 if (!_isEmbeddingProcessActive && _pending.Count == 0)
                 {
                     // This block runs if the process completed successfully or found no images
@@ -267,11 +269,9 @@ namespace AutoCADCleanupTool
                     RestoreOriginalLayer(db, originalClayer);
                     _pending.Clear();
                 }
-                // If _isEmbeddingProcessActive is true, the async handlers will call FinishEmbeddingRun later
 
-                ed.CurrentUserCoordinateSystem = originalUcs; // ALWAYS restore original UCS
+                ed.CurrentUserCoordinateSystem = originalUcs;
             }
-            // *** MODIFICATION END ***
         }
 
         private static void CollectAndPreflightImages(Document doc)
