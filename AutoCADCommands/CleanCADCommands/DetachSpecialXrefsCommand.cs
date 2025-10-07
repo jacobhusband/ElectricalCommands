@@ -10,6 +10,7 @@ namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
     {
+        [CommandMethod("DETACHREMAININGXREFS", CommandFlags.Modal)]
         [CommandMethod("REMOVEREMAININGXREFS", CommandFlags.Modal)]
         public static void RemoveRemainingXrefs()
         {
@@ -291,6 +292,9 @@ namespace AutoCADCleanupTool
 
             try
             {
+                // Helper function for specific "wl-sig" pattern matching
+                Func<string, bool> checkWlSig = s => s.Contains("wl-sig") || s.Contains("wl_sig") || s.Contains("wl sig");
+
                 // 1) Detach DWG XREFs that match tokens or contain both "WL" and "sig"
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
@@ -318,13 +322,13 @@ namespace AutoCADCleanupTool
                             }
                         }
 
-                        // Also match if BOTH substrings "wl" and "sig" are present (case-insensitive)
+                        // Also match if a specific "wl-sig" pattern is present
                         if (!match)
                         {
-                            bool nameWlSig = name.Contains("wl") && name.Contains("sig");
-                            bool fileWlSig = !string.IsNullOrEmpty(fileNoExt) && fileNoExt.Contains("wl") && fileNoExt.Contains("sig");
-                            if (nameWlSig || fileWlSig)
+                            if (checkWlSig(name) || (!string.IsNullOrEmpty(fileNoExt) && checkWlSig(fileNoExt)))
+                            {
                                 match = true;
+                            }
                         }
 
                         if (match)
@@ -415,13 +419,10 @@ namespace AutoCADCleanupTool
                                     break;
                                 }
                             }
-                            // Also match if BOTH substrings "wl" and "sig" are present (case-insensitive)
+                            // Also match if a specific "wl-sig" pattern is present
                             if (!match)
                             {
-                                bool keyWlSig = keyLower.Contains("wl") && keyLower.Contains("sig");
-                                bool nameWlSig = nameLower.Contains("wl") && nameLower.Contains("sig");
-                                bool nameNoExtWlSig = nameNoExtLower.Contains("wl") && nameNoExtLower.Contains("sig");
-                                if (keyWlSig || nameWlSig || nameNoExtWlSig)
+                                if (checkWlSig(keyLower) || checkWlSig(nameLower) || checkWlSig(nameNoExtLower))
                                 {
                                     match = true;
                                 }
@@ -597,59 +598,66 @@ namespace AutoCADCleanupTool
                 }
 
                 // 4) Freeze layers matching requested patterns
-                using (var tr = db.TransactionManager.StartTransaction())
+                if (!_skipLayerFreezing)
                 {
-                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-                    ObjectId zeroId = ObjectId.Null;
-                    LayerTableRecord zeroLtr = null;
-                    if (lt.Has("0"))
+                    using (var tr = db.TransactionManager.StartTransaction())
                     {
-                        zeroId = lt["0"];
-                        zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
-                        if (zeroLtr.IsOff) zeroLtr.IsOff = false;
-                        if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
-                    }
-
-                    foreach (ObjectId layerId in lt)
-                    {
-                        LayerTableRecord ltr = null;
-                        try { ltr = (LayerTableRecord)tr.GetObject(layerId, OpenMode.ForWrite); }
-                        catch { continue; }
-                        if (ltr == null) continue;
-
-                        string lname = (ltr.Name ?? string.Empty).ToLowerInvariant();
-                        bool matchChristian = lname.Contains("christian");
-                        bool matchWlSig = lname.Contains("wl") && lname.Contains("sig");
-                        bool matchWLstamp = lname.Contains("wlstamp");
-                        bool matchRev = lname.Contains("rev");
-                        bool matchDelta = lname.Contains("delta");
-                        if ((matchChristian || matchWlSig || matchWLstamp || matchRev || matchDelta) && !ltr.IsFrozen)
+                        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                        ObjectId zeroId = ObjectId.Null;
+                        LayerTableRecord zeroLtr = null;
+                        if (lt.Has("0"))
                         {
-                            try
+                            zeroId = lt["0"];
+                            zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
+                            if (zeroLtr.IsOff) zeroLtr.IsOff = false;
+                            if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
+                        }
+
+                        foreach (ObjectId layerId in lt)
+                        {
+                            LayerTableRecord ltr = null;
+                            try { ltr = (LayerTableRecord)tr.GetObject(layerId, OpenMode.ForWrite); }
+                            catch { continue; }
+                            if (ltr == null) continue;
+
+                            string lname = (ltr.Name ?? string.Empty).ToLowerInvariant();
+                            bool matchChristian = lname.Contains("christian");
+                            bool matchWlSig = checkWlSig(lname); // Use the new, safer check
+                            bool matchWLstamp = lname.Contains("wlstamp");
+                            bool matchRev = lname.Contains("rev");
+                            bool matchDelta = lname.Contains("delta");
+                            if ((matchChristian || matchWlSig || matchWLstamp || matchRev || matchDelta) && !ltr.IsFrozen)
                             {
-                                if (db.Clayer == layerId)
+                                try
                                 {
-                                    if (!zeroId.IsNull && zeroId != layerId)
+                                    if (db.Clayer == layerId)
                                     {
-                                        db.Clayer = zeroId;
+                                        if (!zeroId.IsNull && zeroId != layerId)
+                                        {
+                                            db.Clayer = zeroId;
+                                        }
+                                        else
+                                        {
+                                            // If we cannot change, skip freezing current layer
+                                            continue;
+                                        }
                                     }
-                                    else
-                                    {
-                                        // If we cannot change, skip freezing current layer
-                                        continue;
-                                    }
+                                    ltr.IsFrozen = true;
+                                    layersFrozen++;
                                 }
-                                ltr.IsFrozen = true;
-                                layersFrozen++;
-                            }
-                            catch (System.Exception ex)
-                            {
-                                ed.WriteMessage($"\nFailed to freeze layer '{ltr.Name}': {ex.Message}");
+                                catch (System.Exception ex)
+                                {
+                                    ed.WriteMessage($"\nFailed to freeze layer '{ltr.Name}': {ex.Message}");
+                                }
                             }
                         }
-                    }
 
-                    tr.Commit();
+                        tr.Commit();
+                    }
+                }
+                else
+                {
+                    ed.WriteMessage("\nSkipping layer freezing as requested by the current workflow.");
                 }
 
                 ed.WriteMessage($"\nDetached {dwgDetached} DWG XREF(s). Erased {imagesErased} image ref(s) and detached {imageDefsDetached} image def(s). Erased {blockRefsErased} block ref(s) and deleted {blockDefsErased} block def(s). Froze {layersFrozen} layer(s).");

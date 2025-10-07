@@ -22,6 +22,12 @@ namespace AutoCADCleanupTool
 
             try
             {
+                // New: Ensure all layers are on, thawed, and unlocked at the start.
+                EnsureAllLayersVisibleAndUnlocked(db, ed);
+
+                // New: Set a flag to prevent DetachSpecialXrefs from freezing layers.
+                _skipLayerFreezing = true;
+
                 // New: Explode the main title block reference if it exists, to expose nested images.
                 FindAndExplodeTitleBlockReference();
 
@@ -48,6 +54,7 @@ namespace AutoCADCleanupTool
                 CleanupCommands.SkipBindDuringFinalize = false;
                 CleanupCommands.ForceDetachOriginalXrefs = false;
                 CleanupCommands.RunRemoveRemainingAfterFinalize = false;
+                _skipLayerFreezing = false;
             }
         }
 
@@ -82,6 +89,7 @@ namespace AutoCADCleanupTool
                 CleanupCommands.ForceDetachOriginalXrefs = false;
                 CleanupCommands.RunKeepOnlyAfterFinalize = false;
                 _chainFinalizeAfterEmbed = false;
+                _skipLayerFreezing = false; // Ensure freezing is NOT skipped for this workflow
 
                 // *** MODIFICATION START ***
                 // Set the workflow flag to true
@@ -163,6 +171,88 @@ namespace AutoCADCleanupTool
         public static void RunCleanCad()
         {
             RunCleanSheet();
+        }
+
+        [CommandMethod("PLOTANDMOVE", CommandFlags.Modal)]
+        public static void PlotAndMove()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+            var db = doc.Database;
+
+            // 1. Prompt the user to select a point
+            PromptPointResult ppr = ed.GetPoint("\nSelect a point to move to origin:");
+            if (ppr.Status != PromptStatus.OK)
+            {
+                ed.WriteMessage("\nPoint selection cancelled.");
+                return;
+            }
+            Point3d sourcePoint = ppr.Value;
+
+            // 2. Run the plot script by sending each command with a newline character
+            // The '\n' at the end of each string correctly simulates pressing 'Enter'.
+            ed.WriteMessage("\nStarting plot sequence...");
+            doc.SendStringToExecute("-PLOT\n", false, false, true);
+            doc.SendStringToExecute("Y\n", false, false, true);
+            doc.SendStringToExecute("\n", false, false, true); // Final 'Enter' to confirm and close the command.
+            doc.SendStringToExecute("DWG to PDF.pc3\n", false, false, true);
+            doc.SendStringToExecute("ARCH full bleed E1 (30.00 x 42.00 Inches)\n", false, false, true);
+            doc.SendStringToExecute("I\n", false, false, true); // Inches
+            doc.SendStringToExecute("L\n", false, false, true); // Landscape
+            doc.SendStringToExecute("N\n", false, false, true); // Plot upside down? No
+            doc.SendStringToExecute("W\n", false, false, true); // Window
+            doc.SendStringToExecute("0.00,0.00\n", false, false, true); // Lower-left corner
+            doc.SendStringToExecute("1000000,1000000\n", false, false, true); // Upper-right corner
+            doc.SendStringToExecute("1:1\n", false, false, true); // Scale
+            doc.SendStringToExecute("0.00,0.00\n", false, false, true); // Plot offset
+            doc.SendStringToExecute("Y\n", false, false, true); // Plot with plot styles? Yes
+            doc.SendStringToExecute("510-monochrome.ctb\n", false, false, true); // Plot style table
+
+            // The following commands are sent without waiting for the plot to complete.
+            // This is generally fine for non-interactive plotting.
+            doc.SendStringToExecute("Y\n", false, false, true); // Plot with lineweights? Yes
+            doc.SendStringToExecute("N\n", false, false, true); // Scale lineweights with plot scale? No
+            doc.SendStringToExecute("N\n", false, false, true); // Plot paper space last? No
+            doc.SendStringToExecute("N\n", false, false, true); // Hide paper space objects? No
+            doc.SendStringToExecute("\n", false, false, true); // Final 'Enter' to confirm and close the command.
+            doc.SendStringToExecute("Y\n", false, false, true); // Write the plot to a file? Yes
+            doc.SendStringToExecute("\n", false, false, true); // Final 'Enter' to confirm and close the command.
+            doc.SendStringToExecute("\n", false, false, true); // Final 'Enter' to confirm and close the command.
+
+            // 3. Select all content in the current space and move it.
+            ed.WriteMessage("\nMoving objects...");
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    BlockTableRecord btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForRead);
+
+                    Point3d origin = new Point3d(0, 0, 0);
+                    // Calculate the vector from the selected point to the origin
+                    Vector3d vector = sourcePoint.GetVectorTo(origin);
+
+                    // Iterate through all entities in the current space
+                    foreach (ObjectId objId in btr)
+                    {
+                        Entity ent = tr.GetObject(objId, OpenMode.ForWrite) as Entity;
+                        if (ent != null)
+                        {
+                            // Create a transformation matrix for the displacement
+                            Matrix3d displacement = Matrix3d.Displacement(vector);
+                            ent.TransformBy(displacement);
+                        }
+                    }
+
+                    tr.Commit();
+                    ed.WriteMessage("\nAll content moved successfully.");
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nError moving content: {ex.Message}");
+                    tr.Abort();
+                }
+            }
         }
 
         public static void PrepareXrefLayersForCleanup(Database db, Editor ed)

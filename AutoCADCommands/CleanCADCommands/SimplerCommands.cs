@@ -186,6 +186,7 @@ namespace AutoCADCleanupTool
         // State management to prevent re-entrancy and zoom to the final image
         private static bool _isEmbeddingProcessActive = false;
         private static bool _isCleanSheetWorkflowActive = false;
+        internal static bool _skipLayerFreezing = false; // New flag for CLEANTBLK workflow
 
         private static ObjectId _finalPastedOleForZoom = ObjectId.Null;
         // Track XREFs that contained images that were embedded, so they can be detached
@@ -1071,23 +1072,33 @@ namespace AutoCADCleanupTool
                 catch { /* Ignore layer restoration errors */ }
 
                 _savedClayer = ObjectId.Null;
+                _skipLayerFreezing = false; // Reset the flag here
 
-                // *** MODIFICATION START ***
-                // Check if we are in the full workflow. If so, chain the next commands.
-                if (_isCleanSheetWorkflowActive)
+                // Chain FINALIZE if requested by CLEANTBLK workflow
+                if (_chainFinalizeAfterEmbed)
+                {
+                    _chainFinalizeAfterEmbed = false; // Reset flag
+                    ed.WriteMessage("\nEMBEDFROMXREFS complete. Chaining FINALIZE and DETACHREMAININGXREFS...");
+                    // Use the user-requested command name, which is now an alias
+                    doc.SendStringToExecute("_.FINALIZE _.DETACHREMAININGXREFS ", true, false, false);
+                }
+                // Check if we are in the full CLEANSHEET workflow. If so, chain the next commands.
+                else if (_isCleanSheetWorkflowActive)
                 {
                     _isCleanSheetWorkflowActive = false; // Reset the flag
                     ed.WriteMessage("\nEMBEDFROMXREFS complete. Chaining next commands...");
 
-                    // Now, send the REST of the command sequence.
-                    doc.SendStringToExecute("_.EMBEDFROMPDFS _.CLEANPS _.VP2PL _.FINALIZE _.REMOVEREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
+                    // Now, send the REST of the command sequence, using the new alias for consistency.
+                    doc.SendStringToExecute("_.EMBEDFROMPDFS _.CLEANPS _.VP2PL _.FINALIZE _.DETACHREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
                 }
-                // *** MODIFICATION END ***
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nAn error occurred during final cleanup: {ex.Message}");
-                _isCleanSheetWorkflowActive = false; // Ensure flag is reset on error
+                // Ensure flags are reset on error
+                _isCleanSheetWorkflowActive = false;
+                _chainFinalizeAfterEmbed = false;
+                _skipLayerFreezing = false;
             }
         }
 
