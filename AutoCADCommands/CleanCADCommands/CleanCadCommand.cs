@@ -173,40 +173,63 @@ namespace AutoCADCleanupTool
             RunCleanSheet();
         }
 
-        [CommandMethod("P30", CommandFlags.Modal)]
-        public static void Plot30x42()
+        // --- NEW REFACTORED PLOT COMMANDS ---
+
+        /// <summary>
+        /// Private helper method to run the AutoCAD plot command with a specific paper size.
+        /// </summary>
+        /// <param name="paperSize">The full paper size string (e.g., "ARCH full bleed E1 (30.00 x 42.00 Inches)").</param>
+        /// <param name="message">The message to display to the user at the start.</param>
+        private static void PlotToPdf(string paperSize, string message)
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var ed = doc.Editor;
 
-            // Run the plot script by sending each command with a newline character
-            // to simulate pressing 'Enter' after each step.
-            ed.WriteMessage("\nStarting 30x42 PDF plot sequence...");
+            ed.WriteMessage(message);
             doc.SendStringToExecute("-PLOT\n", false, false, true);
-            doc.SendStringToExecute("Y\n", false, false, true); // Yes, plot the current layout
-            doc.SendStringToExecute("\n", false, false, true); // Accept default layout name
+            doc.SendStringToExecute("Y\n", false, false, true);       // Yes, plot the current layout
+            doc.SendStringToExecute("\n", false, false, true);        // Accept default layout name
             doc.SendStringToExecute("DWG to PDF.pc3\n", false, false, true); // Printer name
-            doc.SendStringToExecute("ARCH full bleed E1 (30.00 x 42.00 Inches)\n", false, false, true); // Paper size
-            doc.SendStringToExecute("I\n", false, false, true); // Units: Inches
-            doc.SendStringToExecute("L\n", false, false, true); // Orientation: Landscape
-            doc.SendStringToExecute("N\n", false, false, true); // Plot upside down? No
-            doc.SendStringToExecute("W\n", false, false, true); // Plot area: Window
+            doc.SendStringToExecute(paperSize + "\n", false, false, true); // Paper size (the variable part)
+            doc.SendStringToExecute("I\n", false, false, true);       // Units: Inches
+            doc.SendStringToExecute("L\n", false, false, true);       // Orientation: Landscape
+            doc.SendStringToExecute("N\n", false, false, true);       // Plot upside down? No
+            doc.SendStringToExecute("W\n", false, false, true);       // Plot area: Window
             doc.SendStringToExecute("0.00,0.00\n", false, false, true); // Lower-left corner of window
             doc.SendStringToExecute("1000000,1000000\n", false, false, true); // Upper-right corner of window
-            doc.SendStringToExecute("1:1\n", false, false, true); // Scale
+            doc.SendStringToExecute("1:1\n", false, false, true);     // Scale
             doc.SendStringToExecute("0.00,0.00\n", false, false, true); // Plot offset
-            doc.SendStringToExecute("Y\n", false, false, true); // Plot with plot styles? Yes
+            doc.SendStringToExecute("Y\n", false, false, true);       // Plot with plot styles? Yes
             doc.SendStringToExecute("510-monochrome.ctb\n", false, false, true); // Plot style table name
-            doc.SendStringToExecute("Y\n", false, false, true); // Plot with lineweights? Yes
-            doc.SendStringToExecute("N\n", false, false, true); // Scale lineweights? No
-            doc.SendStringToExecute("N\n", false, false, true); // Plot paper space last? No
-            doc.SendStringToExecute("N\n", false, false, true); // Hide paper space objects? No
-            doc.SendStringToExecute("\n", false, false, true); // Accept changes
-            doc.SendStringToExecute("Y\n", false, false, true); // Write plot to a file? Yes
-            doc.SendStringToExecute("\n", false, false, true); // Accept default file name and location
-            doc.SendStringToExecute("\n", false, false, true); // Final 'Enter' to complete the command
+            doc.SendStringToExecute("Y\n", false, false, true);       // Plot with lineweights? Yes
+            doc.SendStringToExecute("N\n", false, false, true);       // Scale lineweights? No
+            doc.SendStringToExecute("N\n", false, false, true);       // Plot paper space last? No
+            doc.SendStringToExecute("N\n", false, false, true);       // Hide paper space objects? No
+            doc.SendStringToExecute("\n", false, false, true);        // Accept changes
+            doc.SendStringToExecute("Y\n", false, false, true);       // Write plot to a file? Yes
+            doc.SendStringToExecute("\n", false, false, true);        // Accept default file name and location
+            doc.SendStringToExecute("\n", false, false, true);        // Final 'Enter' to complete the command
         }
+
+        [CommandMethod("P30", CommandFlags.Modal)]
+        public static void Plot30x42()
+        {
+            PlotToPdf("ARCH full bleed E1 (30.00 x 42.00 Inches)", "\nStarting 30x42 PDF plot sequence...");
+        }
+
+        [CommandMethod("P24", CommandFlags.Modal)]
+        public static void Plot24x36()
+        {
+            PlotToPdf("ARCH full bleed D (24.00 x 36.00 Inches)", "\nStarting 24x36 PDF plot sequence...");
+        }
+
+        [CommandMethod("P22", CommandFlags.Modal)]
+        public static void Plot22x34()
+        {
+            PlotToPdf("ANSI full bleed D (22.00 x 34.00 Inches)", "\nStarting 22x34 PDF plot sequence...");
+        }
+
 
         [CommandMethod("PLOTANDMOVE", CommandFlags.Modal)]
         public static void PlotAndMove()
