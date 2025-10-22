@@ -28,8 +28,8 @@ namespace AutoCADCleanupTool
                 // New: Set a flag to prevent DetachSpecialXrefs from freezing layers.
                 _skipLayerFreezing = true;
 
-                // New: Explode the main title block reference if it exists, to expose nested images.
-                FindAndExplodeTitleBlockReference();
+                // New: Explode all block references in the model space until none are left.
+                ExplodeAllBlockReferences();
 
                 // Inlined logic from former RunCleanWorkflow
                 PrepareXrefLayersForCleanup(db, ed);

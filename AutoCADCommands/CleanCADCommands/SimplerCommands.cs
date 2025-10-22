@@ -1055,9 +1055,20 @@ namespace AutoCADCleanupTool
                 _finalPastedOleForZoom = ObjectId.Null;
 
                 DetachHandlers(db, doc);
+                DetachXrefs(db, ed);
+
+                // Force a regeneration to process the detachment before purging
+                try
+                {
+                    doc.SendStringToExecute("_.REGEN ", false, false, true);
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nCould not send REGEN command: {ex.Message}");
+                }
+
                 PurgeEmbeddedImageDefs(db, ed);
                 DetachPdfDefinitions(db, ed);
-                DetachXrefs(db, ed);
 
                 WindowOrchestrator.EndPptInteraction();
                 ClosePowerPoint(ed);

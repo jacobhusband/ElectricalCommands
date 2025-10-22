@@ -13,6 +13,73 @@ namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
     {
+        public static void ExplodeAllBlockReferences()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    var modelSpace = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                    int explodedCount;
+                    do
+                    {
+                        explodedCount = 0;
+                        var blockReferences = new List<BlockReference>();
+
+                        foreach (ObjectId id in modelSpace)
+                        {
+                            if (id.ObjectClass.DxfName.ToUpperInvariant() == "INSERT")
+                            {
+                                var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
+                                if (br != null)
+                                {
+                                    blockReferences.Add(br);
+                                }
+                            }
+                        }
+
+                        if (blockReferences.Count > 0)
+                        {
+                            ed.WriteMessage($"\nFound {blockReferences.Count} block references to explode...");
+                            foreach (var br in blockReferences)
+                            {
+                                var explodedObjects = new DBObjectCollection();
+                                br.UpgradeOpen();
+                                br.Explode(explodedObjects);
+
+                                foreach (DBObject obj in explodedObjects)
+                                {
+                                    var ent = obj as Entity;
+                                    if (ent != null)
+                                    {
+                                        modelSpace.AppendEntity(ent);
+                                        tr.AddNewlyCreatedDBObject(ent, true);
+                                    }
+                                }
+                                br.Erase();
+                                explodedCount++;
+                            }
+                            ed.WriteMessage($"\nExploded {explodedCount} block references.");
+                        }
+
+                    } while (explodedCount > 0);
+
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nError while exploding block references: {ex.Message}");
+            }
+        }
+
         /// <summary>
         /// Finds a likely title block reference in the Model Space and explodes it.
         /// This is used to "unpack" a composite title block so that nested images can be found for embedding.
