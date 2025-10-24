@@ -39,7 +39,8 @@ namespace AutoCADCleanupTool
                 ExplodeAllBlockReferences(db, ed);
 
                 // Step 4: Perform a robust, layer-based cleanup of any remaining stray objects.
-                string[] layerKeywords = { "SIG", "LOGO", "STAMP", "ACIES", "CDSTAMP" };
+                // --- MODIFIED: Added "WLSIG" and "Christian" to the layer keywords ---
+                string[] layerKeywords = { "SIG", "LOGO", "STAMP", "ACIES", "CDSTAMP", "WLSIG", "Christian" };
                 EraseObjectsOnMatchingLayers(db, ed, layerKeywords);
 
                 ed.WriteMessage("\n--- Pre-Explosion Cleanup Completed Successfully ---");
@@ -60,7 +61,14 @@ namespace AutoCADCleanupTool
             // --- Define the specific names to target ---
             var dwgXrefsToDetach = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "CDstamp-CA CAD XREF" };
             var imageNamesToDetach = new[] { "CD_sig_BLUE", "WL_Sig_Blue_Small" };
-            var blocksToErase = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "STAMP_WL", "ACIESLOGO" };
+
+            // --- MODIFIED: Added "x-Christian's signature$0$PFV" to the blocks to erase ---
+            var blocksToErase = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "STAMP_WL",
+                "ACIESLOGO",
+                "x-Christian's signature$0$PFV"
+            };
 
             int dwgDetached = 0, imagesDetached = 0, blocksErased = 0;
 
