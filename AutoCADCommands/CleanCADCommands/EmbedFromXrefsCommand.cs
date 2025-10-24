@@ -408,10 +408,18 @@ namespace AutoCADCleanupTool
                     }
 
                     string safePath = null;
+                    var cs = img.Orientation; // Get orientation once
                     try
                     {
                         ed.WriteMessage($"\nProcessing: {Path.GetFileName(resolved)}...");
-                        safePath = PreflightRasterForPpt(resolved);
+
+                        // Calculate rotation angle from the U-vector (Xaxis).
+                        // AutoCAD's angle is counter-clockwise.
+                        double rotationInDegrees = Math.Atan2(cs.Xaxis.Y, cs.Xaxis.X) * (180.0 / Math.PI);
+
+                        // System.Drawing.Graphics.RotateTransform applies a CLOCKWISE rotation.
+                        // To match AutoCAD's visual rotation, we must negate the angle.
+                        safePath = PreflightRasterForPpt(resolved, -rotationInDegrees);
                     }
                     catch (System.Exception pex)
                     {
@@ -425,7 +433,6 @@ namespace AutoCADCleanupTool
                         continue;
                     }
 
-                    var cs = img.Orientation;
                     var placement = new ImagePlacement
                     {
                         Path = safePath,
@@ -582,50 +589,6 @@ namespace AutoCADCleanupTool
             {
                 ed.WriteMessage($"\nError during zoom: {ex.Message}");
             }
-        }
-
-        private static string PreflightRasterForPpt(string srcPath)
-        {
-            string tempDir = Path.Combine(Path.GetTempPath(), "AutoCADCleanupTool", "embed");
-            Directory.CreateDirectory(tempDir);
-            // Add a unique identifier to prevent file collisions from different drawings with same image name
-            string outPath = Path.Combine(
-                tempDir,
-                Path.GetFileNameWithoutExtension(srcPath) + "_ppt_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".png"
-            );
-
-            using (var orig = System.Drawing.Image.FromFile(srcPath))
-            {
-                try
-                {
-                    var fd = new FrameDimension(orig.FrameDimensionsList[0]);
-                    if (orig.GetFrameCount(fd) > 1)
-                        orig.SelectActiveFrame(fd, 0);
-                }
-                catch { /* not multi-frame; ignore */ }
-
-                int maxSide = 8000;
-                int w = orig.Width, h = orig.Height;
-                double scale = 1.0;
-                if (Math.Max(w, h) > maxSide)
-                    scale = (double)maxSide / Math.Max(w, h);
-
-                int targetW = Math.Max(1, (int)Math.Round(w * scale));
-                int targetH = Math.Max(1, (int)Math.Round(h * scale));
-
-                using (var bmp = new Bitmap(targetW, targetH, PixelFormat.Format32bppArgb))
-                using (var g = Graphics.FromImage(bmp))
-                {
-                    g.Clear(System.Drawing.Color.Transparent);
-                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-                    g.DrawImage(orig, new Rectangle(0, 0, targetW, targetH));
-                    bmp.Save(outPath, ImageFormat.Png);
-                }
-            }
-
-            return outPath;
         }
 
         private static void DeleteOldEmbedTemps(int daysOld = 7)
