@@ -31,6 +31,8 @@ namespace AutoCADCleanupTool
                 // New: Set a flag to prevent DetachSpecialXrefs from freezing layers.
                 _skipLayerFreezing = true;
 
+                PreExplosionCleaner.CleanBeforeExplode();
+
                 // New: Explode all block references in the model space until none are left.
                 ExplodeAllBlockReferences();
 
