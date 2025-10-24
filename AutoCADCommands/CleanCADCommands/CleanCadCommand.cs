@@ -10,7 +10,7 @@ namespace AutoCADCleanupTool
     public partial class SimplerCommands
     {
         // Store the title block polygon found by CLEANSHEET to be used by a final zoom command.
-        private static Point3d[] _lastFoundTitleBlockPoly = null;
+        internal static Point3d[] _lastFoundTitleBlockPoly = null;
 
         [CommandMethod("CLEANTBLK", CommandFlags.Modal)]
         public static void RunCleanTitleBlock()
@@ -22,6 +22,9 @@ namespace AutoCADCleanupTool
 
             try
             {
+                // Reset the shared title block region at the start of the workflow.
+                _lastFoundTitleBlockPoly = null;
+
                 // New: Ensure all layers are on, thawed, and unlocked at the start.
                 EnsureAllLayersVisibleAndUnlocked(db, ed);
 
@@ -41,6 +44,14 @@ namespace AutoCADCleanupTool
                 CleanupCommands.RunRemoveRemainingAfterFinalize = true;
 
                 CleanupCommands.KeepOnlyTitleBlockInModelSpace();
+
+                // NEW: After defining the region in the previous command, zoom to it.
+                if (_lastFoundTitleBlockPoly != null && _lastFoundTitleBlockPoly.Length > 0)
+                {
+                    ed.WriteMessage("\nZooming to selected title block region...");
+                    CleanupCommands.ZoomToTitleBlock(ed, _lastFoundTitleBlockPoly);
+                }
+
                 DetachSpecialXrefs();
                 _chainFinalizeAfterEmbed = true;
                 EmbedFromXrefs();

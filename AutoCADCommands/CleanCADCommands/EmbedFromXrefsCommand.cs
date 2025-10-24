@@ -80,6 +80,7 @@ namespace AutoCADCleanupTool
             }
         }
 
+
         /// <summary>
         /// Finds a likely title block reference in the Model Space and explodes it.
         /// This is used to "unpack" a composite title block so that nested images can be found for embedding.
