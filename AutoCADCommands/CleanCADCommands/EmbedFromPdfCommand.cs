@@ -41,7 +41,7 @@ namespace AutoCADCleanupTool
 
             try
             {
-                ed.CurrentUserCoordinateSystem = Matrix3d.Identity; // Work in WCS for consistent transforms
+                ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
                 _savedClayer = originalClayer;
 
                 try
@@ -123,28 +123,20 @@ namespace AutoCADCleanupTool
                 {
                     var btr = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
                     if (btr == null || !btr.IsLayout)
-                    {
                         continue;
-                    }
 
                     foreach (ObjectId entId in btr)
                     {
                         if (!entId.ObjectClass.DxfName.Equals("PDFUNDERLAY", StringComparison.OrdinalIgnoreCase))
-                        {
                             continue;
-                        }
 
                         var pdfRef = tr.GetObject(entId, OpenMode.ForRead) as UnderlayReference;
                         if (pdfRef == null)
-                        {
                             continue;
-                        }
 
                         var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
                         if (pdfDef == null)
-                        {
                             continue;
-                        }
 
                         string resolvedPdfPath = ResolveImagePath(db, pdfDef.SourceFileName);
                         if (string.IsNullOrEmpty(resolvedPdfPath) || !File.Exists(resolvedPdfPath))
@@ -169,6 +161,7 @@ namespace AutoCADCleanupTool
                         }
 
                         placement.TargetBtrId = btrId;
+                        placement.Source = PlacementSource.Pdf;
                         _pending.Enqueue(placement);
                         queued++;
                     }
@@ -180,13 +173,20 @@ namespace AutoCADCleanupTool
             return queued;
         }
 
-        private static ImagePlacement BuildPlacementForPdf(UnderlayReference pdfRef, UnderlayDefinition pdfDef, string pngPath, string resolvedPdfPath, int pageNumber, Editor ed)
+        private static ImagePlacement BuildPlacementForPdf(
+            UnderlayReference pdfRef,
+            UnderlayDefinition pdfDef,
+            string pngPath,
+            string resolvedPdfPath,
+            int pageNumber,
+            Editor ed)
         {
             var transform = pdfRef.Transform;
             double rawMinX = double.NaN, rawMinY = double.NaN, rawMaxX = double.NaN, rawMaxY = double.NaN;
             double leftPercent = double.NaN, bottomPercent = double.NaN, rightPercent = double.NaN, topPercent = double.NaN;
             bool clipDerived = false;
             string FormatPerc(double value) => double.IsNaN(value) || double.IsInfinity(value) ? "NaN" : value.ToString("F4");
+
             Point3d origin = transform.CoordinateSystem3d.Origin;
             Vector3d uVec = transform.CoordinateSystem3d.Xaxis;
             Vector3d vVec = transform.CoordinateSystem3d.Yaxis;
@@ -240,24 +240,22 @@ namespace AutoCADCleanupTool
                                 Math.Abs(maxClipY - pageHeight) < tolerance;
 
                             if (!isDefaultBoundary)
-                            {
                                 isEffectivelyClipped = true;
-                            }
                         }
                         else
                         {
-                            isEffectivelyClipped = true; // Fallback: trust AutoCAD if we can't get sheet size
+                            isEffectivelyClipped = true;
                         }
                     }
                 }
                 catch (System.Exception ex)
                 {
                     ed.WriteMessage($"\nWarning: Failed to evaluate PDF clip boundary to check for clipping status: {ex.Message}");
-                    isEffectivelyClipped = true; // In case of error, assume it is clipped to be safe and preserve original behavior
+                    isEffectivelyClipped = true;
                 }
             }
 
-            if (isEffectivelyClipped && boundaryPoints != null) // This is the logic for TRULY clipped PDFs
+            if (isEffectivelyClipped && boundaryPoints != null)
             {
                 try
                 {
@@ -293,7 +291,11 @@ namespace AutoCADCleanupTool
                         placementU = worldBottomRight - worldBottomLeft;
                         placementV = worldTopLeft - worldBottomLeft;
 
-                        var clipResult = ComputeClipPercentages(resolvedPdfPath, pageNumber, minX, minY, maxX, maxY, transform, origin, uVec, vVec, ed);
+                        var clipResult = ComputeClipPercentages(
+                            resolvedPdfPath, pageNumber,
+                            minX, minY, maxX, maxY,
+                            transform, origin, uVec, vVec, ed);
+
                         percentageClipBoundary = clipResult.clip;
                         leftPercent = clipResult.left;
                         bottomPercent = clipResult.bottom;
@@ -319,7 +321,7 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage($"\nWarning: Failed to evaluate PDF clip boundary: {ex.Message}");
                 }
             }
-            else // Handle unclipped PDFs (or PDFs "clipped" to their full boundary)
+            else
             {
                 try
                 {
@@ -356,7 +358,8 @@ namespace AutoCADCleanupTool
             string clipDebug = clipDerived
                 ? $"clip rawX=[{FormatPerc(rawMinX)},{FormatPerc(rawMaxX)}] rawY=[{FormatPerc(rawMinY)},{FormatPerc(rawMaxY)}] perc=[L={FormatPerc(leftPercent)},B={FormatPerc(bottomPercent)},R={FormatPerc(rightPercent)},T={FormatPerc(topPercent)}]"
                 : "clip none";
-            // ed?.WriteMessage($"\n[DEBUG] Placement '{fileLabel}' page {pageNumber}: origin=({placementOrigin.X:F4},{placementOrigin.Y:F4},{placementOrigin.Z:F4}), Ulen={placementU.Length:F4}, Vlen={placementV.Length:F4}; {clipDebug}");
+            // Debug line omitted intentionally.
+
             if (placementU.Length < 1e-8 || placementV.Length < 1e-8)
             {
                 ed.WriteMessage("\nSkipping PDF underlay due to zero-sized placement vectors.");
@@ -370,7 +373,8 @@ namespace AutoCADCleanupTool
                 U = placementU,
                 V = placementV,
                 OriginalEntityId = pdfRef.ObjectId,
-                ClipBoundary = percentageClipBoundary
+                ClipBoundary = percentageClipBoundary,
+                Source = PlacementSource.Pdf
             };
         }
 
@@ -401,9 +405,6 @@ namespace AutoCADCleanupTool
                     {
                         pageImage.Format = MagickFormat.Png;
                         pageImage.BackgroundColor = MagickColors.White;
-                        // This is the fix: AlphaOption.Remove correctly flattens the image against the
-                        // background color, resolving issues with complex layers and transparency that
-                        // could cause artifacts like black boxes.
                         pageImage.Alpha(AlphaOption.Remove);
                         pageImage.Write(pngPath);
                     }
@@ -466,14 +467,9 @@ namespace AutoCADCleanupTool
             {
                 var prop = pdfRef.GetType().GetProperty("ItemName");
                 if (prop != null && prop.PropertyType == typeof(string))
-                {
                     return prop.GetValue(pdfRef) as string;
-                }
             }
-            catch
-            {
-            }
-
+            catch { }
             return null;
         }
 
@@ -483,9 +479,7 @@ namespace AutoCADCleanupTool
             candidate = candidate.Trim();
 
             if (int.TryParse(candidate, out int direct) && direct > 0)
-            {
                 return direct;
-            }
 
             int value = 0;
             bool foundDigit = false;
@@ -576,9 +570,7 @@ namespace AutoCADCleanupTool
             }
 
             if (clip == null)
-            {
                 return (null, double.NaN, double.NaN, double.NaN, double.NaN);
-            }
 
             return (clip, leftPercent, bottomPercent, rightPercent, topPercent);
         }
@@ -591,5 +583,45 @@ namespace AutoCADCleanupTool
             return value;
         }
 
+        // Reuse from SimplerCommands
+        private static void DeleteOldEmbedTemps(int daysOld = 7)
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "AutoCADCleanupTool", "embed");
+            if (!Directory.Exists(tempDir)) return;
+
+            var cutoff = DateTime.Now.AddDays(-Math.Abs(daysOld));
+            foreach (var f in Directory.EnumerateFiles(tempDir, "*.png"))
+            {
+                try
+                {
+                    var info = new FileInfo(f);
+                    if (info.LastWriteTime < cutoff) info.Delete();
+                }
+                catch { }
+            }
+        }
+
+        private static void RestoreOriginalLayer(Database db, ObjectId originalClayer)
+        {
+            if (db != null && !originalClayer.IsNull && db.Clayer != originalClayer)
+            {
+                try
+                {
+                    using (var tr = db.TransactionManager.StartOpenCloseTransaction())
+                    {
+                        var ltr = (LayerTableRecord)tr.GetObject(originalClayer, OpenMode.ForRead);
+                        if (ltr != null && !ltr.IsErased && !ltr.IsFrozen)
+                        {
+                            db.Clayer = originalClayer;
+                        }
+                        tr.Commit();
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    AutoCADApp.DocumentManager.MdiActiveDocument.Editor.WriteMessage($"\nCould not restore original layer: {ex.Message}");
+                }
+            }
+        }
     }
 }

@@ -48,7 +48,7 @@ namespace AutoCADCleanupTool
                 return null;
             }
         }
-        
+
         [CommandMethod("GETPDFSHEETSIZE", CommandFlags.Modal)]
         public static void GetPdfSheetSize()
         {

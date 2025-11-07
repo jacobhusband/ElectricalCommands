@@ -17,17 +17,21 @@ using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 using AutoCADApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using Shape = Microsoft.Office.Interop.PowerPoint.Shape;
 using System.Diagnostics;
-
-// Required for in-memory image rotation
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-
 
 namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
     {
+        internal enum PlacementSource
+        {
+            Unknown = 0,
+            Pdf = 1,
+            Xref = 2
+        }
+
         // Win32 helpers to auto-dismiss the "OLE Text Size" dialog
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
@@ -42,9 +46,6 @@ namespace AutoCADCleanupTool
         private const uint WM_COMMAND = 0x0111;
         private const int IDOK = 1;
 
-        /// <summary>
-        /// Unlocks, thaws, and turns on all layers in the drawing to ensure visibility and editability.
-        /// </summary>
         internal static void EnsureAllLayersVisibleAndUnlocked(Database db, Editor ed)
         {
             ed.WriteMessage("\nEnsuring all layers are visible and unlocked...");
@@ -145,16 +146,16 @@ namespace AutoCADCleanupTool
             });
         }
 
-        // Data and helpers to embed OLE images over existing raster image references
         private class ImagePlacement
         {
-            public string Path; // Path to the pre-rotated temporary image
-            public Point3d Pos; // Original insertion point
-            public Vector3d U;   // Original U vector (defines width and rotation)
-            public Vector3d V;   // Original V vector (defines height)
+            public string Path;
+            public Point3d Pos;
+            public Vector3d U;
+            public Vector3d V;
             public ObjectId OriginalEntityId;
             public ObjectId TargetBtrId = ObjectId.Null;
             public Point2d[] ClipBoundary;
+            public PlacementSource Source = PlacementSource.Unknown;
         }
 
         private static readonly Queue<ImagePlacement> _pending = new Queue<ImagePlacement>();
@@ -266,10 +267,6 @@ namespace AutoCADCleanupTool
             }
         }
 
-        /// <summary>
-        /// Places the pre-rotated image onto the clipboard via PowerPoint.
-        /// PowerPoint is used only as a converter to a high-quality OLE object.
-        /// </summary>
         private static bool PrepareClipboardWithImageShared(ImagePlacement placement, Editor ed)
         {
             dynamic slide = null;
@@ -282,13 +279,11 @@ namespace AutoCADCleanupTool
                 slide = _pptPresentationShared.Slides[1];
                 shapes = slide.Shapes;
 
-                // Clear previous shapes from the slide
                 for (int i = shapes.Count; i >= 1; i--)
                 {
                     try { shapes[i].Delete(); } catch { }
                 }
 
-                // Add the pre-rotated picture and copy it. No rotation is done here.
                 pic = shapes.AddPicture(placement.Path, MsoTriState.msoFalse, MsoTriState.msoTrue, 10, 10);
                 pic.Copy();
 
@@ -301,7 +296,6 @@ namespace AutoCADCleanupTool
             }
             finally
             {
-                // Release COM objects
                 if (pic != null) Marshal.ReleaseComObject(pic);
                 if (shapes != null) Marshal.ReleaseComObject(shapes);
                 if (slide != null) Marshal.ReleaseComObject(slide);
@@ -313,6 +307,7 @@ namespace AutoCADCleanupTool
             if (string.IsNullOrWhiteSpace(rawPath)) return null;
             string p = rawPath.Trim().Trim('"').Replace('/', '\\');
             if (Path.IsPathRooted(p) && File.Exists(p)) return p;
+
             try
             {
                 string dbFile = db?.Filename;
@@ -328,12 +323,14 @@ namespace AutoCADCleanupTool
                             string full = Path.GetFullPath(combined);
                             if (File.Exists(full)) return full;
                         }
+
                         string candidate = Path.GetFullPath(Path.Combine(baseDir, p));
                         if (File.Exists(candidate)) return candidate;
                     }
                 }
             }
             catch { }
+
             try
             {
                 string nameOnly = Path.GetFileName(p);
@@ -344,6 +341,7 @@ namespace AutoCADCleanupTool
                 }
             }
             catch { }
+
             return null;
         }
 
@@ -396,11 +394,7 @@ namespace AutoCADCleanupTool
 
                     foreach (string key in keysToRemove)
                     {
-                        try
-                        {
-                            imageDict.Remove(key);
-                        }
-                        catch { }
+                        try { imageDict.Remove(key); } catch { }
                     }
 
                     int purged = 0;
@@ -422,6 +416,7 @@ namespace AutoCADCleanupTool
                     {
                         ed.WriteMessage($"\nPurged {purged} unused image definition(s).");
                     }
+
                     tr.Commit();
                 }
             }
@@ -466,11 +461,7 @@ namespace AutoCADCleanupTool
                     int detachedCount = 0;
                     foreach (string key in entriesToRemove)
                     {
-                        try
-                        {
-                            pdfDict.Remove(key);
-                            detachedCount++;
-                        }
+                        try { pdfDict.Remove(key); detachedCount++; }
                         catch { }
                     }
 
@@ -515,6 +506,7 @@ namespace AutoCADCleanupTool
                 var placement = _activePlacement;
                 if (doc == null || placement == null) return;
                 if (!string.Equals(doc.CommandInProgress, "PASTECLIP", StringComparison.OrdinalIgnoreCase)) return;
+
                 string x = placement.Pos.X.ToString("G17", CultureInfo.InvariantCulture);
                 string y = placement.Pos.Y.ToString("G17", CultureInfo.InvariantCulture);
                 doc.SendStringToExecute($"{x},{y}\n", true, false, false);
@@ -527,7 +519,9 @@ namespace AutoCADCleanupTool
 
         private static void Doc_CommandEnded(object sender, CommandEventArgs e)
         {
-            if (!_isEmbeddingProcessActive || !string.Equals(e.GlobalCommandName, "PASTECLIP", StringComparison.OrdinalIgnoreCase)) return;
+            if (!_isEmbeddingProcessActive ||
+                !string.Equals(e.GlobalCommandName, "PASTECLIP", StringComparison.OrdinalIgnoreCase))
+                return;
 
             var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
@@ -541,15 +535,20 @@ namespace AutoCADCleanupTool
                 _pastePointHandlerAttached = false;
             }
 
-            if (_pending.Count == 0 && _activePlacement == null) return;
+            if (_pending.Count == 0 && _activePlacement == null)
+                return;
 
             if (_lastPastedOle.IsNull)
             {
                 ed.WriteMessage("\nSkipping an item because no OLE object was created.");
                 if (_pending.Count > 0) _pending.Dequeue();
                 _activePlacement = null;
-                if (_pending.Count > 0) ProcessNextPaste(doc, ed);
-                else FinishEmbeddingRun(doc, ed, db);
+
+                if (_pending.Count > 0)
+                    ProcessNextPaste(doc, ed);
+                else
+                    FinishEmbeddingRun(doc, ed, db);
+
                 return;
             }
 
@@ -565,74 +564,43 @@ namespace AutoCADCleanupTool
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 var ole = tr.GetObject(_lastPastedOle, OpenMode.ForWrite) as Ole2Frame;
+
                 if (ole != null)
                 {
                     try
                     {
-                        var oleExtents = ole.GeometricExtents;
-                        Point3d oleMin = oleExtents.MinPoint;
-                        double oleWidth = oleExtents.MaxPoint.X - oleMin.X;
-                        double oleHeight = oleExtents.MaxPoint.Y - oleMin.Y;
-
-                        if (oleWidth < 1e-8 || oleHeight < 1e-8)
+                        switch (target.Source)
                         {
-                            ole.Erase();
-                            tr.Commit();
-                            return;
+                            case PlacementSource.Pdf:
+                                ApplyPdfPlacementTransform(tr, ed, ole, target);
+                                break;
+                            case PlacementSource.Xref:
+                            default:
+                                ApplyXrefPlacementTransform(tr, ed, ole, target);
+                                break;
                         }
-
-                        Point3d p0 = target.Pos;
-                        Point3d p1 = target.Pos + target.U;
-                        Point3d p2 = target.Pos + target.U + target.V;
-                        Point3d p3 = target.Pos + target.V;
-
-                        double minX = Math.Min(Math.Min(p0.X, p1.X), Math.Min(p2.X, p3.X));
-                        double minY = Math.Min(Math.Min(p0.Y, p1.Y), Math.Min(p2.Y, p3.Y));
-                        double maxX = Math.Max(Math.Max(p0.X, p1.X), Math.Max(p2.X, p3.X));
-                        double maxY = Math.Max(Math.Max(p0.Y, p1.Y), Math.Max(p2.Y, p3.Y));
-
-                        Point3d targetMin = new Point3d(minX, minY, p0.Z);
-                        double targetWidth = maxX - minX;
-                        double targetHeight = maxY - minY;
-
-                        if (targetWidth < 1e-8 || targetHeight < 1e-8)
-                        {
-                            ole.Erase();
-                            tr.Commit();
-                            return;
-                        }
-
-                        double scaleX = targetWidth / oleWidth;
-                        double scaleY = targetHeight / oleHeight;
-
-                        Matrix3d translateToOrigin = Matrix3d.Displacement(oleMin.GetAsVector().Negate());
-                        double[] scaleData = { scaleX, 0, 0, 0, 0, scaleY, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
-                        Matrix3d scaleMatrix = new Matrix3d(scaleData);
-                        Matrix3d translateToTarget = Matrix3d.Displacement(targetMin.GetAsVector());
-                        Matrix3d transformMatrix = translateToTarget * scaleMatrix * translateToOrigin;
-
-                        ole.TransformBy(transformMatrix);
-
-                        try { ole.Layer = "0"; } catch { }
-                        var btr = (BlockTableRecord)tr.GetObject(ole.OwnerId, OpenMode.ForWrite);
-                        var dot = (DrawOrderTable)tr.GetObject(btr.DrawOrderTableId, OpenMode.ForWrite);
-                        dot.MoveAbove(new ObjectIdCollection { ole.ObjectId }, target.OriginalEntityId);
                     }
-                    catch (System.Exception ex1)
+                    catch (System.Exception ex)
                     {
-                        ed.WriteMessage($"\nFailed to transform pasted OLE: {ex1.Message}");
+                        ed.WriteMessage($"\nFailed to transform pasted OLE: {ex.Message}");
                     }
                 }
 
-                var originalEnt = tr.GetObject(target.OriginalEntityId, OpenMode.ForWrite, false) as Entity;
-                if (originalEnt != null)
+                // Erase original entity and record defs if applicable
+                try
                 {
-                    if (originalEnt is RasterImage imgEnt && !imgEnt.ImageDefId.IsNull)
+                    var originalEnt = tr.GetObject(target.OriginalEntityId, OpenMode.ForWrite, false) as Entity;
+                    if (originalEnt != null)
                     {
-                        _imageDefsToPurge.Add(imgEnt.ImageDefId);
+                        if (originalEnt is RasterImage imgEnt && !imgEnt.ImageDefId.IsNull)
+                        {
+                            _imageDefsToPurge.Add(imgEnt.ImageDefId);
+                        }
+                        originalEnt.Erase();
                     }
-                    originalEnt.Erase();
                 }
+                catch { }
+
                 tr.Commit();
             }
 
@@ -649,7 +617,196 @@ namespace AutoCADCleanupTool
                 _finalPastedOleForZoom = _lastPastedOle;
                 FinishEmbeddingRun(doc, ed, db);
             }
+
             _lastPastedOle = ObjectId.Null;
+        }
+
+        private static void ApplyPdfPlacementTransform(
+            Transaction tr,
+            Editor ed,
+            Ole2Frame ole,
+            ImagePlacement target)
+        {
+            var ext = ole.GeometricExtents;
+            Point3d oleOrigin = ext.MinPoint;
+            double oleWidth = Math.Max(1e-8, ext.MaxPoint.X - ext.MinPoint.X);
+            double oleHeight = Math.Max(1e-8, ext.MaxPoint.Y - ext.MinPoint.Y);
+
+            Vector3d destU = target.U;
+            Vector3d destV = target.V;
+            double destWidth = destU.Length;
+            double destHeight = destV.Length;
+
+            if (destWidth < 1e-8 || destHeight < 1e-8)
+            {
+                ed.WriteMessage("\nSkipping PDF transform: invalid target geometry.");
+                ole.Erase();
+                return;
+            }
+
+            double oleAspect = oleWidth / oleHeight;
+            double destAspect = destWidth / destHeight;
+
+            Vector3d finalU = destU;
+            Vector3d finalV = destV;
+            Point3d finalPos = target.Pos;
+
+            if (Math.Abs(oleAspect - destAspect) > 1e-6)
+            {
+                if (oleAspect > destAspect)
+                {
+                    double newHeight = destWidth / oleAspect;
+                    finalV = destV.GetNormal() * newHeight;
+                    finalPos = target.Pos + (destV - finalV) / 2.0;
+                }
+                else
+                {
+                    double newWidth = destHeight * oleAspect;
+                    finalU = destU.GetNormal() * newWidth;
+                    finalPos = target.Pos + (destU - finalU) / 2.0;
+                }
+            }
+
+            Vector3d destNormal = finalU.CrossProduct(finalV);
+            if (destNormal.Length < 1e-8)
+                destNormal = Vector3d.ZAxis;
+
+            Vector3d oleU = new Vector3d(oleWidth, 0.0, 0.0);
+            Vector3d oleV = new Vector3d(0.0, oleHeight, 0.0);
+            Vector3d oleNormal = oleU.CrossProduct(oleV);
+
+            Matrix3d align = Matrix3d.AlignCoordinateSystem(
+                oleOrigin,
+                oleU,
+                oleV,
+                oleNormal,
+                finalPos,
+                finalU,
+                finalV,
+                destNormal);
+
+            ole.TransformBy(align);
+
+            try { ole.Layer = "0"; } catch { }
+
+            try
+            {
+                if (!target.OriginalEntityId.IsNull)
+                {
+                    var origEnt = tr.GetObject(target.OriginalEntityId, OpenMode.ForRead, false) as Entity;
+                    if (origEnt != null && !origEnt.IsErased)
+                    {
+                        var btr = tr.GetObject(ole.OwnerId, OpenMode.ForWrite) as BlockTableRecord;
+                        if (btr != null && btr.DrawOrderTableId.IsValid && origEnt.OwnerId == btr.ObjectId)
+                        {
+                            var dot = tr.GetObject(btr.DrawOrderTableId, OpenMode.ForWrite) as DrawOrderTable;
+                            if (dot != null)
+                            {
+                                var ids = new ObjectIdCollection(new[] { ole.ObjectId });
+                                dot.MoveAbove(ids, origEnt.ObjectId);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (System.Exception exOrder)
+            {
+                ed.WriteMessage($"\nWarning: Could not match draw order (PDF): {exOrder.Message}");
+            }
+        }
+
+        private static void ApplyXrefPlacementTransform(
+            Transaction tr,
+            Editor ed,
+            Ole2Frame ole,
+            ImagePlacement target)
+        {
+            var ext = ole.GeometricExtents;
+            Point3d oleOrigin = ext.MinPoint;
+            double oleWidth = Math.Max(1e-8, ext.MaxPoint.X - ext.MinPoint.X);
+            double oleHeight = Math.Max(1e-8, ext.MaxPoint.Y - ext.MinPoint.Y);
+
+            Vector3d destU = target.U;
+            Vector3d destV = target.V;
+            double destWidth = destU.Length;
+            double destHeight = destV.Length;
+
+            if (destWidth < 1e-8 || destHeight < 1e-8)
+            {
+                ed.WriteMessage("\nSkipping XREF transform: invalid target geometry.");
+                ole.Erase();
+                return;
+            }
+
+            double oleAspect = oleWidth / oleHeight;
+            double destAspect = destWidth / destHeight;
+
+            Vector3d finalU = destU;
+            Vector3d finalV = destV;
+            Point3d finalPos = target.Pos;
+
+            if (Math.Abs(oleAspect - destAspect) > 1e-6)
+            {
+                if (oleAspect > destAspect)
+                {
+                    double newHeight = destWidth / oleAspect;
+                    finalV = destV.GetNormal() * newHeight;
+                    finalPos = target.Pos + (destV - finalV) / 2.0;
+                }
+                else
+                {
+                    double newWidth = destHeight * oleAspect;
+                    finalU = destU.GetNormal() * newWidth;
+                    finalPos = target.Pos + (destU - finalU) / 2.0;
+                }
+            }
+
+            Vector3d destNormal = finalU.CrossProduct(finalV);
+            if (destNormal.Length < 1e-8)
+                destNormal = Vector3d.ZAxis;
+
+            Vector3d oleU = new Vector3d(oleWidth, 0.0, 0.0);
+            Vector3d oleV = new Vector3d(0.0, oleHeight, 0.0);
+            Vector3d oleNormal = oleU.CrossProduct(oleV);
+
+            Matrix3d align = Matrix3d.AlignCoordinateSystem(
+                oleOrigin,
+                oleU,
+                oleV,
+                oleNormal,
+                finalPos,
+                finalU,
+                finalV,
+                destNormal);
+
+            ole.TransformBy(align);
+
+            try { ole.Layer = "0"; } catch { }
+
+            try
+            {
+                if (!target.OriginalEntityId.IsNull)
+                {
+                    var origEnt = tr.GetObject(target.OriginalEntityId, OpenMode.ForRead, false) as Entity;
+                    if (origEnt != null && !origEnt.IsErased)
+                    {
+                        var btr = tr.GetObject(ole.OwnerId, OpenMode.ForWrite) as BlockTableRecord;
+                        if (btr != null && btr.DrawOrderTableId.IsValid && origEnt.OwnerId == btr.ObjectId)
+                        {
+                            var dot = tr.GetObject(btr.DrawOrderTableId, OpenMode.ForWrite) as DrawOrderTable;
+                            if (dot != null)
+                            {
+                                var ids = new ObjectIdCollection(new[] { ole.ObjectId });
+                                dot.MoveAbove(ids, origEnt.ObjectId);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (System.Exception exOrder)
+            {
+                ed.WriteMessage($"\nWarning: Could not match draw order (XREF): {exOrder.Message}");
+            }
         }
 
         private static void FinalCleanupOnIdle(object sender, EventArgs e)
@@ -756,6 +913,7 @@ namespace AutoCADCleanupTool
                 if (_isEmbeddingProcessActive) FinishEmbeddingRun(doc, ed, doc.Database);
                 return;
             }
+
             var target = _pending.Peek();
             var db = doc.Database;
             string targetLayoutName = GetLayoutNameFromBtrId(db, target.TargetBtrId);
@@ -777,27 +935,20 @@ namespace AutoCADCleanupTool
             _activePlacement = target;
             _activePasteDocument = doc;
             _waitingForPasteStart = true;
+
             if (_pastePointHandlerAttached)
             {
                 try { AutoCADApp.Idle -= Application_OnIdleSendPastePoint; } catch { }
                 _pastePointHandlerAttached = false;
             }
+
             string commandString = $"_.-LAYOUT S \"{targetLayoutName}\"\n_.PASTECLIP\n";
             ed.WriteMessage($"\nActivating layout '{targetLayoutName}' for pasting...");
             doc.SendStringToExecute(commandString, true, false, false);
         }
 
-        // ====================================================================
-        // NEW HELPER METHODS FOR IN-MEMORY IMAGE ROTATION
-        // ====================================================================
+        // Rotation helpers for EMBEDFROMXREFS
 
-        /// <summary>
-        /// Rotates an image in memory around its center, creating a new bitmap
-        /// large enough to contain the entire rotated image without clipping.
-        /// </summary>
-        /// <param name="image">The source image.</param>
-        /// <param name="angle">The rotation angle in degrees.</param>
-        /// <returns>A new, rotated Bitmap object.</returns>
         private static Bitmap RotateImage(System.Drawing.Image image, float angle)
         {
             if (image == null) throw new ArgumentNullException(nameof(image));
@@ -819,28 +970,16 @@ namespace AutoCADCleanupTool
                 g.SmoothingMode = SmoothingMode.HighQuality;
                 g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-                // Transformation:
-                // 1. Move rotation point to the center of the new, larger bitmap.
                 g.TranslateTransform(newWidth / 2f, newHeight / 2f);
-                // 2. Rotate the coordinate system.
                 g.RotateTransform(angle);
-                // 3. Move the origin back by half the *original* image's size.
                 g.TranslateTransform(-image.Width / 2f, -image.Height / 2f);
-                // 4. Draw the original image at the transformed (0,0).
                 g.DrawImage(image, new System.Drawing.Point(0, 0));
             }
 
             return rotatedBmp;
         }
 
-        /// <summary>
-        /// Prepares a raster image for embedding. It now handles pre-rotation of the
-        /// image content in memory before saving it to a temporary file.
-        /// </summary>
-        /// <param name="srcPath">Path to the original image file.</param>
-        /// <param name="rotationInDegrees">The rotation to apply.</param>
-        /// <returns>Path to the new, temporary, pre-rotated PNG file.</returns>
-        private static string PreflightRasterForPpt(string srcPath, double rotationInDegrees)
+        internal static string PreflightRasterForPpt(string srcPath, double rotationInDegrees)
         {
             string tempDir = Path.Combine(Path.GetTempPath(), "AutoCADCleanupTool", "embed");
             Directory.CreateDirectory(tempDir);
@@ -857,19 +996,17 @@ namespace AutoCADCleanupTool
                     if (origImage.GetFrameCount(fd) > 1)
                         origImage.SelectActiveFrame(fd, 0);
                 }
-                catch { /* not multi-frame; ignore */ }
+                catch { }
 
                 System.Drawing.Image imageToProcess = origImage;
                 Bitmap rotatedBitmap = null;
 
-                // If rotation is significant, create a new rotated bitmap in memory.
                 if (Math.Abs(rotationInDegrees) > 0.1)
                 {
                     rotatedBitmap = RotateImage(origImage, (float)rotationInDegrees);
                     imageToProcess = rotatedBitmap;
                 }
 
-                // Resize the image (original or rotated) if it's too large.
                 int maxSide = 8000;
                 int w = imageToProcess.Width;
                 int h = imageToProcess.Height;
@@ -880,7 +1017,6 @@ namespace AutoCADCleanupTool
                 int targetW = Math.Max(1, (int)Math.Round(w * scale));
                 int targetH = Math.Max(1, (int)Math.Round(h * scale));
 
-                // Save the final processed image to the temporary PNG file.
                 using (var finalBmp = new Bitmap(targetW, targetH, PixelFormat.Format32bppArgb))
                 using (var g = Graphics.FromImage(finalBmp))
                 {
@@ -890,7 +1026,6 @@ namespace AutoCADCleanupTool
                     finalBmp.Save(outPath, ImageFormat.Png);
                 }
 
-                // Clean up the intermediate rotated bitmap if it was created.
                 rotatedBitmap?.Dispose();
             }
 

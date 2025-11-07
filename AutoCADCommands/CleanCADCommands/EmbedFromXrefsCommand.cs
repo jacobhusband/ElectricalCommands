@@ -441,40 +441,14 @@ namespace AutoCADCleanupTool
                         U = cs.Xaxis,
                         V = cs.Yaxis,
                         OriginalEntityId = img.ObjectId,
-                        TargetBtrId = spaceId // Store the BTR of the layout where the image was found
+                        TargetBtrId = spaceId,
+                        Source = PlacementSource.Xref
                     };
 
                     _pending.Enqueue(placement);
                     ed.WriteMessage($"\nQueued [{_pending.Count}]: {Path.GetFileName(placement.Path)}");
                 }
                 tr.Commit();
-            }
-        }
-
-        /// <summary>
-        /// Safely restores the original current layer.
-        /// </summary>
-        private static void RestoreOriginalLayer(Database db, ObjectId originalClayer)
-        {
-            if (db != null && !originalClayer.IsNull && db.Clayer != originalClayer)
-            {
-                try
-                {
-                    // Check if the original layer is valid and not frozen before restoring
-                    using (var tr = db.TransactionManager.StartOpenCloseTransaction())
-                    {
-                        var ltr = (LayerTableRecord)tr.GetObject(originalClayer, OpenMode.ForRead);
-                        if (ltr != null && !ltr.IsErased && !ltr.IsFrozen)
-                        {
-                            db.Clayer = originalClayer;
-                        }
-                        tr.Commit();
-                    }
-                }
-                catch (System.Exception ex)
-                {
-                    Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage($"\nCould not restore original layer: {ex.Message}");
-                }
             }
         }
 
@@ -589,23 +563,6 @@ namespace AutoCADCleanupTool
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nError during zoom: {ex.Message}");
-            }
-        }
-
-        private static void DeleteOldEmbedTemps(int daysOld = 7)
-        {
-            string tempDir = Path.Combine(Path.GetTempPath(), "AutoCADCleanupTool", "embed");
-            if (!Directory.Exists(tempDir)) return;
-
-            var cutoff = DateTime.Now.AddDays(-Math.Abs(daysOld));
-            foreach (var f in Directory.EnumerateFiles(tempDir, "*.png"))
-            {
-                try
-                {
-                    var info = new FileInfo(f);
-                    if (info.LastWriteTime < cutoff) info.Delete();
-                }
-                catch { /* ignore; file might be in use */ }
             }
         }
     }

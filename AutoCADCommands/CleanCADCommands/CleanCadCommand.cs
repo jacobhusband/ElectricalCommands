@@ -221,8 +221,7 @@ namespace AutoCADCleanupTool
             doc.SendStringToExecute("N\n", false, false, true);       // Hide paper space objects? No
             doc.SendStringToExecute("\n", false, false, true);        // Accept changes
             doc.SendStringToExecute("Y\n", false, false, true);       // Write plot to a file? Yes
-            doc.SendStringToExecute("\n", false, false, true);        // Accept default file name and location
-            doc.SendStringToExecute("\n", false, false, true);        // Final 'Enter' to complete the command
+            doc.SendStringToExecute("\n", false, false, true);        // Accept default file name and location        
         }
 
         [CommandMethod("P30", CommandFlags.Modal)]
