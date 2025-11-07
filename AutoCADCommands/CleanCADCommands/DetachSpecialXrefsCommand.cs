@@ -25,6 +25,8 @@ namespace AutoCADCleanupTool
             int pdfsErased = 0;
             int pdfDefsRemoved = 0;
             int blockRefsErased = 0;
+            int pdfsErased = 0;
+            int pdfDefsRemoved = 0;
 
             try
             {

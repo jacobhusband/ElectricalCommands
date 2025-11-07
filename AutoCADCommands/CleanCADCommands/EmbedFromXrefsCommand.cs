@@ -96,7 +96,6 @@ namespace AutoCADCleanupTool
             {
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
-                    // Target the Model Space for the search.
                     var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                     var modelSpace = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
 
@@ -105,49 +104,34 @@ namespace AutoCADCleanupTool
                     string matchedName = "";
                     double maxArea = 0;
 
-                    // Find the largest block reference in Model Space that looks like a title block.
                     foreach (ObjectId id in modelSpace)
                     {
                         var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
                         if (br == null) continue;
 
                         var potentialNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                        // Defensively gather all possible names associated with the block reference.
-                        // 1. Get name from main BlockTableRecord.
                         try
                         {
                             var btr = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
                             if (btr != null)
                             {
-                                if (!string.IsNullOrEmpty(btr.Name))
-                                {
-                                    potentialNames.Add(btr.Name);
-                                }
-                                // 2. Get XREF filename if applicable.
+                                if (!string.IsNullOrEmpty(btr.Name)) potentialNames.Add(btr.Name);
                                 if (btr.IsFromExternalReference && !string.IsNullOrEmpty(btr.PathName))
-                                {
                                     potentialNames.Add(Path.GetFileNameWithoutExtension(btr.PathName));
-                                }
                             }
                         }
-                        catch { /* Ignore errors reading primary BTR */ }
+                        catch { }
 
-                        // 3. Get name from Dynamic BlockTableRecord if it's a dynamic block.
                         if (br.IsDynamicBlock)
                         {
                             try
                             {
                                 var dynBtr = tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
-                                if (dynBtr != null && !string.IsNullOrEmpty(dynBtr.Name))
-                                {
-                                    potentialNames.Add(dynBtr.Name);
-                                }
+                                if (dynBtr != null && !string.IsNullOrEmpty(dynBtr.Name)) potentialNames.Add(dynBtr.Name);
                             }
-                            catch { /* Ignore errors reading dynamic BTR */ }
+                            catch { }
                         }
 
-                        // Now, check all gathered names against the hints.
                         bool isMatch = false;
                         string currentMatch = "";
                         foreach (var name in potentialNames)
@@ -177,29 +161,24 @@ namespace AutoCADCleanupTool
                                     matchedName = currentMatch;
                                 }
                             }
-                            catch { /* Ignore blocks that fail to get extents */ }
+                            catch { }
                         }
                     }
 
                     if (bestCandidate != null)
                     {
                         ed.WriteMessage($"\nFound title block reference in Model Space matching name '{matchedName}'. Exploding it...");
-
                         var explodedEntities = new DBObjectCollection();
                         bestCandidate.UpgradeOpen();
                         bestCandidate.Explode(explodedEntities);
-
                         foreach (DBObject obj in explodedEntities)
                         {
-                            var ent = obj as Entity;
-                            if (ent != null)
+                            if (obj is Entity ent)
                             {
-                                // Add the exploded entities to Model Space.
                                 modelSpace.AppendEntity(ent);
                                 tr.AddNewlyCreatedDBObject(ent, true);
                             }
                         }
-
                         bestCandidate.Erase();
                         ed.WriteMessage("\nExplode complete.");
                     }
@@ -207,7 +186,6 @@ namespace AutoCADCleanupTool
                     {
                         ed.WriteMessage("\nNo composite title block reference found to explode in Model Space.");
                     }
-
                     tr.Commit();
                 }
             }
@@ -228,7 +206,6 @@ namespace AutoCADCleanupTool
 
             ed.WriteMessage("\n--- Starting EMBEDFROMXREFS ---");
 
-            // --- Phase 1: Preparation ---
             _pending.Clear();
             _lastPastedOle = ObjectId.Null;
             _isEmbeddingProcessActive = false;
@@ -250,9 +227,9 @@ namespace AutoCADCleanupTool
 
             try
             {
-                ed.CurrentUserCoordinateSystem = Matrix3d.Identity; // Set UCS to World
+                DeleteOldEmbedTemps(daysOld: 7);
+                ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
 
-                // --- Phase 2: Image Collection and Processing ---
                 try
                 {
                     using (var tr = db.TransactionManager.StartTransaction())
@@ -304,10 +281,9 @@ namespace AutoCADCleanupTool
                 catch (System.Exception ex)
                 {
                     ed.WriteMessage($"\n[!] A critical error occurred during image collection: {ex.Message}");
-                    return; // Exit before starting the paste process
+                    return;
                 }
 
-                // --- Phase 3: Embedding Logic ---
                 if (_pending.Count == 0)
                 {
                     ed.WriteMessage("\nNo valid raster images found to embed.");
@@ -394,7 +370,6 @@ namespace AutoCADCleanupTool
                     var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead) as RasterImageDef;
                     if (def == null) continue;
 
-                    // Check if the image is part of an XREF and add the XREF's ObjectId to the detachment list
                     var ownerBtr = tr.GetObject(img.OwnerId, OpenMode.ForRead) as BlockTableRecord;
                     if (ownerBtr != null && ownerBtr.IsFromExternalReference)
                     {
@@ -451,16 +426,12 @@ namespace AutoCADCleanupTool
             }
         }
 
-        /// <summary>
-        /// Safely restores the original current layer.
-        /// </summary>
         private static void RestoreOriginalLayer(Database db, ObjectId originalClayer)
         {
             if (db != null && !originalClayer.IsNull && db.Clayer != originalClayer)
             {
                 try
                 {
-                    // Check if the original layer is valid and not frozen before restoring
                     using (var tr = db.TransactionManager.StartOpenCloseTransaction())
                     {
                         var ltr = (LayerTableRecord)tr.GetObject(originalClayer, OpenMode.ForRead);
@@ -605,7 +576,7 @@ namespace AutoCADCleanupTool
                     var info = new FileInfo(f);
                     if (info.LastWriteTime < cutoff) info.Delete();
                 }
-                catch { /* ignore; file might be in use */ }
+                catch { }
             }
         }
     }

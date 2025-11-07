@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Globalization;
 using System.Linq;
@@ -28,7 +27,6 @@ namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
     {
-        // Win32 helpers to auto-dismiss the "OLE Text Size" dialog
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 
@@ -39,9 +37,8 @@ namespace AutoCADCleanupTool
         [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
         private const uint BM_CLICK = 0x00F5;
-        private const uint WM_COMMAND = 0x0111;
-        private const int IDOK = 1;
 
+        // *** MODIFICATION: Restored the missing method ***
         /// <summary>
         /// Unlocks, thaws, and turns on all layers in the drawing to ensure visibility and editability.
         /// </summary>
@@ -145,7 +142,6 @@ namespace AutoCADCleanupTool
             });
         }
 
-        // Data and helpers to embed OLE images over existing raster image references
         private class ImagePlacement
         {
             public string Path; // Path to the pre-rotated temporary image
@@ -159,7 +155,6 @@ namespace AutoCADCleanupTool
 
         private static readonly Queue<ImagePlacement> _pending = new Queue<ImagePlacement>();
         private static ObjectId _lastPastedOle = ObjectId.Null;
-        private static bool _handlersAttached = false;
         private static dynamic _pptAppShared = null;
         private static dynamic _pptPresentationShared = null;
         private static ObjectId _savedClayer = ObjectId.Null;
@@ -186,7 +181,6 @@ namespace AutoCADCleanupTool
                     {
                         var presentations = _pptAppShared.Presentations;
                         try { _pptAppShared.Visible = true; } catch { }
-
                         if (_pptPresentationShared != null)
                         {
                             try
@@ -222,7 +216,7 @@ namespace AutoCADCleanupTool
                 Type pptType = Type.GetTypeFromProgID("PowerPoint.Application");
                 if (pptType == null)
                 {
-                    ed.WriteMessage("\nPowerPoint is not installed (COM ProgID not found).");
+                    ed.WriteMessage("\nPowerPoint is not installed.");
                     return false;
                 }
                 _pptAppShared = Activator.CreateInstance(pptType);
@@ -242,7 +236,7 @@ namespace AutoCADCleanupTool
 
         private static void ClosePowerPoint(Editor ed = null)
         {
-            try
+            if (_pptPresentationShared != null)
             {
                 if (_pptPresentationShared != null)
                 {
@@ -258,10 +252,10 @@ namespace AutoCADCleanupTool
                     _pptAppShared = null;
                 }
             }
-            catch (System.Exception ex)
+            if (_pptAppShared != null)
             {
-                try { ed?.WriteMessage($"\nWarning: failed to close PowerPoint: {ex.Message}"); } catch { }
-                _pptPresentationShared = null;
+                try { _pptAppShared.Quit(); } catch { }
+                try { Marshal.FinalReleaseComObject(_pptAppShared); } catch { }
                 _pptAppShared = null;
             }
         }
@@ -468,12 +462,14 @@ namespace AutoCADCleanupTool
                     {
                         try
                         {
+                            var defId = pdfDict.GetAt(key);
                             pdfDict.Remove(key);
+                            var defObj = tr.GetObject(defId, OpenMode.ForWrite);
+                            defObj.Erase();
                             detachedCount++;
                         }
                         catch { }
                     }
-
                     ed.WriteMessage($"\nSuccessfully detached {detachedCount} PDF definition(s).");
                     tr.Commit();
                 }
@@ -505,9 +501,9 @@ namespace AutoCADCleanupTool
             _pastePointHandlerAttached = true;
         }
 
-        private static void Application_OnIdleSendPastePoint(object sender, EventArgs e)
+        private static bool EnsurePlacementSpace(Document doc, ImagePlacement placement, Editor ed)
         {
-            try
+            if (placement.TargetBtrId.IsNull || doc.Database.CurrentSpaceId == placement.TargetBtrId)
             {
                 AutoCADApp.Idle -= Application_OnIdleSendPastePoint;
                 _pastePointHandlerAttached = false;
@@ -521,7 +517,8 @@ namespace AutoCADCleanupTool
             }
             finally
             {
-                _waitingForPasteStart = false;
+                ed?.WriteMessage($"\nFailed to switch to target layout: {ex.Message}");
+                return false;
             }
         }
 
@@ -652,7 +649,7 @@ namespace AutoCADCleanupTool
             _lastPastedOle = ObjectId.Null;
         }
 
-        private static void FinalCleanupOnIdle(object sender, EventArgs e)
+        public static bool TryGetTitleBlockOutlinePointsForEmbed(Database db, out Point3d[] poly)
         {
             AutoCADApp.Idle -= FinalCleanupOnIdle;
             var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
@@ -719,12 +716,23 @@ namespace AutoCADCleanupTool
                             ed.WriteMessage($"\nSuccessfully detached XREF: {btr.Name}");
                         }
                     }
-                    catch (System.Exception ex)
+
+                    if (best != null)
                     {
-                        ed.WriteMessage($"\nFailed to detach XREF {xrefId}: {ex.Message}");
+                        var ex = best.GeometricExtents;
+                        poly = new[] {
+                            new Point3d(ex.MinPoint.X, ex.MinPoint.Y, 0), new Point3d(ex.MaxPoint.X, ex.MinPoint.Y, 0),
+                            new Point3d(ex.MaxPoint.X, ex.MaxPoint.Y, 0), new Point3d(ex.MinPoint.X, ex.MaxPoint.Y, 0)
+                        };
+                        return true;
                     }
+
+                    poly = new[] {
+                        new Point3d(db.Pextmin.X, db.Pextmin.Y, 0), new Point3d(db.Pextmax.X, db.Pextmin.Y, 0),
+                        new Point3d(db.Pextmax.X, db.Pextmax.Y, 0), new Point3d(db.Pextmin.X, db.Pextmax.Y, 0)
+                    };
+                    return true;
                 }
-                tr.Commit();
             }
             _xrefsToDetach.Clear();
         }
