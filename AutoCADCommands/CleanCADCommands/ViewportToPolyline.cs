@@ -452,7 +452,7 @@ namespace AutoCADCleanupTool
             for (int i = 0; i < verts.Count; i++)
                 pl.AddVertexAt(i, verts[i].pt, verts[i].bulge, 0, 0);
 
-            pl.Closed = p2.Closed || verts[0].pt.GetDistanceTo(verts[^1].pt) <= 1e-9;
+            pl.Closed = p2.Closed || verts[0].pt.GetDistanceTo(verts[verts.Count - 1].pt) <= 1e-9;
             return pl;
         }
 
@@ -554,7 +554,7 @@ namespace AutoCADCleanupTool
                         var node = chain[i];
                         pl.AddVertexAt(i, new Point2d(node.s.X, node.s.Y), node.bulge, 0, 0);
                     }
-                    if (chain[0].s.DistanceTo(chain[^1].e) < 1e-6) pl.Closed = true;
+                    if (chain[0].s.DistanceTo(chain[chain.Count-1].e) < 1e-6) pl.Closed = true;
                     return pl;
                 }
             }
@@ -570,7 +570,7 @@ namespace AutoCADCleanupTool
             const double tol = 1e-6;
             while (segs.Count > 0)
             {
-                var last = chain[^1];
+                var last = chain[chain.Count - 1];
                 int found = -1;
                 bool reverse = false;
 
