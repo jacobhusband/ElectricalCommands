@@ -228,12 +228,11 @@ namespace AutoCADCleanupTool
 
             ed.WriteMessage("\n--- Starting EMBEDFROMXREFS ---");
 
-            // --- Phase 1: Preparation ---
             _pending.Clear();
             _lastPastedOle = ObjectId.Null;
             _isEmbeddingProcessActive = false;
             _finalPastedOleForZoom = ObjectId.Null;
-            _xrefsToDetach.Clear(); // Ensure this is cleared for a new run
+            _xrefsToDetach.Clear();
 
             try
             {
@@ -246,13 +245,13 @@ namespace AutoCADCleanupTool
 
             ObjectId originalClayer = db.Clayer;
             Matrix3d originalUcs = ed.CurrentUserCoordinateSystem;
-            string originalLayout = LayoutManager.Current.CurrentLayout; // Save original layout
+            string originalLayout = LayoutManager.Current.CurrentLayout;
 
             try
             {
-                ed.CurrentUserCoordinateSystem = Matrix3d.Identity; // Set UCS to World
+                ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
 
-                // --- Phase 2: Image Collection and Processing ---
+                // Phase 2: scan and queue images
                 try
                 {
                     using (var tr = db.TransactionManager.StartTransaction())
@@ -273,7 +272,6 @@ namespace AutoCADCleanupTool
                         tr.Commit();
                     }
 
-                    // *** MODIFICATION: Iterate through all layouts to collect images ***
                     ed.WriteMessage("\nScanning all layouts for raster images...");
                     using (var tr = db.TransactionManager.StartTransaction())
                     {
@@ -289,9 +287,7 @@ namespace AutoCADCleanupTool
                         foreach (DBDictionaryEntry entry in layoutDict)
                         {
                             if (entry.Key.Equals("Model", StringComparison.OrdinalIgnoreCase))
-                            {
-                                continue; // Already processed Model Space
-                            }
+                                continue;
 
                             var layoutId = entry.Value;
                             var layout = (Layout)tr.GetObject(layoutId, OpenMode.ForRead);
@@ -304,10 +300,9 @@ namespace AutoCADCleanupTool
                 catch (System.Exception ex)
                 {
                     ed.WriteMessage($"\n[!] A critical error occurred during image collection: {ex.Message}");
-                    return; // Exit before starting the paste process
+                    return;
                 }
 
-                // --- Phase 3: Embedding Logic ---
                 if (_pending.Count == 0)
                 {
                     ed.WriteMessage("\nNo valid raster images found to embed.");
@@ -333,9 +328,6 @@ namespace AutoCADCleanupTool
                 ed.WriteMessage($"\nStarting paste process for {_pending.Count} raster image(s)...");
                 _isEmbeddingProcessActive = true;
 
-                // *** MODIFICATION: Removed the explicit layout switch from the previous attempt ***
-                // The new ProcessNextPaste method now handles layout switching robustly.
-
                 ProcessNextPaste(doc, ed);
             }
             catch (System.Exception ex)
@@ -360,13 +352,10 @@ namespace AutoCADCleanupTool
 
                 ed.CurrentUserCoordinateSystem = originalUcs;
 
-                // Restore original layout
                 try
                 {
                     if (LayoutManager.Current.CurrentLayout != originalLayout)
-                    {
                         LayoutManager.Current.CurrentLayout = originalLayout;
-                    }
                 }
                 catch (System.Exception ex)
                 {
@@ -394,12 +383,9 @@ namespace AutoCADCleanupTool
                     var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead) as RasterImageDef;
                     if (def == null) continue;
 
-                    // Check if the image is part of an XREF and add the XREF's ObjectId to the detachment list
                     var ownerBtr = tr.GetObject(img.OwnerId, OpenMode.ForRead) as BlockTableRecord;
                     if (ownerBtr != null && ownerBtr.IsFromExternalReference)
-                    {
                         _xrefsToDetach.Add(ownerBtr.ObjectId);
-                    }
 
                     string resolved = ResolveImagePath(db, def.SourceFileName);
                     if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
@@ -409,17 +395,14 @@ namespace AutoCADCleanupTool
                     }
 
                     string safePath = null;
-                    var cs = img.Orientation; // Get orientation once
+                    var cs = img.Orientation;
                     try
                     {
                         ed.WriteMessage($"\nProcessing: {Path.GetFileName(resolved)}...");
 
-                        // Calculate rotation angle from the U-vector (Xaxis).
-                        // AutoCAD's angle is counter-clockwise.
-                        double rotationInDegrees = Math.Atan2(cs.Xaxis.Y, cs.Xaxis.X) * (180.0 / Math.PI);
+                        double rotationInDegrees =
+                            Math.Atan2(cs.Xaxis.Y, cs.Xaxis.X) * (180.0 / Math.PI);
 
-                        // System.Drawing.Graphics.RotateTransform applies a CLOCKWISE rotation.
-                        // To match AutoCAD's visual rotation, we must negate the angle.
                         safePath = PreflightRasterForPpt(resolved, -rotationInDegrees);
                     }
                     catch (System.Exception pex)

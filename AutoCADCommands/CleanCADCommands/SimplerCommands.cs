@@ -17,6 +17,8 @@ using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 using AutoCADApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using Shape = Microsoft.Office.Interop.PowerPoint.Shape;
 using System.Diagnostics;
+
+// Required for in-memory image rotation
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -46,12 +48,11 @@ namespace AutoCADCleanupTool
         private const uint WM_COMMAND = 0x0111;
         private const int IDOK = 1;
 
+        // Shared: unlock/thaw layers
         internal static void EnsureAllLayersVisibleAndUnlocked(Database db, Editor ed)
         {
             ed.WriteMessage("\nEnsuring all layers are visible and unlocked...");
-            int unlocked = 0;
-            int thawed = 0;
-            int turnedOn = 0;
+            int unlocked = 0, thawed = 0, turnedOn = 0;
 
             try
             {
@@ -61,9 +62,7 @@ namespace AutoCADCleanupTool
                     ObjectId originalClayerId = db.Clayer;
 
                     if (lt.Has("0") && db.Clayer != lt["0"])
-                    {
                         db.Clayer = lt["0"];
-                    }
 
                     foreach (ObjectId layerId in lt)
                     {
@@ -71,22 +70,9 @@ namespace AutoCADCleanupTool
                         try
                         {
                             var ltr = (LayerTableRecord)tr.GetObject(layerId, OpenMode.ForWrite);
-
-                            if (ltr.IsLocked)
-                            {
-                                ltr.IsLocked = false;
-                                unlocked++;
-                            }
-                            if (ltr.IsFrozen)
-                            {
-                                ltr.IsFrozen = false;
-                                thawed++;
-                            }
-                            if (ltr.IsOff)
-                            {
-                                ltr.IsOff = false;
-                                turnedOn++;
-                            }
+                            if (ltr.IsLocked) { ltr.IsLocked = false; unlocked++; }
+                            if (ltr.IsFrozen) { ltr.IsFrozen = false; thawed++; }
+                            if (ltr.IsOff) { ltr.IsOff = false; turnedOn++; }
                         }
                         catch (System.Exception ex)
                         {
@@ -98,9 +84,7 @@ namespace AutoCADCleanupTool
                     {
                         var originalLtr = (LayerTableRecord)tr.GetObject(originalClayerId, OpenMode.ForRead);
                         if (!originalLtr.IsErased && !originalLtr.IsFrozen)
-                        {
                             db.Clayer = originalClayerId;
-                        }
                     }
                     catch { }
 
@@ -146,6 +130,7 @@ namespace AutoCADCleanupTool
             });
         }
 
+        // Placement description used by both commands, distinguished by Source
         private class ImagePlacement
         {
             public string Path;
@@ -154,7 +139,7 @@ namespace AutoCADCleanupTool
             public Vector3d V;
             public ObjectId OriginalEntityId;
             public ObjectId TargetBtrId = ObjectId.Null;
-            public Point2d[] ClipBoundary;
+            public Point2d[] ClipBoundary; // PDFs only
             public PlacementSource Source = PlacementSource.Unknown;
         }
 
@@ -177,6 +162,7 @@ namespace AutoCADCleanupTool
         private static ObjectId _finalPastedOleForZoom = ObjectId.Null;
         private static readonly HashSet<ObjectId> _xrefsToDetach = new HashSet<ObjectId>();
 
+        // Shared PowerPoint lifecycle
         private static bool EnsurePowerPoint(Editor ed)
         {
             try
@@ -193,9 +179,7 @@ namespace AutoCADCleanupTool
                             try
                             {
                                 if (_pptPresentationShared.Slides.Count < 1)
-                                {
                                     _pptPresentationShared.Slides.Add(1, PpSlideLayout.ppLayoutBlank);
-                                }
                                 return true;
                             }
                             catch
@@ -228,8 +212,8 @@ namespace AutoCADCleanupTool
                 }
                 _pptAppShared = Activator.CreateInstance(pptType);
                 try { _pptAppShared.Visible = true; } catch { }
-                var pres = _pptAppShared.Presentations;
-                _pptPresentationShared = pres.Add(MsoTriState.msoFalse);
+                var presNew = _pptAppShared.Presentations;
+                _pptPresentationShared = presNew.Add(MsoTriState.msoFalse);
                 _pptPresentationShared.Slides.Add(1, PpSlideLayout.ppLayoutBlank);
                 return true;
             }
@@ -267,6 +251,7 @@ namespace AutoCADCleanupTool
             }
         }
 
+        // Shared: put given image on clipboard via PPT
         private static bool PrepareClipboardWithImageShared(ImagePlacement placement, Editor ed)
         {
             dynamic slide = null;
@@ -286,7 +271,6 @@ namespace AutoCADCleanupTool
 
                 pic = shapes.AddPicture(placement.Path, MsoTriState.msoFalse, MsoTriState.msoTrue, 10, 10);
                 pic.Copy();
-
                 return true;
             }
             catch (System.Exception ex)
@@ -302,6 +286,7 @@ namespace AutoCADCleanupTool
             }
         }
 
+        // Shared: resolve image/PDF paths
         private static string ResolveImagePath(Database db, string rawPath)
         {
             if (string.IsNullOrWhiteSpace(rawPath)) return null;
@@ -345,6 +330,7 @@ namespace AutoCADCleanupTool
             return null;
         }
 
+        // Shared: hook/unhook event handlers
         private static void AttachHandlers(Database db, Document doc)
         {
             if (_handlersAttached) return;
@@ -371,6 +357,7 @@ namespace AutoCADCleanupTool
             _handlersAttached = false;
         }
 
+        // Shared: purge image defs whose RasterImages were embedded
         private static void PurgeEmbeddedImageDefs(Database db, Editor ed)
         {
             if (_imageDefsToPurge.Count == 0) return;
@@ -387,9 +374,7 @@ namespace AutoCADCleanupTool
                     foreach (DBDictionaryEntry entry in imageDict)
                     {
                         if (_imageDefsToPurge.Contains(entry.Value))
-                        {
                             keysToRemove.Add(entry.Key);
-                        }
                     }
 
                     foreach (string key in keysToRemove)
@@ -413,9 +398,7 @@ namespace AutoCADCleanupTool
                     }
 
                     if (purged > 0)
-                    {
                         ed.WriteMessage($"\nPurged {purged} unused image definition(s).");
-                    }
 
                     tr.Commit();
                 }
@@ -430,6 +413,7 @@ namespace AutoCADCleanupTool
             }
         }
 
+        // Shared: detach PDF definitions recorded by PDF pipeline
         private static void DetachPdfDefinitions(Database db, Editor ed)
         {
             if (_pdfDefinitionsToDetach.Count == 0) return;
@@ -478,6 +462,8 @@ namespace AutoCADCleanupTool
                 _pdfDefinitionsToDetach.Clear();
             }
         }
+
+        // Event handlers: shared entry, but behavior split by PlacementSource
 
         private static void Db_ObjectAppended(object sender, ObjectEventArgs e)
         {
@@ -549,6 +535,8 @@ namespace AutoCADCleanupTool
                 else
                     FinishEmbeddingRun(doc, ed, db);
 
+
+
                 return;
             }
 
@@ -569,15 +557,13 @@ namespace AutoCADCleanupTool
                 {
                     try
                     {
-                        switch (target.Source)
+                        if (target.Source == PlacementSource.Pdf)
                         {
-                            case PlacementSource.Pdf:
-                                ApplyPdfPlacementTransform(tr, ed, ole, target);
-                                break;
-                            case PlacementSource.Xref:
-                            default:
-                                ApplyXrefPlacementTransform(tr, ed, ole, target);
-                                break;
+                            ApplyPdfPlacementTransform(tr, ed, ole, target);
+                        }
+                        else // Xref or Unknown -> treat as Xref-style raster
+                        {
+                            ApplyXrefPlacementTransform(tr, ed, ole, target);
                         }
                     }
                     catch (System.Exception ex)
@@ -593,9 +579,8 @@ namespace AutoCADCleanupTool
                     if (originalEnt != null)
                     {
                         if (originalEnt is RasterImage imgEnt && !imgEnt.ImageDefId.IsNull)
-                        {
                             _imageDefsToPurge.Add(imgEnt.ImageDefId);
-                        }
+
                         originalEnt.Erase();
                     }
                 }
@@ -621,6 +606,7 @@ namespace AutoCADCleanupTool
             _lastPastedOle = ObjectId.Null;
         }
 
+        // PDF-specific final placement (from your working EMBEDFROMPDFS implementation)
         private static void ApplyPdfPlacementTransform(
             Transaction tr,
             Editor ed,
@@ -715,6 +701,7 @@ namespace AutoCADCleanupTool
             }
         }
 
+        // XREF-specific final placement: matches your working rotated-image behavior
         private static void ApplyXrefPlacementTransform(
             Transaction tr,
             Editor ed,
@@ -809,6 +796,7 @@ namespace AutoCADCleanupTool
             }
         }
 
+        // Final cleanup (shared)
         private static void FinalCleanupOnIdle(object sender, EventArgs e)
         {
             AutoCADApp.Idle -= FinalCleanupOnIdle;
@@ -822,13 +810,17 @@ namespace AutoCADCleanupTool
                 ed.WriteMessage("\nPerforming final cleanup for embedding process...");
                 _isEmbeddingProcessActive = false;
                 _finalPastedOleForZoom = ObjectId.Null;
+
                 DetachHandlers(db, doc);
                 DetachXrefs(db, ed);
                 try { doc.SendStringToExecute("_.REGEN ", false, false, true); } catch { }
+
                 PurgeEmbeddedImageDefs(db, ed);
                 DetachPdfDefinitions(db, ed);
+
                 WindowOrchestrator.EndPptInteraction();
                 ClosePowerPoint(ed);
+
                 try
                 {
                     if (!_savedClayer.IsNull) db.Clayer = _savedClayer;
@@ -859,6 +851,7 @@ namespace AutoCADCleanupTool
             }
         }
 
+        // XREF detachment helper
         private static void DetachXrefs(Database db, Editor ed)
         {
             if (_xrefsToDetach.Count == 0) return;
@@ -886,11 +879,13 @@ namespace AutoCADCleanupTool
             _xrefsToDetach.Clear();
         }
 
+        // Shared: finalize run by scheduling idle cleanup
         private static void FinishEmbeddingRun(Document doc, Editor ed, Database db)
         {
             AutoCADApp.Idle += FinalCleanupOnIdle;
         }
 
+        // Shared: map target BTR to layout name
         private static string GetLayoutNameFromBtrId(Database db, ObjectId btrId)
         {
             if (btrId.IsNull) return "Model";
@@ -906,11 +901,13 @@ namespace AutoCADCleanupTool
             }
         }
 
+        // Shared: start next paste, but actual transform logic depends on Source in Doc_CommandEnded
         private static void ProcessNextPaste(Document doc, Editor ed)
         {
             if (!_isEmbeddingProcessActive || _pending.Count == 0)
             {
-                if (_isEmbeddingProcessActive) FinishEmbeddingRun(doc, ed, doc.Database);
+                if (_isEmbeddingProcessActive)
+                    FinishEmbeddingRun(doc, ed, doc.Database);
                 return;
             }
 
