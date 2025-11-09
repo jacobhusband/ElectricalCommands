@@ -4,13 +4,17 @@ using Autodesk.AutoCAD.Runtime;
 using System;
 using System.Linq;
 
-namespace ElectricalCommands {
-  public partial class GeneralCommands {
-    [CommandMethod("SUMTEXT", CommandFlags.UsePickSet)]
-    public void SUMTEXT() {
+namespace ElectricalCommands
+{
+  public partial class GeneralCommands
+  {
+    [CommandMethod("GETSUMFROMTEXT", CommandFlags.UsePickSet)]
+    public void SUMTEXT()
+    {
       var (doc, db, ed) = GeneralCommands.GetGlobals();
       PromptSelectionResult selection = ed.SelectImplied();
-      if (selection.Status != PromptStatus.OK) {
+      if (selection.Status != PromptStatus.OK)
+      {
         PromptSelectionOptions opts = new PromptSelectionOptions();
         opts.MessageForAdding = "Select text objects to sum: ";
         opts.AllowDuplicates = false;
@@ -20,11 +24,14 @@ namespace ElectricalCommands {
           return;
       }
       double sum = 0.0;
-      using (Transaction tr = db.TransactionManager.StartTransaction()) {
-        foreach (SelectedObject so in selection.Value) {
+      using (Transaction tr = db.TransactionManager.StartTransaction())
+      {
+        foreach (SelectedObject so in selection.Value)
+        {
           DBText text = tr.GetObject(so.ObjectId, OpenMode.ForRead) as DBText;
           MText mtext = tr.GetObject(so.ObjectId, OpenMode.ForRead) as MText;
-          if (text != null) {
+          if (text != null)
+          {
             double value;
             string textString = text
                 .TextString.Replace("\\FArial;", "")
@@ -37,14 +44,17 @@ namespace ElectricalCommands {
             textString = new string(
                 textString.Where(c => char.IsDigit(c) || c == '.').ToArray()
             );
-            if (textString.Contains("VA")) {
+            if (textString.Contains("VA"))
+            {
               string[] sections = textString.Split(
                   new string[] { "VA" },
                   StringSplitOptions.None
               );
-              foreach (string section in sections) {
+              foreach (string section in sections)
+              {
                 double num = 0;
-                if (double.TryParse(section, out num)) {
+                if (double.TryParse(section, out num))
+                {
                   sum += num;
                 }
               }
@@ -52,7 +62,8 @@ namespace ElectricalCommands {
             if (Double.TryParse(textString, out value))
               sum += value;
           }
-          else if (mtext != null) {
+          else if (mtext != null)
+          {
             double value;
             string mTextContents = mtext
                 .Contents.Replace("\\FArial;", "")
@@ -62,25 +73,30 @@ namespace ElectricalCommands {
                 .Replace("}", "")
                 .Replace("\\I", "")
                 .Trim();
-            if (mTextContents.Contains("VA")) {
+            if (mTextContents.Contains("VA"))
+            {
               string[] sections = mTextContents.Split(
                   new string[] { "VA" },
                   StringSplitOptions.None
               );
-              foreach (string section in sections) {
+              foreach (string section in sections)
+              {
                 double num = 0;
                 var newSection = new string(
                     section.Where(c => char.IsDigit(c) || c == '.').ToArray()
                 );
-                if (double.TryParse(newSection, out num)) {
+                if (double.TryParse(newSection, out num))
+                {
                   sum += num;
                 }
               }
             }
-            else if (Double.TryParse(mTextContents, out value)) {
+            else if (Double.TryParse(mTextContents, out value))
+            {
               sum += value;
             }
-            else {
+            else
+            {
               mTextContents = new string(
                   mTextContents.Where(c => char.IsDigit(c) || c == '.').ToArray()
               );

@@ -13,7 +13,7 @@ namespace ElectricalCommands
   {
     private const double VertexTolerance = 1e-6;
 
-    [CommandMethod("BLOCKBOUNDARY", CommandFlags.Modal | CommandFlags.UsePickSet)]
+    [CommandMethod("CREATEPADDEDOUTLINEAROUNDBLOCKS", CommandFlags.Modal | CommandFlags.UsePickSet)]
     public void CreateBoundaryAroundBlockReferences()
     {
       var doc = Application.DocumentManager.MdiActiveDocument;

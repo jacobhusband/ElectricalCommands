@@ -4,20 +4,26 @@ using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using System;
 
-namespace ElectricalCommands {
-  public partial class GeneralCommands {
-    [CommandMethod("AREACALCULATOR", CommandFlags.UsePickSet)]
-    public void AREACALCULATOR() {
+namespace ElectricalCommands
+{
+  public partial class GeneralCommands
+  {
+    [CommandMethod("CALCULATEAREAS", CommandFlags.UsePickSet)]
+    public void AREACALCULATOR()
+    {
       var (doc, db, ed) = GeneralCommands.GetGlobals();
 
-      try {
+      try
+      {
         SelectionSet sset;
         PromptSelectionResult selRes = ed.SelectImplied();
-        if (selRes.Status == PromptStatus.OK) {
+        if (selRes.Status == PromptStatus.OK)
+        {
           // Use the PickFirst selection
           sset = selRes.Value;
         }
-        else {
+        else
+        {
           // If no PickFirst selection, prompt for selection
           PromptSelectionOptions opts = new PromptSelectionOptions();
           opts.MessageForAdding = "Select polylines or rectangles: ";
@@ -34,18 +40,22 @@ namespace ElectricalCommands {
           sset = selRes.Value;
         }
 
-        using (Transaction tr = doc.TransactionManager.StartTransaction()) {
+        using (Transaction tr = doc.TransactionManager.StartTransaction())
+        {
           int processedCount = 0;
-          foreach (ObjectId objId in sset.GetObjectIds()) {
+          foreach (ObjectId objId in sset.GetObjectIds())
+          {
             var obj = tr.GetObject(objId, OpenMode.ForWrite) as Entity;
-            if (obj == null) {
+            if (obj == null)
+            {
               ed.WriteMessage("\nSelected object is not a valid entity.");
               continue;
             }
 
             Autodesk.AutoCAD.DatabaseServices.Polyline polyline =
                 obj as Autodesk.AutoCAD.DatabaseServices.Polyline;
-            if (polyline != null) {
+            if (polyline != null)
+            {
               double area = polyline.Area;
               area /= 144; // Converting from square inches to square feet
               ed.WriteMessage(
@@ -62,11 +72,13 @@ namespace ElectricalCommands {
               );
 
               // Check if the center of the bounding box lies within the polyline. If not, use the first vertex.
-              if (!IsPointInside(polyline, center)) {
+              if (!IsPointInside(polyline, center))
+              {
                 center = polyline.GetPoint3dAt(0);
               }
 
-              DBText text = new DBText {
+              DBText text = new DBText
+              {
                 Height = 9,
                 TextString = $"{Math.Ceiling(area)} sq ft",
                 Rotation = 0,
@@ -84,7 +96,8 @@ namespace ElectricalCommands {
 
               processedCount++;
             }
-            else {
+            else
+            {
               ed.WriteMessage("\nSelected object is not a polyline.");
               continue;
             }
@@ -96,14 +109,17 @@ namespace ElectricalCommands {
         // Clear the PickFirst selection set
         ed.SetImpliedSelection(new ObjectId[0]);
       }
-      catch (System.Exception ex) {
+      catch (System.Exception ex)
+      {
         ed.WriteMessage($"\nError: {ex.Message}");
       }
     }
 
-    public static bool IsPointInside(Polyline polyline, Point3d point) {
+    public static bool IsPointInside(Polyline polyline, Point3d point)
+    {
       int numIntersections = 0;
-      for (int i = 0; i < polyline.NumberOfVertices; i++) {
+      for (int i = 0; i < polyline.NumberOfVertices; i++)
+      {
         Point3d point1 = polyline.GetPoint3dAt(i);
         Point3d point2 = polyline.GetPoint3dAt((i + 1) % polyline.NumberOfVertices); // Get next point, or first point if we're at the end
 
@@ -113,7 +129,8 @@ namespace ElectricalCommands {
             && point1.Y == point.Y
             && point.X > Math.Min(point1.X, point2.X)
             && point.X < Math.Max(point1.X, point2.X)
-        ) {
+        )
+        {
           return true;
         }
 
@@ -122,18 +139,21 @@ namespace ElectricalCommands {
             && point.Y <= Math.Max(point1.Y, point2.Y)
             && point.X <= Math.Max(point1.X, point2.X)
             && point1.Y != point2.Y
-        ) {
+        )
+        {
           double xinters =
               (point.Y - point1.Y) * (point2.X - point1.X) / (point2.Y - point1.Y)
               + point1.X;
 
           // Check if point is on the polygon boundary (other than horizontal)
-          if (Math.Abs(point.X - xinters) < Double.Epsilon) {
+          if (Math.Abs(point.X - xinters) < Double.Epsilon)
+          {
             return true;
           }
 
           // Count intersections
-          if (point.X < xinters) {
+          if (point.X < xinters)
+          {
             numIntersections++;
           }
         }

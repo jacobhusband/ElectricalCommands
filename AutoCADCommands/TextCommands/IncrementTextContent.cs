@@ -7,15 +7,19 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace ElectricalCommands {
-  public partial class GeneralCommands {
-    [CommandMethod("INCREMENTER", CommandFlags.UsePickSet)]
-    public void Incrementer() {
+namespace ElectricalCommands
+{
+  public partial class GeneralCommands
+  {
+    [CommandMethod("INCREMENTTEXTCONTENT", CommandFlags.UsePickSet)]
+    public void Incrementer()
+    {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
       Database db = doc.Database;
       Editor ed = doc.Editor;
 
-      try {
+      try
+      {
         // Get user inputs
         string prefix = ed.GetString("\nEnter prefix (e.g., HP-): ").StringResult;
         int startNum = Convert.ToInt32(ed.GetString("\nEnter start number: ").StringResult);
@@ -25,11 +29,13 @@ namespace ElectricalCommands {
         // Handle selection
         SelectionSet sset;
         PromptSelectionResult selRes = ed.SelectImplied();
-        if (selRes.Status == PromptStatus.OK) {
+        if (selRes.Status == PromptStatus.OK)
+        {
           // Use the PickFirst selection
           sset = selRes.Value;
         }
-        else {
+        else
+        {
           // If no PickFirst selection, prompt for selection
           PromptSelectionOptions pso = new PromptSelectionOptions();
           pso.MessageForAdding = "\nSelect MText and DBText objects: ";
@@ -51,10 +57,13 @@ namespace ElectricalCommands {
 
         // Collect selected MText and DBText objects
         List<(Entity entity, double distance)> textObjects = new List<(Entity, double)>();
-        using (Transaction tr = db.TransactionManager.StartTransaction()) {
-          foreach (ObjectId objId in sset.GetObjectIds()) {
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+          foreach (ObjectId objId in sset.GetObjectIds())
+          {
             Entity ent = tr.GetObject(objId, OpenMode.ForRead) as Entity;
-            if (ent is MText || ent is DBText) {
+            if (ent is MText || ent is DBText)
+            {
               double dist = ent.GeometricExtents.MinPoint.DistanceTo(selectedPoint);
               textObjects.Add((ent, dist));
             }
@@ -65,21 +74,27 @@ namespace ElectricalCommands {
 
           // Update text objects
           int currentNum = startNum;
-          foreach (var (ent, _) in textObjects) {
+          foreach (var (ent, _) in textObjects)
+          {
             ent.UpgradeOpen();
             string newText = $"{prefix}{currentNum}";
-            if (ent is MText mtext) {
+            if (ent is MText mtext)
+            {
               mtext.Contents = newText;
             }
-            else if (ent is DBText dbtext) {
+            else if (ent is DBText dbtext)
+            {
               dbtext.TextString = newText;
             }
 
-            if (currentNum < endNum) {
-              do {
+            if (currentNum < endNum)
+            {
+              do
+              {
                 currentNum++;
               } while ((oddEven == "O" && currentNum % 2 == 0) || (oddEven == "E" && currentNum % 2 != 0));
-              if (currentNum > endNum) {
+              if (currentNum > endNum)
+              {
                 currentNum = endNum;
               }
             }
@@ -93,7 +108,8 @@ namespace ElectricalCommands {
         // Clear the PickFirst selection set
         ed.SetImpliedSelection(new ObjectId[0]);
       }
-      catch (System.Exception ex) {
+      catch (System.Exception ex)
+      {
         ed.WriteMessage($"\nError: {ex.Message}");
       }
     }

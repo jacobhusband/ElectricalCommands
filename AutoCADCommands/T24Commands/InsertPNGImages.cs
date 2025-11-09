@@ -8,15 +8,19 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace ElectricalCommands {
-  public partial class GeneralCommands {
-     [CommandMethod("T24")]
-    public void T24() {
+namespace ElectricalCommands
+{
+  public partial class GeneralCommands
+  {
+    [CommandMethod("INSERTPNGIMAGES")]
+    public void T24()
+    {
       Database acCurDb;
       acCurDb = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument.Database;
       Editor ed = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument.Editor;
 
-      using (Transaction acTrans = acCurDb.TransactionManager.StartTransaction()) {
+      using (Transaction acTrans = acCurDb.TransactionManager.StartTransaction())
+      {
         // Get the user to select a PNG file
         OpenFileDialog ofd = new OpenFileDialog();
         ofd.Filter = "PNG Files (*.png)|*.png";
@@ -31,14 +35,17 @@ namespace ElectricalCommands {
         // Fetch all relevant files in the folder
         string[] allFiles = Directory
             .GetFiles(parentFolder, "*.png")
-            .OrderBy(f => {
+            .OrderBy(f =>
+            {
               var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(f);
-              if (fileNameWithoutExtension.Contains("Page")) {
+              if (fileNameWithoutExtension.Contains("Page"))
+              {
                 // If the filename contains "Page", we extract the number after it.
                 var lastPart = fileNameWithoutExtension.Split(' ').Last();
                 return int.Parse(lastPart);
               }
-              else {
+              else
+              {
                 // If the filename does not contain "Page", we extract the last number after the hyphen.
                 var lastPart = fileNameWithoutExtension.Split('-').Last();
                 return int.Parse(lastPart);
@@ -53,7 +60,8 @@ namespace ElectricalCommands {
         Vector3d width = new Vector3d(0, 0, 0);
         Vector3d height = new Vector3d(0, 0, 0);
 
-        foreach (string file in allFiles) {
+        foreach (string file in allFiles)
+        {
           string imageName = Path.GetFileNameWithoutExtension(file);
 
           RasterImageDef acRasterDef;
@@ -64,7 +72,8 @@ namespace ElectricalCommands {
           ObjectId acImgDctID = RasterImageDef.GetImageDictionary(acCurDb);
 
           // Check to see if the dictionary does not exist, it not then create it
-          if (acImgDctID.IsNull) {
+          if (acImgDctID.IsNull)
+          {
             acImgDctID = RasterImageDef.CreateImageDictionary(acCurDb);
           }
 
@@ -73,13 +82,15 @@ namespace ElectricalCommands {
               acTrans.GetObject(acImgDctID, OpenMode.ForRead) as DBDictionary;
 
           // Check to see if the image definition already exists
-          if (acImgDict.Contains(imageName)) {
+          if (acImgDict.Contains(imageName))
+          {
             acImgDefId = acImgDict.GetAt(imageName);
 
             acRasterDef =
                 acTrans.GetObject(acImgDefId, OpenMode.ForWrite) as RasterImageDef;
           }
-          else {
+          else
+          {
             // Create a raster image definition
             RasterImageDef acRasterDefNew = new RasterImageDef();
 
@@ -112,13 +123,16 @@ namespace ElectricalCommands {
               as BlockTableRecord;
 
           // Create the new image and assign it the image definition
-          using (RasterImage acRaster = new RasterImage()) {
+          using (RasterImage acRaster = new RasterImage())
+          {
             acRaster.ImageDefId = acImgDefId;
 
             // Define the width and height of the image
-            if (selectedPoint == Point3d.Origin) {
+            if (selectedPoint == Point3d.Origin)
+            {
               // Check to see if the measurement is set to English (Imperial) or Metric units
-              if (acCurDb.Measurement == MeasurementValue.English) {
+              if (acCurDb.Measurement == MeasurementValue.English)
+              {
                 width = new Vector3d(
                     (acRasterDef.ResolutionMMPerPixel.X * acRaster.ImageWidth * 0.8)
                         / 25.4,
@@ -135,7 +149,8 @@ namespace ElectricalCommands {
                     0
                 );
               }
-              else {
+              else
+              {
                 width = new Vector3d(
                     acRasterDef.ResolutionMMPerPixel.X * acRaster.ImageWidth * 0.8,
                     0,
@@ -151,7 +166,8 @@ namespace ElectricalCommands {
 
             // Prompt the user to select a point
             // Only for the first image
-            if (selectedPoint == Point3d.Origin) {
+            if (selectedPoint == Point3d.Origin)
+            {
               PromptPointResult ppr = ed.GetPoint(
                   "\nSelect a point to insert images:"
               );
@@ -187,7 +203,8 @@ namespace ElectricalCommands {
             RasterImage.EnableReactors(true);
             acRaster.AssociateRasterDef(acRasterDef);
 
-            if (bRasterDefCreated) {
+            if (bRasterDefCreated)
+            {
               acRasterDef.Dispose();
             }
           }
@@ -196,7 +213,8 @@ namespace ElectricalCommands {
           currentColumn++;
 
           // Start a new row every 3 images
-          if (currentColumn % 3 == 0) {
+          if (currentColumn % 3 == 0)
+          {
             currentRow++;
             currentColumn = 0;
           }
