@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Suppress noisy binding and compatibility warnings for this AutoCAD plugin -->
+    <NoWarn>$(NoWarn);MSB3277;NU1701;NU1902</NoWarn>
+    <!-- Target modern AutoCAD (2025+) environment using .NET 8 Windows-specific TFM -->
+    <!-- If you later want broader support, you can switch back to multi-targeting, e.g. net48;net8.0-windows -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+
+    <!-- This is a plugin/library, not an EXE -->
+    <OutputType>Library</OutputType>
+
+    <!-- Ensure deterministic, strong, clean builds -->
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <LangVersion>latest</LangVersion>
+
+    <!-- NuGet package identity (adjust as needed) -->
+    <PackageId>Electrical.AutoCAD.GeneralCommands</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>ElectricalCommands</Authors>
+    <Company>ElectricalCommands</Company>
+    <Description>Miscellaneous commands for AutoCAD</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/jacobhusband/ElectricalCommands</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+
+    <!-- Do not include random files from outside this folder -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+
+    <!-- Place output in bin\$(Configuration)\$(TargetFramework) -->
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+
+    <!-- Prevent AutoCAD DLLs from being copied locally; they are provided by AutoCAD at runtime -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <!-- Compile only the CleanCADCommands sources -->
+  <ItemGroup>
+    <Compile Include="*.cs" />
+  </ItemGroup>
+
+  <!-- AutoCAD API references.
+       NOTE: Update HintPath(s) to match your build environment or inject via Directory.Build.props.
+       Typically these paths are only required on the build agent; at runtime AutoCAD provides these assemblies. -->
+  <ItemGroup>
+    <Reference Include="AcMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcCoreMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcCoreMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcDbMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcDbMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  
+  <ItemGroup>
+    <!-- Enables WPF features like the Clipboard. Requires .NET 8 Windows-specific TFM -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
+    <PackageReference Include="FreeSpire.PDF" Version="10.2.0" />
+    <PackageReference Include="Magick.NET-Q16-x64" Version="14.8.2" />
+    <PackageReference Include="Microsoft.Office.Interop.Excel" Version="15.0.4795.1001" />
+    <PackageReference Include="Microsoft.Office.Interop.PowerPoint" Version="15.0.4420.1018" />
+    <PackageReference Include="MicrosoftOfficeCore" Version="15.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+  </ItemGroup>
+</Project>

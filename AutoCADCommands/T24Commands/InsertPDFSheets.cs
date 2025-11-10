@@ -7,6 +7,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+// WinForms for OpenFileDialog/DialogResult
 using System.Windows.Forms;
 using System.Text.RegularExpressions;
 
@@ -25,12 +26,12 @@ namespace ElectricalCommands
       var db = doc.Database;
       var ed = doc.Editor;
 
-      OpenFileDialog ofd = new OpenFileDialog
+      var ofd = new Microsoft.Win32.OpenFileDialog
       {
         Filter = "PDF Files (*.pdf)|*.pdf",
         Title = "Select a multi-page PDF to attach"
       };
-      if (ofd.ShowDialog() != DialogResult.OK) return;
+      if (ofd.ShowDialog() != true) return;
 
       string pdfPath = ofd.FileName;
       string baseName = Path.GetFileNameWithoutExtension(pdfPath);

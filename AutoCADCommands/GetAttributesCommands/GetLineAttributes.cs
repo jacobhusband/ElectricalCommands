@@ -5,25 +5,31 @@ using Autodesk.AutoCAD.Runtime;
 using System;
 using System.IO;
 
-namespace ElectricalCommands {
-  public partial class GeneralCommands {
+namespace ElectricalCommands
+{
+  public partial class GeneralCommands
+  {
     [CommandMethod("GETLINEATTRIBUTES")]
-    public void GETLINEATTRIBUTES() {
-      var (doc, db, ed) = GeneralCommands.GetGlobals();
+    public void GETLINEATTRIBUTES()
+    {
+      var (doc, db, ed) = ElectricalCommands.Globals.GetGlobals();
 
       PromptEntityOptions linePromptOptions = new PromptEntityOptions("\nSelect a line: ");
       linePromptOptions.SetRejectMessage("\nSelected object is not a line.");
       linePromptOptions.AddAllowedClass(typeof(Line), true);
 
       PromptEntityResult lineResult = ed.GetEntity(linePromptOptions);
-      if (lineResult.Status != PromptStatus.OK) {
+      if (lineResult.Status != PromptStatus.OK)
+      {
         ed.WriteMessage("\nNo line selected.");
         return;
       }
 
-      using (Transaction tr = db.TransactionManager.StartTransaction()) {
+      using (Transaction tr = db.TransactionManager.StartTransaction())
+      {
         Line line = tr.GetObject(lineResult.ObjectId, OpenMode.ForRead) as Line;
-        if (line == null) {
+        if (line == null)
+        {
           ed.WriteMessage("\nSelected object is not a line.");
           return;
         }
@@ -32,7 +38,8 @@ namespace ElectricalCommands {
             "\nSelect the reference point: "
         );
         PromptPointResult startPointResult = ed.GetPoint(startPointOptions);
-        if (startPointResult.Status != PromptStatus.OK) {
+        if (startPointResult.Status != PromptStatus.OK)
+        {
           ed.WriteMessage("\nNo reference point selected.");
           return;
         }
@@ -49,8 +56,10 @@ namespace ElectricalCommands {
       }
     }
 
-    private void SaveLineAttributesToFile(Line line, Point3d startPoint, Vector3d vector, string filePath) {
-      using (StreamWriter writer = new StreamWriter(filePath, true)) {
+    private void SaveLineAttributesToFile(Line line, Point3d startPoint, Vector3d vector, string filePath)
+    {
+      using (StreamWriter writer = new StreamWriter(filePath, true))
+      {
         double startX = line.StartPoint.X - startPoint.X;
         double startY = line.StartPoint.Y - startPoint.Y;
         double endX = line.EndPoint.X - startPoint.X;

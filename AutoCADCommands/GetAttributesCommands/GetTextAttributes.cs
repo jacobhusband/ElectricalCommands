@@ -5,20 +5,26 @@ using Autodesk.AutoCAD.Runtime;
 using System;
 using System.IO;
 
-namespace ElectricalCommands {
-  public partial class GeneralCommands {
+namespace ElectricalCommands
+{
+  using static ElectricalCommands.Globals;
+  public partial class GeneralCommands
+  {
     [CommandMethod("GETTEXTATTRIBUTES")]
-    public void GETTEXTATTRIBUTES() {
-      var (doc, db, ed) = GeneralCommands.GetGlobals();
+    public void GETTEXTATTRIBUTES()
+    {
+      var (doc, db, ed) = GetGlobals();
 
       var textId = SelectTextObject();
-      if (textId.IsNull) {
+      if (textId.IsNull)
+      {
         ed.WriteMessage("\nNo text object selected.");
         return;
       }
 
       var textObject = GetTextObject(textId);
-      if (textObject == null) {
+      if (textObject == null)
+      {
         ed.WriteMessage("\nFailed to get text object.");
         return;
       }
@@ -50,14 +56,17 @@ namespace ElectricalCommands {
       ed.WriteMessage($"\nText attributes saved to file: {filePath}");
     }
 
-    private void SaveTextToFile(string text, string filePath) {
-      using (StreamWriter writer = new StreamWriter(filePath, true)) {
+    private void SaveTextToFile(string text, string filePath)
+    {
+      using (StreamWriter writer = new StreamWriter(filePath, true))
+      {
         writer.WriteLine(text);
       }
     }
 
-    private ObjectId SelectTextObject() {
-      var (doc, db, ed) = GeneralCommands.GetGlobals();
+    private ObjectId SelectTextObject()
+    {
+      var (doc, db, ed) = GetGlobals();
 
       var promptOptions = new PromptEntityOptions("\nSelect text object: ");
       promptOptions.SetRejectMessage("\nInvalid: must be DBText");
@@ -70,8 +79,10 @@ namespace ElectricalCommands {
       return ObjectId.Null;
     }
 
-    private DBText GetTextObject(ObjectId objectId) {
-      using (var tr = objectId.Database.TransactionManager.StartTransaction()) {
+    private DBText GetTextObject(ObjectId objectId)
+    {
+      using (var tr = objectId.Database.TransactionManager.StartTransaction())
+      {
         var textObject = tr.GetObject(objectId, OpenMode.ForRead) as DBText;
         if (textObject != null)
           return textObject;
@@ -80,8 +91,9 @@ namespace ElectricalCommands {
       }
     }
 
-    private Point3d GetCoordinate() {
-      var (doc, _, ed) = GeneralCommands.GetGlobals();
+    private Point3d GetCoordinate()
+    {
+      var (doc, _, ed) = GetGlobals();
 
       var promptOptions = new PromptPointOptions("\nSelect a coordinate: ");
       var promptResult = ed.GetPoint(promptOptions);

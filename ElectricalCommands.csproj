@@ -8,9 +8,9 @@
     <NoWarn>$(NoWarn);NU1701</NoWarn>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
-  <!-- AutoCAD command sources -->
+  <!-- AutoCAD command sources: only this project root .cs files, not subprojects to avoid duplicate Globals -->
   <ItemGroup>
-    <Compile Include="AutoCADCommands\**\*.cs" />
+    <Compile Include="*.cs" />
   </ItemGroup>
   <!-- AutoCAD API references -->
   <ItemGroup>

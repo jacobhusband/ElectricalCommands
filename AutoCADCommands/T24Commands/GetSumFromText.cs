@@ -6,12 +6,17 @@ using System.Linq;
 
 namespace ElectricalCommands
 {
-  public partial class GeneralCommands
+  public static class GetSumFromTextCommand
   {
     [CommandMethod("GETSUMFROMTEXT", CommandFlags.UsePickSet)]
-    public void SUMTEXT()
+    public static void SUMTEXT()
     {
-      var (doc, db, ed) = GeneralCommands.GetGlobals();
+      var (doc, db, ed) = Globals.GetGlobals();
+      if (doc == null || db == null || ed == null)
+      {
+        throw new InvalidOperationException("No active AutoCAD document is available.");
+      }
+
       PromptSelectionResult selection = ed.SelectImplied();
       if (selection.Status != PromptStatus.OK)
       {

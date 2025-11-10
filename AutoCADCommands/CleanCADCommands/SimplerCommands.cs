@@ -20,6 +20,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+// WinForms SendKeys for OLE Text Size dialog automation
+using System.Windows.Forms;
 
 namespace AutoCADCleanupTool
 {

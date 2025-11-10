@@ -22,9 +22,12 @@ namespace ElectricalCommands
       using (Transaction acTrans = acCurDb.TransactionManager.StartTransaction())
       {
         // Get the user to select a PNG file
-        OpenFileDialog ofd = new OpenFileDialog();
-        ofd.Filter = "PNG Files (*.png)|*.png";
-        if (ofd.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+        var ofd = new Microsoft.Win32.OpenFileDialog
+        {
+          Filter = "PNG Files (*.png)|*.png",
+          Title = "Select a PNG file"
+        };
+        if (ofd.ShowDialog() != true)
           return;
 
         string strFileName = ofd.FileName;

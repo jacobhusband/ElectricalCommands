@@ -3,6 +3,7 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using System;
+using ElectricalCommands;
 
 namespace ElectricalCommands
 {
@@ -11,7 +12,7 @@ namespace ElectricalCommands
     [CommandMethod("CALCULATEAREAS", CommandFlags.UsePickSet)]
     public void AREACALCULATOR()
     {
-      var (doc, db, ed) = GeneralCommands.GetGlobals();
+      var (doc, db, ed) = Globals.GetGlobals();
 
       try
       {
