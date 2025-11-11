@@ -1,9 +1,7 @@
-// WindowOrchestrator.cs
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
-// WinForms types (Screen) for multi-monitor handling
 using System.Windows.Forms;
 using System.Drawing;
 using Autodesk.AutoCAD.ApplicationServices;

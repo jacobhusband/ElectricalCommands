@@ -2,7 +2,7 @@
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ElectricalCommands", "ElectricalCommands.csproj", "{666B32B2-B931-4D86-972F-705D533AE01E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ElectricalCommands", "ElectricalCommands.csproj", "{NEW-GUID-FOR-THIS-PROJECT}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "AutoCADCommands", "AutoCADCommands", "{F8452A2A-B2A9-462B-BE71-1D4C5E1C0254}"
 EndProject
@@ -22,10 +22,10 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{666B32B2-B931-4D86-972F-705D533AE01E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{666B32B2-B931-4D86-972F-705D533AE01E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{666B32B2-B931-4D86-972F-705D533AE01E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{666B32B2-B931-4D86-972F-705D533AE01E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{NEW-GUID-FOR-THIS-PROJECT}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{NEW-GUID-FOR-THIS-PROJECT}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{NEW-GUID-FOR-THIS-PROJECT}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{NEW-GUID-FOR-THIS-PROJECT}.Release|Any CPU.Build.0 = Release|Any CPU
 		{CB9AE141-53A0-4D3B-A5DA-970055ECABA2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{CB9AE141-53A0-4D3B-A5DA-970055ECABA2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CB9AE141-53A0-4D3B-A5DA-970055ECABA2}.Release|Any CPU.ActiveCfg = Release|Any CPU

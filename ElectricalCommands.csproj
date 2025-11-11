@@ -1,45 +1,42 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- 
+    This project acts as a "packaging" project.
+    It will produce a small, empty ElectricalCommands.dll, but we will exclude it from the final copy.
+    Its main purpose is to reference the other projects and orchestrate the deployment.
+  -->
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
-    <UseWPF>true</UseWPF>
-    <NoWarn>$(NoWarn);MSB3277</NoWarn>
-    <NoWarn>$(NoWarn);NETSDK1206</NoWarn>
-    <NoWarn>$(NoWarn);NU1701</NoWarn>
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
-  <!-- AutoCAD command sources: only this project root .cs files, not subprojects to avoid duplicate Globals -->
+
+  <!-- This project references all other command libraries to bundle them together. -->
   <ItemGroup>
-    <Compile Include="*.cs" />
-  </ItemGroup>
-  <!-- AutoCAD API references -->
-  <ItemGroup>
-    <Reference Include="AcMgd">
-      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcMgd.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="AcCoreMgd">
-      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcCoreMgd.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="AcDbMgd">
-      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcDbMgd.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-  </ItemGroup>
-  <ItemGroup>
-    <!-- Enables WPF features like the Clipboard. Requires .NET 8 Windows-specific TFM -->
-    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+    <ProjectReference Include="AutoCADCommands\CleanCADCommands\AutoCADCommands.CleanCADCommands.csproj" />
+    <ProjectReference Include="AutoCADCommands\GeneralCommands\AutoCADCommands.GeneralCommands.csproj" />
+    <ProjectReference Include="AutoCADCommands\GetAttributesCommands\AutoCADCommands.GetAttributesCommands.csproj" />
+    <ProjectReference Include="AutoCADCommands\T24Commands\AutoCADCommands.T24Commands.csproj" />
+    <ProjectReference Include="AutoCADCommands\TextCommands\AutoCADCommands.TextCommands.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
-    <PackageReference Include="FreeSpire.PDF" Version="10.2.0" />
-    <PackageReference Include="Magick.NET-Q16-x64" Version="14.8.2" />
-    <PackageReference Include="Microsoft.Office.Interop.Excel" Version="15.0.4795.1001" />
-    <PackageReference Include="Microsoft.Office.Interop.PowerPoint" Version="15.0.4420.1018" />
-    <PackageReference Include="MicrosoftOfficeCore" Version="15.0.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
-  </ItemGroup>
+  <!-- On Release build, copy all referenced DLLs to the AutoCAD ApplicationPlugins bundle folder. -->
+  <Target Name="AfterBuild_CopyToAutoCADPlugin" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <PluginFolder>C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins\ElectricalCommands.bundle\Contents</PluginFolder>
+    </PropertyGroup>
+    <MakeDir Directories="$(PluginFolder)" />
+    <ItemGroup>
+      <!-- 
+        Gather all DLLs from the output directory, BUT EXCLUDE this project's own empty DLL.
+        $(TargetName) is a built-in property that resolves to "ElectricalCommands".
+      -->
+      <ReleaseDlls Include="$(TargetDir)*.dll" Exclude="$(TargetDir)$(TargetName).dll" />
+    </ItemGroup>
+
+    <!-- Optional: Add a message to see which files are being copied -->
+    <Message Text="--- Copying DLLs to $(PluginFolder) ---" Importance="high" />
+    <Message Text="Files: @(ReleaseDlls->'%(Filename)%(Extension)',' ')" Importance="high" />
+
+    <Copy SourceFiles="@(ReleaseDlls)" DestinationFolder="$(PluginFolder)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="true" />
+    <Exec Command="start &quot;&quot; explorer.exe &quot;$(PluginFolder)&quot;" />
+  </Target>
+
 </Project>

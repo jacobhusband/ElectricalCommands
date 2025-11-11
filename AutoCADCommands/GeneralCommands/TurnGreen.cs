@@ -4,9 +4,9 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.Colors;
 
-namespace TurnXrefLayersGreen
+namespace ElectricalCommands
 {
-    public class Commands
+    public partial class GeneralCommands
     {
         [CommandMethod("TURNGREEN", CommandFlags.UsePickSet)]
         public static void TurnXrefLayersGreen()
