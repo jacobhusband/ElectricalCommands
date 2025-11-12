@@ -1,0 +1,118 @@
+This file is a placeholder written from the workspace side because I cannot modify files directly under:
+C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins
+
+Follow these steps to create per-project bundles based on the existing ElectricalCommands.bundle structure:
+
+1) Target layout for each bundle (all parallel to ElectricalCommands.bundle):
+
+   C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins\
+     CleanCADCommands.bundle\
+       Contents\
+         CleanCADCommands.dll
+         Magick.NET.Core.dll
+         Magick.NET-Q16-x64.dll
+         Magick.Native-Q16-x64.dll
+         Spire.Pdf.dll
+         Microsoft.Office.Interop.PowerPoint.dll
+         Office.dll
+         gswin64c.exe (and optionally gswin64.exe if desired)
+         (any config/INI needed by Ghostscript or Spire if you use them)
+
+     GeneralCommands.bundle\
+       Contents\
+         AutoCADCommands.GeneralCommands.dll
+
+     GetAttributesCommands.bundle\
+       Contents\
+         AutoCADCommands.GetAttributesCommands.dll
+
+     T24Commands.bundle\
+       Contents\
+         AutoCADCommands.T24Commands.dll
+
+     TextCommands.bundle\
+       Contents\
+         AutoCADCommands.TextCommands.dll
+
+2) Which DLLs go where (based on namespaces in your code):
+
+   - CleanCADCommands.bundle:
+     - From project: AutoCADCommands.CleanCADCommands.dll
+     - Needs:
+       - Magick.NET.Core.dll
+       - Magick.NET-Q16-x64.dll
+       - Magick.Native-Q16-x64.dll
+       - Spire.Pdf.dll
+       - Microsoft.Office.Interop.PowerPoint.dll
+       - Office.dll
+       - Ghostscript runtime: at minimum gswin64c.exe accessible (PATH or same folder)
+     - Rationale:
+       - ImageMagick used in:
+         - AutoCADCommands/CleanCADCommands/EmbedFromPdfCommand.cs
+         - AutoCADCommands/CleanCADCommands/ConvertPdfXrefsCommand.cs
+       - Spire.Pdf used in:
+         - AutoCADCommands/CleanCADCommands/GetPdfSheetSizeCommand.cs
+       - Office Interop used in:
+         - AutoCADCommands/CleanCADCommands/SimplerCommands.cs
+       - Magick resolver in:
+         - AutoCADCommands/CleanCADCommands/PluginInitializer.cs
+         Assumes Magick.NET.* live next to the CleanCADCommands DLL.
+
+   - GeneralCommands.bundle:
+     - From project: AutoCADCommands.GeneralCommands.dll
+     - Extra dependencies: none (AutoCAD + .NET BCL only)
+
+   - GetAttributesCommands.bundle:
+     - From project: AutoCADCommands.GetAttributesCommands.dll
+     - Extra dependencies: none
+
+   - T24Commands.bundle:
+     - From project: AutoCADCommands.T24Commands.dll
+     - Extra dependencies: none
+
+   - TextCommands.bundle:
+     - From project: AutoCADCommands.TextCommands.dll
+     - Extra dependencies: none
+
+3) How to create the bundles (manual steps):
+
+   1. Close AutoCAD.
+   2. In C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins:
+      - Copy the folder "ElectricalCommands.bundle" as a template when needed
+        or create new folders manually.
+   3. Create the following directories:
+      - CleanCADCommands.bundle\Contents
+      - GeneralCommands.bundle\Contents
+      - GetAttributesCommands.bundle\Contents
+      - T24Commands.bundle\Contents
+      - TextCommands.bundle\Contents
+
+   4. After building your solution in Release, copy DLLs from your build output (e.g. bin\Release\net8.0-windows or the specific target for each project) into the appropriate Contents folders:
+      - AutoCADCommands.CleanCADCommands.dll -> CleanCADCommands.bundle\Contents
+      - AutoCADCommands.GeneralCommands.dll -> GeneralCommands.bundle\Contents
+      - AutoCADCommands.GetAttributesCommands.dll -> GetAttributesCommands.bundle\Contents
+      - AutoCADCommands.T24Commands.dll -> T24Commands.bundle\Contents
+      - AutoCADCommands.TextCommands.dll -> TextCommands.bundle\Contents
+
+   5. For CleanCADCommands.bundle\Contents, also place:
+      - Magick.NET.Core.dll
+      - Magick.NET-Q16-x64.dll
+      - Magick.Native-Q16-x64.dll
+      - Spire.Pdf.dll
+      - Microsoft.Office.Interop.PowerPoint.dll
+      - Office.dll
+      - gswin64c.exe (and optional Ghostscript EXEs)
+      Ensure versions match those you referenced during development.
+
+4) Suggested automation change (in your solution):
+
+   In ElectricalCommands.csproj (packaging project), replace the single-bundle copy target with per-project targets, like:
+
+   - Copy AutoCADCommands.CleanCADCommands.dll and its special dependencies to:
+     C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins\CleanCADCommands.bundle\Contents
+
+   - Copy the other project DLLs to their respective *.bundle\Contents folders.
+
+   This keeps your deployment repeatable and avoids manual copying for each build.
+
+End of instructions.

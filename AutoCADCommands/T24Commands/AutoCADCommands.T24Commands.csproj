@@ -1,11 +1,78 @@
 <Project Sdk="Microsoft.NET.Sdk">
   
   <PropertyGroup>
-    <PackageId>Electrical.AutoCAD.GeneralCommands</PackageId>
-    <Description>Miscellaneous commands for AutoCAD</Description>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <PackageId>Electrical.AutoCAD.T24Commands</PackageId>
+    <Description>Commands for T24 compliance.</Description>
+    <AssemblyName>AutoCADCommands.T24Commands</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AutoCADBundleName>T24Commands</AutoCADBundleName>
+    <AutoCADBundleVersion>1.0.0</AutoCADBundleVersion>
+    <AutoCADBundleDescription>Commands for T24 compliance.</AutoCADBundleDescription>
+    <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>
+    <AutoCADBundleProductCode>{a3a2b3a9-c5e8-4338-9a3e-3e8b8a2a3345}</AutoCADBundleProductCode>
+    <AutoCADCompanyUrl>www.acies.engineering</AutoCADCompanyUrl>
+    <AutoCADCompanyEmail>jacob.h@acies.engineering</AutoCADCompanyEmail>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="*.cs" />
   </ItemGroup>
+
+  <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <BundleDir>C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>
+      <BundleContentsDir>$(BundleDir)\Contents</BundleContentsDir>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(BundleContentsDir)" />
+
+    <PropertyGroup>
+      <PackageContents><![CDATA[<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+  SchemaVersion="1.0"
+  AutodeskProduct="AutoCAD*"
+  ProductType="Application"
+  Name="$(AutoCADBundleName)"
+  Description="$(AutoCADBundleDescription)"
+  AppVersion="$(AutoCADBundleVersion)"
+  Author="$(AutoCADBundleAuthor)"
+  Icon=""
+  OnlineDocumentation=""
+  ProductCode="$(AutoCADBundleProductCode)"
+  UpgradeCode="{b7f2d2c3-9b7b-4f1c-8a36-1e5c2f8d7c42}"
+  HelpFile="">
+  <CompanyDetails
+    Name="$(AutoCADBundleAuthor)"
+    Url="$(AutoCADCompanyUrl)"
+    Email="$(AutoCADCompanyEmail)" />
+  <Components>
+    <RuntimeRequirements
+      OS="Win64"
+      Platform="AutoCAD"
+      SeriesMin="R25.0"
+      SeriesMax="R25.9" />
+    <ComponentEntry
+      AppName="$(AssemblyName)"
+      ModuleName="./Contents/$(AssemblyName).dll"
+      AppDescription="$(AutoCADBundleDescription)"
+      LoadOnAutoCADStartup="True"
+      LoadOnCommandInvocation="True"
+      LoadOnProxyDetection="False"
+      SupportedLocales="Enu">
+      <Commands>
+        <Command Global="*" Local="*" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>]]></PackageContents>
+    </PropertyGroup>
+
+    <WriteLinesToFile File="$(BundleDir)\PackageContents.xml" Lines="$(PackageContents)" Overwrite="true" Encoding="utf-8" />
+
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BundleContentsDir)" />
+  </Target>
+
 </Project>

@@ -17,26 +17,5 @@
     <ProjectReference Include="AutoCADCommands\TextCommands\AutoCADCommands.TextCommands.csproj" />
   </ItemGroup>
 
-  <!-- On Release build, copy all referenced DLLs to the AutoCAD ApplicationPlugins bundle folder. -->
-  <Target Name="AfterBuild_CopyToAutoCADPlugin" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
-    <PropertyGroup>
-      <PluginFolder>C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins\ElectricalCommands.bundle\Contents</PluginFolder>
-    </PropertyGroup>
-    <MakeDir Directories="$(PluginFolder)" />
-    <ItemGroup>
-      <!-- 
-        Gather all DLLs from the output directory, BUT EXCLUDE this project's own empty DLL.
-        $(TargetName) is a built-in property that resolves to "ElectricalCommands".
-      -->
-      <ReleaseDlls Include="$(TargetDir)*.dll" Exclude="$(TargetDir)$(TargetName).dll" />
-    </ItemGroup>
-
-    <!-- Optional: Add a message to see which files are being copied -->
-    <Message Text="--- Copying DLLs to $(PluginFolder) ---" Importance="high" />
-    <Message Text="Files: @(ReleaseDlls->'%(Filename)%(Extension)',' ')" Importance="high" />
-
-    <Copy SourceFiles="@(ReleaseDlls)" DestinationFolder="$(PluginFolder)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="true" />
-    <Exec Command="start &quot;&quot; explorer.exe &quot;$(PluginFolder)&quot;" />
-  </Target>
 
 </Project>
