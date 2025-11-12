@@ -208,9 +208,7 @@ namespace AutoCADCleanupTool
             doc.SendStringToExecute("I\n", false, false, true);       // Units: Inches
             doc.SendStringToExecute("L\n", false, false, true);       // Orientation: Landscape
             doc.SendStringToExecute("N\n", false, false, true);       // Plot upside down? No
-            doc.SendStringToExecute("W\n", false, false, true);       // Plot area: Window
-            doc.SendStringToExecute("0.00,0.00\n", false, false, true); // Lower-left corner of window
-            doc.SendStringToExecute("1000000,1000000\n", false, false, true); // Upper-right corner of window
+            doc.SendStringToExecute("L\n", false, false, true);       // Plot area: Window
             doc.SendStringToExecute("1:1\n", false, false, true);     // Scale
             doc.SendStringToExecute("0.00,0.00\n", false, false, true); // Plot offset
             doc.SendStringToExecute("Y\n", false, false, true);       // Plot with plot styles? Yes
@@ -221,7 +219,6 @@ namespace AutoCADCleanupTool
             doc.SendStringToExecute("N\n", false, false, true);       // Hide paper space objects? No
             doc.SendStringToExecute("\n", false, false, true);        // Accept changes
             doc.SendStringToExecute("Y\n", false, false, true);       // Write plot to a file? Yes
-            doc.SendStringToExecute("\n", false, false, true);        // Accept default file name and location        
         }
 
         [CommandMethod("P30", CommandFlags.Modal)]
