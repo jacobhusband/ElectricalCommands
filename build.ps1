@@ -1,0 +1,1 @@
+"C:\Users\JacobH\OneDrive - ACIES Engineering\Documents\dotnet-sdk\dotnet.exe" build "c:\Users\JacobH\Documents\dev\ElectricalCommands\ElectricalCommands.sln" -c Release

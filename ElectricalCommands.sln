@@ -16,6 +16,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoCADCommands.T24Commands
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoCADCommands.TextCommands", "AutoCADCommands\TextCommands\AutoCADCommands.TextCommands.csproj", "{A3D57182-F892-45B7-AA74-3C6D6146AE15}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoCADCommands.PlotCommands", "AutoCADCommands\PlotCommands\AutoCADCommands.PlotCommands.csproj", "{E4B7C0C1-9A1D-4C6D-9A77-0E0A9AB5F7C1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -49,6 +51,14 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{CB9AE141-53A0-4D3B-A5DA-970055ECABA2} = {F8452A2A-B2A9-462B-BE71-1D4C5E1C0254}
+		{3FBCCC8B-AF63-43B8-8496-88204FB51E1C} = {F8452A2A-B2A9-462B-BE71-1D4C5E1C0254}
+		{CE95BBB7-E977-4B8C-9DD1-7EAB53AFAA37} = {F8452A2A-B2A9-462B-BE71-1D4C5E1C0254}
+		{46745FEE-E8F7-4CBD-923A-D186F1A33673} = {F8452A2A-B2A9-462B-BE71-1D4C5E1C0254}
+		{A3D57182-F892-45B7-AA74-3C6D6146AE15} = {F8452A2A-B2A9-462B-BE71-1D4C5E1C0254}
+		{E4B7C0C1-9A1D-4C6D-9A77-0E0A9AB5F7C1} = {F8452A2A-B2A9-462B-BE71-1D4C5E1C0254}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {555FC1DE-078A-4BDA-9EC8-A43F5E42FBB5}
