@@ -50,12 +50,12 @@ function New-Zip {
 
 # Map: bundle folder -> zip name prefix
 $bundles = @(
-    @{ Folder = "CleanCADCommands.bundle"; Prefix = "ElectricalCommands.CleanCADCommands" },
-    @{ Folder = "GeneralCommands.bundle"; Prefix = "ElectricalCommands.GeneralCommands" },
-    @{ Folder = "GetAttributesCommands.bundle"; Prefix = "ElectricalCommands.GetAttributesCommands" },
-    @{ Folder = "PlotCommands.bundle"; Prefix = "ElectricalCommands.PlotCommands" },
-    @{ Folder = "T24Commands.bundle"; Prefix = "ElectricalCommands.T24Commands" },
-    @{ Folder = "TextCommands.bundle"; Prefix = "ElectricalCommands.TextCommands" }
+    @{ Folder = "ElectricalCommands.CleanCADCommands.bundle"; Prefix = "ElectricalCommands.CleanCADCommands" },
+    @{ Folder = "ElectricalCommands.GeneralCommands.bundle"; Prefix = "ElectricalCommands.GeneralCommands" },
+    @{ Folder = "ElectricalCommands.GetAttributesCommands.bundle"; Prefix = "ElectricalCommands.GetAttributesCommands" },
+    @{ Folder = "ElectricalCommands.PlotCommands.bundle"; Prefix = "ElectricalCommands.PlotCommands" },
+    @{ Folder = "ElectricalCommands.T24Commands.bundle"; Prefix = "ElectricalCommands.T24Commands" },
+    @{ Folder = "ElectricalCommands.TextCommands.bundle"; Prefix = "ElectricalCommands.TextCommands" }
 )
 
 # Determine version if not explicitly provided
