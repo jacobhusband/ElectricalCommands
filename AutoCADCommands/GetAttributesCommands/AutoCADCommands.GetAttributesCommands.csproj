@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <AutoCADBundleName>GetAttributesCommands</AutoCADBundleName>
+    <AutoCADBundleName>ElectricalCommands.GetAttributesCommands</AutoCADBundleName>
     <AutoCADBundleVersion>1.0.0</AutoCADBundleVersion>
     <AutoCADBundleDescription>Commands for getting attributes from AutoCAD objects.</AutoCADBundleDescription>
     <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>

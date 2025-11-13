@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <AutoCADBundleName>TextCommands</AutoCADBundleName>
+    <AutoCADBundleName>ElectricalCommands.TextCommands</AutoCADBundleName>
     <AutoCADBundleVersion>1.0.0</AutoCADBundleVersion>
     <AutoCADBundleDescription>Commands for manipulating text in AutoCAD.</AutoCADBundleDescription>
     <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>

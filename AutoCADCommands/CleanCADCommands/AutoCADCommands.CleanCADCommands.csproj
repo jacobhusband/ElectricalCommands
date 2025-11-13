@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <AutoCADBundleName>CleanCADCommands</AutoCADBundleName>
+    <AutoCADBundleName>ElectricalCommands.CleanCADCommands</AutoCADBundleName>
     <AutoCADBundleVersion>1.0.0</AutoCADBundleVersion>
     <AutoCADBundleDescription>Commands for cleaning and preparing AutoCAD drawings.</AutoCADBundleDescription>
     <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>

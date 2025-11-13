@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <AutoCADBundleName>PlotCommands</AutoCADBundleName>
+    <AutoCADBundleName>ElectricalCommands.PlotCommands</AutoCADBundleName>
     <AutoCADBundleVersion>1.0.0</AutoCADBundleVersion>
     <AutoCADBundleDescription>Commands for plotting in AutoCAD.</AutoCADBundleDescription>
     <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>

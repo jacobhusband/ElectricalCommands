@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <AutoCADBundleName>GeneralCommands</AutoCADBundleName>
+    <AutoCADBundleName>ElectricalCommands.GeneralCommands</AutoCADBundleName>
     <AutoCADBundleVersion>1.0.0</AutoCADBundleVersion>
     <AutoCADBundleDescription>Miscellaneous commands for AutoCAD.</AutoCADBundleDescription>
     <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>
