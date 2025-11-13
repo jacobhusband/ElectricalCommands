@@ -81,6 +81,24 @@ if (-not $Version) {
 Write-Host "Using version: $Version"
 Write-Host ""
 
+# Collect metadata from description files
+$metadata = @{}
+$descriptionFiles = Get-ChildItem -Path "AutoCADCommands" -Recurse -Filter "*_descriptions.json"
+foreach ($file in $descriptionFiles) {
+    try {
+        $json = Get-Content $file.FullName -Raw | ConvertFrom-Json
+        $bundleName = $file.Directory.Name
+        $prefix = "ElectricalCommands.$bundleName"
+        $metadata[$prefix] = @{
+            video    = $json.video
+            commands = $json.commands
+        }
+    }
+    catch {
+        Write-Warning "Failed to parse $($file.FullName): $($_.Exception.Message)"
+    }
+}
+
 foreach ($b in $bundles) {
     $bundlePath = Join-Path $SourceRoot $b.Folder
 
@@ -96,6 +114,27 @@ foreach ($b in $bundles) {
     New-Zip -SourcePath $bundlePath -ZipPath $zipPath
 }
 
+# Generate release_meta.json
+$assets = @()
+foreach ($b in $bundles) {
+    $zipName = "{0}-v{1}.zip" -f $b.Prefix, $Version
+    $commands = @{}
+    $video = $null
+    if ($metadata.ContainsKey($b.Prefix)) {
+        $commands = $metadata[$b.Prefix].commands
+        $video = $metadata[$b.Prefix].video
+    }
+    $assets += @{
+        filename  = $zipName
+        video_url = $video
+        commands  = $commands
+    }
+}
+
+$releaseMeta = @{ assets = $assets } | ConvertTo-Json -Depth 10
+$metaPath = Join-Path $OutputRoot "release_meta.json"
+$releaseMeta | Out-File $metaPath -Encoding UTF8
+
 Write-Host ""
-Write-Host "Done. Zips are in: $OutputRoot"
+Write-Host "Done. Zips and metadata are in: $OutputRoot"
 Write-Host "Upload these as GitHub Release assets."
