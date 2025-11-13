@@ -73,7 +73,6 @@
     <WriteLinesToFile File="$(BundleDir)\PackageContents.xml" Lines="$(PackageContents)" Overwrite="true" Encoding="utf-8" />
 
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BundleContentsDir)" />
-    <Copy SourceFiles="CleanCADCommands_descriptions.json" DestinationFolder="$(BundleDir)" />
   </Target>
 
 </Project>
