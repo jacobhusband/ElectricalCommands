@@ -20,51 +20,6 @@ namespace AutoCADCleanupTool
         internal static bool ForceDetachOriginalXrefs = false;
         internal static bool RunRemoveRemainingAfterFinalize = false;
 
-        [CommandMethod("ZOOMTOTBPS", CommandFlags.Modal)]
-        public static void ZoomToTitleBlockInPaperSpace()
-        {
-            Document doc = Application.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-            Database db = doc.Database;
-            Editor ed = doc.Editor;
-
-            try
-            {
-                // Ensure we are in paper space
-                if (db.TileMode)
-                {
-                    Application.SetSystemVariable("TILEMODE", 0);
-                }
-
-                Extents3d? tbExtents = null;
-                using (var tr = db.TransactionManager.StartTransaction())
-                {
-                    var lm = LayoutManager.Current;
-                    string currentLayout = lm.CurrentLayout;
-                    var layoutId = lm.GetLayoutId(currentLayout);
-                    var layout = (Layout)tr.GetObject(layoutId, OpenMode.ForRead);
-                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-
-                    tbExtents = GetTitleBlockUnionExtentsInPaper_Robust(btr, tr);
-                    tr.Commit();
-                }
-
-                if (tbExtents.HasValue)
-                {
-                    ed.WriteMessage("\nZooming to paper space title block...");
-                    ZoomToTitleBlock(ed, new[] { tbExtents.Value.MinPoint, tbExtents.Value.MaxPoint });
-                }
-                else
-                {
-                    ed.WriteMessage("\nCould not find a title block to zoom to in the current layout.");
-                }
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nError during zoom to paper space title block: {ex.Message}");
-            }
-        }
-
         private static Extents3d? TryGetExtents(Entity ent)
         {
             try { return ent.GeometricExtents; }
@@ -163,19 +118,6 @@ namespace AutoCADCleanupTool
             }
 
             return erasedCount;
-        }
-        private static bool ExtentsIntersectXY(Extents3d a, Extents3d b)
-        {
-            return a.MinPoint.X <= b.MaxPoint.X && a.MaxPoint.X >= b.MinPoint.X &&
-                   a.MinPoint.Y <= b.MaxPoint.Y && a.MaxPoint.Y >= b.MinPoint.Y;
-        }
-
-        private static bool ExtentsContainsXY(Extents3d container, Extents3d item)
-        {
-            return container.MinPoint.X <= item.MinPoint.X &&
-                   container.MinPoint.Y <= item.MinPoint.Y &&
-                   container.MaxPoint.X >= item.MaxPoint.X &&
-                   container.MaxPoint.Y >= item.MaxPoint.Y;
         }
     }
 }

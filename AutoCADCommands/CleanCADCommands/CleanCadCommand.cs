@@ -9,7 +9,6 @@ namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
     {
-        // Store the title block polygon found by CLEANSHEET to be used by a final zoom command.
         internal static Point3d[] _lastFoundTitleBlockPoly = null;
 
         [CommandMethod("CLEANTBLK", CommandFlags.Modal)]
@@ -22,32 +21,25 @@ namespace AutoCADCleanupTool
 
             try
             {
-                // Reset the shared title block region at the start of the workflow.
                 _lastFoundTitleBlockPoly = null;
 
-                // New: Ensure all layers are on, thawed, and unlocked at the start.
                 EnsureAllLayersVisibleAndUnlocked(db, ed);
 
-                // New: Set a flag to prevent DetachSpecialXrefs from freezing layers.
                 _skipLayerFreezing = true;
 
                 PreExplosionCleaner.CleanBeforeExplode();
 
-                // New: Explode all block references in the model space until none are left.
                 ExplodeAllBlockReferences();
 
-                // Inlined logic from former RunCleanWorkflow
                 PrepareXrefLayersForCleanup(db, ed);
 
                 CleanupCommands.SkipBindDuringFinalize = true;
                 CleanupCommands.ForceDetachOriginalXrefs = true;
                 CleanupCommands.RunKeepOnlyAfterFinalize = false;
-                // NEW: Set flag to run REMOVEREMAININGXREFS after FINALIZE completes
                 CleanupCommands.RunRemoveRemainingAfterFinalize = true;
 
                 CleanupCommands.KeepOnlyTitleBlockInModelSpace();
 
-                // NEW: After defining the region in the previous command, zoom to it.
                 if (_lastFoundTitleBlockPoly != null && _lastFoundTitleBlockPoly.Length > 0)
                 {
                     ed.WriteMessage("\nZooming to selected title block region...");
@@ -71,7 +63,7 @@ namespace AutoCADCleanupTool
             }
         }
 
-        [CommandMethod("CLEANSHEET", CommandFlags.Modal)]
+        [CommandMethod("CLEANCAD", CommandFlags.Modal)]
         public static void RunCleanSheet()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -178,18 +170,6 @@ namespace AutoCADCleanupTool
             }
             _lastFoundTitleBlockPoly = null; // Clean up the static variable
         }
-
-        // Legacy alias should map to the new CLEANSHEET behavior (not the shared workflow).
-        [CommandMethod("CLEANCAD", CommandFlags.Modal)]
-        public static void RunCleanCad()
-        {
-            RunCleanSheet();
-        }
-
-        // --- NEW REFACTORED PLOT COMMANDS MOVED TO PlotCommands BUNDLE ---
-        // P22, P24, P30, and PLOTANDMOVE are now implemented in:
-        // AutoCADCommands/PlotCommands/PlotCommands.cs
-        // and exposed via the separate AutoCADCommands.PlotCommands.dll + PlotCommands.bundle.
 
         public static void PrepareXrefLayersForCleanup(Database db, Editor ed)
         {

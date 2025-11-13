@@ -10,6 +10,8 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using AutoCADApp = Autodesk.AutoCAD.ApplicationServices.Application;
+using Spire.Pdf;
+using Spire.Pdf.Graphics;
 
 namespace AutoCADCleanupTool
 {
@@ -79,127 +81,6 @@ namespace AutoCADCleanupTool
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nError while exploding block references: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Try to find and explode a composite title block (unchanged helper).
-        /// </summary>
-        public static void FindAndExplodeTitleBlockReference()
-        {
-            var doc = Application.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-
-            var db = doc.Database;
-            var ed = doc.Editor;
-
-            try
-            {
-                using (var tr = db.TransactionManager.StartTransaction())
-                {
-                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                    var modelSpace = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
-
-                    string[] hints = { "title sheet", "_wm_border", "border", "tblock", "title", "sheet", "x-tb" };
-                    BlockReference bestCandidate = null;
-                    string matchedName = "";
-                    double maxArea = 0;
-
-                    foreach (ObjectId id in modelSpace)
-                    {
-                        var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
-                        if (br == null) continue;
-
-                        var potentialNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                        try
-                        {
-                            var btr = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
-                            if (btr != null)
-                            {
-                                if (!string.IsNullOrEmpty(btr.Name))
-                                    potentialNames.Add(btr.Name);
-
-                                if (btr.IsFromExternalReference && !string.IsNullOrEmpty(btr.PathName))
-                                    potentialNames.Add(Path.GetFileNameWithoutExtension(btr.PathName));
-                            }
-                        }
-                        catch { }
-
-                        if (br.IsDynamicBlock)
-                        {
-                            try
-                            {
-                                var dynBtr = tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
-                                if (dynBtr != null && !string.IsNullOrEmpty(dynBtr.Name))
-                                    potentialNames.Add(dynBtr.Name);
-                            }
-                            catch { }
-                        }
-
-                        bool isMatch = false;
-                        string currentMatch = "";
-                        foreach (var name in potentialNames)
-                        {
-                            foreach (var hint in hints)
-                            {
-                                if (name.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0)
-                                {
-                                    isMatch = true;
-                                    currentMatch = name;
-                                    break;
-                                }
-                            }
-                            if (isMatch) break;
-                        }
-
-                        if (!isMatch) continue;
-
-                        try
-                        {
-                            var ext = br.GeometricExtents;
-                            double area = (ext.MaxPoint.X - ext.MinPoint.X) *
-                                          (ext.MaxPoint.Y - ext.MinPoint.Y);
-                            if (area > maxArea)
-                            {
-                                maxArea = area;
-                                bestCandidate = br;
-                                matchedName = currentMatch;
-                            }
-                        }
-                        catch { }
-                    }
-
-                    if (bestCandidate != null)
-                    {
-                        ed.WriteMessage($"\nFound title block reference matching '{matchedName}'. Exploding it...");
-                        var exploded = new DBObjectCollection();
-                        bestCandidate.UpgradeOpen();
-                        bestCandidate.Explode(exploded);
-
-                        foreach (DBObject obj in exploded)
-                        {
-                            if (obj is Entity ent)
-                            {
-                                modelSpace.AppendEntity(ent);
-                                tr.AddNewlyCreatedDBObject(ent, true);
-                            }
-                        }
-
-                        bestCandidate.Erase();
-                        ed.WriteMessage("\nExplode complete.");
-                    }
-                    else
-                    {
-                        ed.WriteMessage("\nNo composite title block reference found in Model Space.");
-                    }
-
-                    tr.Commit();
-                }
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nError while trying to find and explode title block: {ex.Message}");
             }
         }
 
@@ -889,6 +770,41 @@ namespace AutoCADCleanupTool
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nError during zoom: {ex.Message}");
+            }
+        }
+
+        private static Point2d? GetPdfPageSizeInches(string pdfFilePath, int pageNumber)
+        {
+            if (string.IsNullOrEmpty(pdfFilePath) || !File.Exists(pdfFilePath) || pageNumber <= 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                using (var pdf = new PdfDocument())
+                {
+                    pdf.LoadFromFile(pdfFilePath);
+
+                    if (pageNumber > pdf.Pages.Count)
+                    {
+                        return null; // Page number is out of range
+                    }
+
+                    var page = pdf.Pages[pageNumber - 1]; // Spire.Pdf is 0-indexed
+                    var sizeInPoints = page.Size;
+
+                    var unitConverter = new PdfUnitConvertor();
+                    float widthInches = unitConverter.ConvertUnits(sizeInPoints.Width, PdfGraphicsUnit.Point, PdfGraphicsUnit.Inch);
+                    float heightInches = unitConverter.ConvertUnits(sizeInPoints.Height, PdfGraphicsUnit.Point, PdfGraphicsUnit.Inch);
+
+                    return new Point2d(widthInches, heightInches);
+                }
+            }
+            catch (System.Exception)
+            {
+                // Log exception here if needed
+                return null;
             }
         }
     }

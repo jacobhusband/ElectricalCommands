@@ -10,14 +10,6 @@ namespace AutoCADCleanupTool
 {
     public class PreExplosionCleaner
     {
-        /// <summary>
-        /// This command method orchestrates the entire cleanup process as requested.
-        /// 1. Detaches specific XREFs and images.
-        /// 2. Erases specific block references and their definitions.
-        /// 3. Explodes all remaining block references.
-        /// 4. Erases any remaining objects on signature, logo, or stamp-related layers.
-        /// </summary>
-        [CommandMethod("CLEAN_BEFORE_EXPLODE", CommandFlags.Modal)]
         public static void CleanBeforeExplode()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
