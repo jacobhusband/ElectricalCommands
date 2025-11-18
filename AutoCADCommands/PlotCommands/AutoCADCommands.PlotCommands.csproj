@@ -42,7 +42,7 @@
       1. SeriesMin="R25.0" (AutoCAD 2025+) uses the net8.0 DLL.
       2. SeriesMax="R24.9" (AutoCAD 2024 and older) uses the net48 DLL.
     -->
-    <PropertyGroup>
+<PropertyGroup>
       <PackageContents><![CDATA[<?xml version="1.0" encoding="utf-8"?>
 <ApplicationPackage
   SchemaVersion="1.0"
@@ -61,12 +61,9 @@
     Name="$(AutoCADBundleAuthor)"
     Url="$(AutoCADCompanyUrl)"
     Email="$(AutoCADCompanyEmail)" />
-  <Components>
-    
-    <!-- 
-      Entry 1: AutoCAD 2025 and newer (.NET 8) 
-      SeriesMin R25.0 = AutoCAD 2025
-    -->
+  
+  <!-- COMPONENT 1: AutoCAD 2025+ (.NET 8) -->
+  <Components Description="AutoCAD 2025+">
     <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R25.0" />
     <ComponentEntry
       AppName="$(AssemblyName)"
@@ -78,12 +75,10 @@
         <Command Global="*" Local="*" />
       </Commands>
     </ComponentEntry>
+  </Components>
 
-    <!-- 
-      Entry 2: AutoCAD 2021 - 2024 (.NET 4.8)
-      SeriesMin R24.0 = AutoCAD 2021
-      SeriesMax R24.9 = AutoCAD 2024 (and updates)
-    -->
+  <!-- COMPONENT 2: AutoCAD 2021-2024 (.NET 4.8) -->
+  <Components Description="AutoCAD 2021-2024">
     <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.0" SeriesMax="R24.9" />
     <ComponentEntry
       AppName="$(AssemblyName)"
@@ -95,8 +90,8 @@
         <Command Global="*" Local="*" />
       </Commands>
     </ComponentEntry>
-
   </Components>
+
 </ApplicationPackage>]]></PackageContents>
     </PropertyGroup>
 
@@ -104,18 +99,22 @@
   </Target>
 
   <!-- 
-    COPY FILES TARGET
-    This runs for BOTH frameworks. It copies the DLLs into specific subfolders.
+    FILE COPY TARGET
+    Copies the Main DLL *AND* all dependency DLLs (NuGet packages) to the bundle folder.
   -->
   <Target Name="CopyDllsToBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
     <PropertyGroup>
       <BundleDir>C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>
-      <!-- Creates folders like ...\Contents\net8.0-windows\ and ...\Contents\net48\ -->
       <TargetSubFolder>$(BundleDir)\Contents\$(TargetFramework)</TargetSubFolder>
     </PropertyGroup>
     
     <MakeDir Directories="$(TargetSubFolder)" />
+    
+    <!-- Copy the Main Output DLL -->
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(TargetSubFolder)" />
+
+    <!-- Copy all Dependencies (NuGet DLLs like Newtonsoft.Json, FreeSpire.PDF, etc.) -->
+    <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFolder="$(TargetSubFolder)" />
   </Target>
 
 </Project>
