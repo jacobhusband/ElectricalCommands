@@ -1,8 +1,9 @@
 <Project>
-  <!-- This file contains all settings shared by your AutoCAD command projects -->
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms> <!-- Add this line -->
+    <!-- Target both .NET 8 (AutoCAD 2025) and .NET 4.8 (AutoCAD 2021-2024) -->
+    <TargetFrameworks>net8.0-windows;net48</TargetFrameworks>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
     <OutputType>Library</OutputType>
     <NoWarn>$(NoWarn);MSB3277;NU1701;NU1902</NoWarn>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
@@ -12,8 +13,21 @@
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
-  <!-- Shared AutoCAD API References -->
+  <!-- 
+    CRITICAL: This package allows you to build for .NET 4.8 without admin rights 
+    or the Developer Pack installed.
+  -->
   <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- ================================================================== -->
+  <!-- REFERENCES FOR .NET 8.0 (AutoCAD 2025)                             -->
+  <!-- ================================================================== -->
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net8.0-windows' ">
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+    
+    <!-- Reference local DLLs for 2025 since you have them installed -->
     <Reference Include="AcMgd">
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcMgd.dll</HintPath>
       <Private>false</Private>
@@ -28,9 +42,20 @@
     </Reference>
   </ItemGroup>
 
-  <!-- Shared Framework and NuGet Package References -->
+  <!-- ================================================================== -->
+  <!-- REFERENCES FOR .NET 4.8 (AutoCAD 2021-2024)                        -->
+  <!-- ================================================================== -->
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net48' ">
+      <Reference Include="Microsoft.CSharp" />
+    <!-- 
+      Use NuGet for AutoCAD APIs because you likely don't have AutoCAD 2024 installed.
+      Version 24.0.0 targets AutoCAD 2021, which is usually compatible up to 2024.
+    -->
+    <PackageReference Include="AutoCAD.NET" Version="24.0.0" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <!-- Shared NuGet Packages -->
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
     <PackageReference Include="FreeSpire.PDF" Version="10.2.0" />
     <PackageReference Include="Magick.NET-Q16-x64" Version="14.8.2" />

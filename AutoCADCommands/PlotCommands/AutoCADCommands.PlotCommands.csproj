@@ -2,10 +2,8 @@
 
   <PropertyGroup>
     <Configuration>Release</Configuration>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- REMOVED TargetFramework (It is inherited from Directory.Build.props) -->
+    
     <PackageId>Electrical.AutoCAD.PlotCommands</PackageId>
     <Description>Commands for plotting in AutoCAD.</Description>
     <AssemblyName>AutoCADCommands.PlotCommands</AssemblyName>
@@ -25,7 +23,12 @@
     <Compile Include="*.cs" />
   </ItemGroup>
 
-  <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+  <!-- 
+     DEPLOYMENT LOGIC 
+     Only run this once, after the 'net48' build finishes, 
+     so we don't write the XML file twice.
+  -->
+  <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">
     <PropertyGroup>
       <BundleDir>C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>
       <BundleContentsDir>$(BundleDir)\Contents</BundleContentsDir>
@@ -33,11 +36,17 @@
 
     <MakeDir Directories="$(BundleContentsDir)" />
 
+    <!-- 
+      UPDATED XML: 
+      Now includes TWO ComponentEntries.
+      1. SeriesMin="R25.0" (AutoCAD 2025+) uses the net8.0 DLL.
+      2. SeriesMax="R24.9" (AutoCAD 2024 and older) uses the net48 DLL.
+    -->
     <PropertyGroup>
       <PackageContents><![CDATA[<?xml version="1.0" encoding="utf-8"?>
 <ApplicationPackage
   SchemaVersion="1.0"
-  AutodeskProduct="AutoCAD*"
+  AutodeskProduct="AutoCAD"
   ProductType="Application"
   Name="$(AutoCADBundleName)"
   Description="$(AutoCADBundleDescription)"
@@ -53,30 +62,60 @@
     Url="$(AutoCADCompanyUrl)"
     Email="$(AutoCADCompanyEmail)" />
   <Components>
-    <RuntimeRequirements
-      OS="Win64"
-      Platform="AutoCAD"
-      SeriesMin="R25.0"
-      SeriesMax="R25.9" />
+    
+    <!-- 
+      Entry 1: AutoCAD 2025 and newer (.NET 8) 
+      SeriesMin R25.0 = AutoCAD 2025
+    -->
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R25.0" />
     <ComponentEntry
       AppName="$(AssemblyName)"
-      ModuleName="./Contents/$(AssemblyName).dll"
+      ModuleName="Contents\net8.0-windows\$(AssemblyName).dll"
       AppDescription="$(AutoCADBundleDescription)"
       LoadOnAutoCADStartup="True"
-      LoadOnCommandInvocation="True"
-      LoadOnProxyDetection="False"
-      SupportedLocales="Enu">
+      LoadOnCommandInvocation="True">
       <Commands>
         <Command Global="*" Local="*" />
       </Commands>
     </ComponentEntry>
+
+    <!-- 
+      Entry 2: AutoCAD 2021 - 2024 (.NET 4.8)
+      SeriesMin R24.0 = AutoCAD 2021
+      SeriesMax R24.9 = AutoCAD 2024 (and updates)
+    -->
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.0" SeriesMax="R24.9" />
+    <ComponentEntry
+      AppName="$(AssemblyName)"
+      ModuleName="Contents\net48\$(AssemblyName).dll"
+      AppDescription="$(AutoCADBundleDescription)"
+      LoadOnAutoCADStartup="True"
+      LoadOnCommandInvocation="True">
+      <Commands>
+        <Command Global="*" Local="*" />
+      </Commands>
+    </ComponentEntry>
+
   </Components>
 </ApplicationPackage>]]></PackageContents>
     </PropertyGroup>
 
     <WriteLinesToFile File="$(BundleDir)\PackageContents.xml" Lines="$(PackageContents)" Overwrite="true" Encoding="utf-8" />
+  </Target>
 
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BundleContentsDir)" />
+  <!-- 
+    COPY FILES TARGET
+    This runs for BOTH frameworks. It copies the DLLs into specific subfolders.
+  -->
+  <Target Name="CopyDllsToBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <BundleDir>C:\Users\JacobH\AppData\Roaming\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>
+      <!-- Creates folders like ...\Contents\net8.0-windows\ and ...\Contents\net48\ -->
+      <TargetSubFolder>$(BundleDir)\Contents\$(TargetFramework)</TargetSubFolder>
+    </PropertyGroup>
+    
+    <MakeDir Directories="$(TargetSubFolder)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(TargetSubFolder)" />
   </Target>
 
 </Project>

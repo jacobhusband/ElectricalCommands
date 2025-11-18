@@ -1,14 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- 
-    This project acts as a "packaging" project.
-    It will produce a small, empty ElectricalCommands.dll, but we will exclude it from the final copy.
-    Its main purpose is to reference the other projects and orchestrate the deployment.
+    TargetFramework is removed here because it is inherited from Directory.Build.props 
   -->
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- Any project-specific settings can go here -->
   </PropertyGroup>
 
-  <!-- This project references all other command libraries to bundle them together. -->
   <ItemGroup>
     <ProjectReference Include="AutoCADCommands\CleanCADCommands\AutoCADCommands.CleanCADCommands.csproj" />
     <ProjectReference Include="AutoCADCommands\GeneralCommands\AutoCADCommands.GeneralCommands.csproj" />
@@ -17,6 +14,4 @@
     <ProjectReference Include="AutoCADCommands\TextCommands\AutoCADCommands.TextCommands.csproj" />
     <ProjectReference Include="AutoCADCommands\PlotCommands\AutoCADCommands.PlotCommands.csproj" />
   </ItemGroup>
-
-
 </Project>
