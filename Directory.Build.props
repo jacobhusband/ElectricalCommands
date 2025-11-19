@@ -13,33 +13,41 @@
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
+  <!-- ================================================================== -->
+  <!-- REFERENCES FOR .NET 8.0 (AutoCAD 2025)                             -->
+  <!-- ================================================================== -->
+  <PropertyGroup Condition=" '$(TargetFramework)' == 'net8.0-windows' ">
+    <AutoCAD2025Installed Condition="Exists('C:\Program Files\Autodesk\AutoCAD 2025\AcMgd.dll')">true</AutoCAD2025Installed>
+    <AutoCAD2025Installed Condition=" '$(AutoCAD2025Installed)' == '' ">false</AutoCAD2025Installed>
+  </PropertyGroup>
+
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net8.0-windows' ">
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+    
+    <!-- Condition 1: Local Install (Work PC) -->
+    <Reference Include="AcMgd" Condition=" '$(AutoCAD2025Installed)' == 'true' ">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcCoreMgd" Condition=" '$(AutoCAD2025Installed)' == 'true' ">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcCoreMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcDbMgd" Condition=" '$(AutoCAD2025Installed)' == 'true' ">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcDbMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- Condition 2: NuGet Fallback (Home PC) -->
+    <PackageReference Include="AutoCAD.NET" Version="25.1.0" Condition=" '$(AutoCAD2025Installed)' == 'false' " ExcludeAssets="runtime" />
+  </ItemGroup>
+
   <!-- 
     CRITICAL: This package allows you to build for .NET 4.8 without admin rights 
     or the Developer Pack installed.
   -->
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="All" />
-  </ItemGroup>
-
-  <!-- ================================================================== -->
-  <!-- REFERENCES FOR .NET 8.0 (AutoCAD 2025)                             -->
-  <!-- ================================================================== -->
-  <ItemGroup Condition=" '$(TargetFramework)' == 'net8.0-windows' ">
-    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
-    
-    <!-- Reference local DLLs for 2025 since you have them installed -->
-    <Reference Include="AcMgd">
-      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcMgd.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="AcCoreMgd">
-      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcCoreMgd.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="AcDbMgd">
-      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcDbMgd.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
   </ItemGroup>
 
   <!-- ================================================================== -->
