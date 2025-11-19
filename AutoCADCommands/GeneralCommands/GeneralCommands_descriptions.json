@@ -3,7 +3,6 @@
     "commands": {
         "WIPEOUTOBJECTS": "Creates wipeout objects behind selected text, MText, tables, or polylines to mask the background.",
         "CREATEVIEWPORTFROMREGION": "Creates a viewport in paperspace from a selected region in modelspace, with automatic scaling options.",
-        "CREATEPADDEDOUTLINEAROUNDBLOCKS": "Creates a convex hull boundary polyline around selected block references with optional padding.",
-        "BLOCKBOUNDARYGRID": "Creates a grid-based union boundary around block references, connecting separate groups if needed."
+        "CREATEPADDEDOUTLINEAROUNDBLOCKS": "Creates a convex hull boundary polyline around selected block references with optional padding."
     }
 }

@@ -1,7 +1,6 @@
 {
     "video": "https://loom.com/t24-commands-demo",
     "commands": {
-        "INSERTPNGIMAGES": "Inserts PNG images from a selected folder into the drawing in a 3-column grid layout, sorted by filename.",
         "INSERTPDFSHEETS": "Inserts all pages of a selected multi-page PDF as underlays in a grid layout.",
         "GETSUMFROMTEXTEXPORT": "Extracts room types and square footage from selected text objects and exports the combined data to a JSON file.",
         "GETSUMFROMTEXT": "Sums numerical values from selected text objects, handling various formats including VA ratings.",
