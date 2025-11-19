@@ -100,11 +100,12 @@ def main():
     root = Path(__file__).resolve().parent
     self_name = Path(__file__).name
 
-    all_cs_files = [p for p in root.iterdir() if p.is_file() and p.name != self_name and not p.name.startswith(".") and p.suffix.lower() in ALLOW_EXTS]
+    # Recursively find all .cs files in the directory and subdirectories
+    all_cs_files = [p for p in root.rglob("*.cs") if p.is_file() and p.name != self_name and not p.name.startswith(".")]
     file_contents = {p: p.read_text(encoding="utf-8", errors="ignore") for p in all_cs_files}
 
     if not file_contents:
-        print("Error: No .cs files found in the directory.")
+        print("Error: No .cs files found in the directory or subdirectories.")
         return
 
     method_index = create_method_definition_index(file_contents)

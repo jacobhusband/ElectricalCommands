@@ -6,7 +6,7 @@ compiles them into a report, and copies the result to the clipboard.
 This script performs a one-level dependency check only.
 
 Place this file in the same directory as your project and run:
-python build_prompt_v4.py <CommandMethodName>
+python build_prompt_filter.py <CommandMethodName>
 """
 
 import sys
@@ -97,18 +97,19 @@ def find_called_methods(body: str) -> set:
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: python {Path(__file__).name} <CommandMethodName>")
-        print("Example: python build_prompt_v4.py EMBEDFROMXREFS")
+        print("Example: python build_prompt_filter.py EMBEDFROMXREFS")
         return
     target_command = sys.argv[1]
 
     root = Path(__file__).resolve().parent
     self_name = Path(__file__).name
 
-    all_cs_files = [p for p in root.iterdir() if p.is_file() and p.name != self_name and not p.name.startswith(".") and p.suffix.lower() in ALLOW_EXTS]
+    # Recursively find all .cs files in the directory and subdirectories
+    all_cs_files = [p for p in root.rglob("*.cs") if p.is_file() and p.name != self_name and not p.name.startswith(".")]
     file_contents = {p: p.read_text(encoding="utf-8", errors="ignore") for p in all_cs_files}
 
     if not file_contents:
-        print("Error: No .cs files found in the directory.")
+        print("Error: No .cs files found in the directory or subdirectories.")
         return
 
     method_index = create_method_definition_index(file_contents)
