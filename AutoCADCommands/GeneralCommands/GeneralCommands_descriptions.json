@@ -1,8 +1,12 @@
 {
-    "video": "https://loom.com/general-commands-demo",
     "commands": {
         "WIPEOUTOBJECTS": "Creates wipeout objects behind selected text, MText, tables, or polylines to mask the background.",
         "CREATEVIEWPORTFROMREGION": "Creates a viewport in paperspace from a selected region in modelspace, with automatic scaling options.",
         "CREATEPADDEDOUTLINEAROUNDBLOCKS": "Creates a convex hull boundary polyline around selected block references with optional padding."
+    },
+    "links": {
+        "WIPEOUTOBJECTS": "https://brainy-seahorse-3c5.notion.site/WIPEOUTOBJECTS-2b13fdbb662c802fb082e4095528ec06",
+        "CREATEVIEWPORTFROMREGION": "https://brainy-seahorse-3c5.notion.site/CREATEVIEWPORTFROMREGION-2b13fdbb662c805c963acf926dc03684",
+        "CREATEPADDEDOUTLINEAROUNDBLOCKS": "https://brainy-seahorse-3c5.notion.site/CREATEPADDEDOUTLINEAROUNDBLOCKS-2b13fdbb662c80b0bf9fe6f73249cd19"
     }
 }

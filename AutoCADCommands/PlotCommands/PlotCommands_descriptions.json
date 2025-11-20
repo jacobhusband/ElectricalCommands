@@ -1,8 +1,12 @@
 {
-    "video": "https://loom.com/plot-commands-demo",
     "commands": {
         "P30": "Plots the current layout to PDF at 30x42 inches using DWG to PDF.pc3.",
         "P24": "Plots the current layout to PDF at 24x36 inches using DWG to PDF.pc3.",
         "P22": "Plots the current layout to PDF at 22x34 inches using DWG to PDF.pc3."
+    },
+    "links": {
+        "P30": "https://brainy-seahorse-3c5.notion.site/PlotCommands-2b13fdbb662c80fe95d6d8de40064098",
+        "P24": "https://brainy-seahorse-3c5.notion.site/PlotCommands-2b13fdbb662c80fe95d6d8de40064098",
+        "P22": "https://brainy-seahorse-3c5.notion.site/PlotCommands-2b13fdbb662c80fe95d6d8de40064098"
     }
 }

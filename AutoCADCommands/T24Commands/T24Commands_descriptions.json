@@ -1,9 +1,14 @@
 {
-    "video": "https://loom.com/t24-commands-demo",
     "commands": {
         "INSERTPDFSHEETS": "Inserts all pages of a selected multi-page PDF as underlays in a grid layout.",
         "GETSUMFROMTEXTEXPORT": "Extracts room types and square footage from selected text objects and exports the combined data to a JSON file.",
         "GETSUMFROMTEXT": "Sums numerical values from selected text objects, handling various formats including VA ratings.",
         "CALCULATEAREAS": "Calculates areas of selected polylines and adds text labels with the area in square feet at the center of each."
+    },
+    "links": {
+        "INSERTPDFSHEETS": "https://brainy-seahorse-3c5.notion.site/INSERTPDFSHEETS-2b13fdbb662c80468573df2164539808",
+        "GETSUMFROMTEXTEXPORT": "https://brainy-seahorse-3c5.notion.site/GETSUMFROMTEXTEXPORT-2b13fdbb662c8098967edf32021a5f6c",
+        "GETSUMFROMTEXT": "https://brainy-seahorse-3c5.notion.site/GETSUMFROMTEXT-2b13fdbb662c807aa0d6e00948b128d6",
+        "CALCULATEAREAS": "https://brainy-seahorse-3c5.notion.site/CALCULATEAREAS-2b13fdbb662c80dca341f5624feaa488"
     }
 }
