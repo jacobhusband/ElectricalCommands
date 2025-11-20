@@ -48,7 +48,7 @@ namespace AutoCADCleanupTool
 
                 DetachSpecialXrefs();
                 _chainFinalizeAfterEmbed = true;
-                EmbedFromXrefs();
+                doc.SendStringToExecute("_.EMBEDFROMXREFS ", true, false, false);
             }
             catch (System.Exception ex)
             {
