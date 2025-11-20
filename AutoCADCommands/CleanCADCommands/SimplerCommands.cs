@@ -707,14 +707,14 @@ namespace AutoCADCleanupTool
                     if (_chainFinalizeAfterEmbed)
                     {
                         _chainFinalizeAfterEmbed = false;
-                        ed.WriteMessage("\nEMBEDFROMXREFS complete. Chaining FINALIZE and DETACHREMAININGXREFS...");
+                        ed.WriteMessage("\nEMBEDIMAGES complete. Chaining FINALIZE and DETACHREMAININGXREFS...");
                         doc.SendStringToExecute("_.FINALIZE _.DETACHREMAININGXREFS ", true, false, false);
                     }
                     else if (_isCleanSheetWorkflowActive)
                     {
                         _isCleanSheetWorkflowActive = false;
-                        ed.WriteMessage("\nEMBEDFROMXREFS complete. Chaining next commands...");
-                        doc.SendStringToExecute("_.EMBEDFROMPDFS _.CLEANPS _.VP2PL _.FINALIZE _.DETACHREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
+                        ed.WriteMessage("\nEMBEDIMAGES complete. Chaining next commands...");
+                        doc.SendStringToExecute("_.EMBEDPDFS _.CLEANPS _.VP2PL _.FINALIZE _.DETACHREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
                     }
                 }
                 catch (System.Exception ex)
@@ -793,65 +793,67 @@ namespace AutoCADCleanupTool
             if (_pdfsToDetach == null || _pdfsToDetach.Count == 0)
                 return;
 
-            ed.WriteMessage($"\nPurging {_pdfsToDetach.Count} PDF definition(s)...");
+            ed.WriteMessage($"\nDetaching {_pdfsToDetach.Count} PDF XREF(s)...");
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
+                DBDictionary pdfDict = null;
+
                 try
                 {
                     var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
-                    string pdfDictKey = "ACAD_PDF_DEFINITIONS";
-
-                    if (nod.Contains(pdfDictKey))
+                    if (nod.Contains("ACAD_PDF_DEFINITIONS"))
                     {
-                        var pdfDict = (DBDictionary)tr.GetObject(nod.GetAt(pdfDictKey), OpenMode.ForWrite);
-                        var keysToRemove = new List<string>();
-
-                        // 1. Find dictionary keys that map to our collected ObjectIds
-                        foreach (DBDictionaryEntry entry in pdfDict)
-                        {
-                            if (_pdfsToDetach.Contains(entry.Value))
-                            {
-                                keysToRemove.Add(entry.Key);
-                            }
-                        }
-
-                        // 2. Remove the entries from the dictionary (Unlink)
-                        foreach (string key in keysToRemove)
-                        {
-                            try
-                            {
-                                pdfDict.Remove(key);
-                            }
-                            catch { /* Ignore key errors */ }
-                        }
-
-                        // 3. Erase the Definition Objects themselves
-                        int erasedCount = 0;
-                        foreach (var id in _pdfsToDetach)
-                        {
-                            try
-                            {
-                                if (id.IsValid && !id.IsErased)
-                                {
-                                    var obj = tr.GetObject(id, OpenMode.ForWrite);
-                                    obj.Erase();
-                                    erasedCount++;
-                                }
-                            }
-                            catch { /* Object might already be erased */ }
-                        }
-
-                        if (erasedCount > 0)
-                            ed.WriteMessage($"\n - Successfully detached {erasedCount} PDF(s).");
+                        pdfDict = (DBDictionary)tr.GetObject(nod.GetAt("ACAD_PDF_DEFINITIONS"), OpenMode.ForWrite);
                     }
                 }
-                catch (System.Exception ex)
+                catch { }
+
+                int detached = 0;
+
+                foreach (var id in _pdfsToDetach.ToList())
                 {
-                    ed.WriteMessage($"\n[!] Error detaching PDFs: {ex.Message}");
+                    try
+                    {
+                        // Remove dictionary entries that point at this definition
+                        if (pdfDict != null)
+                        {
+                            var keys = new List<string>();
+                            foreach (DBDictionaryEntry entry in pdfDict)
+                            {
+                                if (entry.Value == id)
+                                    keys.Add(entry.Key);
+                            }
+
+                            foreach (var key in keys)
+                            {
+                                try { pdfDict.Remove(key); } catch { }
+                            }
+                        }
+
+                        // Some AutoCAD versions treat PDF underlays like XREFs; try both detach paths.
+                        try { db.DetachXref(id); } catch { }
+
+                        try
+                        {
+                            var obj = tr.GetObject(id, OpenMode.ForWrite, false);
+                            if (obj != null && !obj.IsErased)
+                                obj.Erase();
+                        }
+                        catch { }
+
+                        detached++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ed.WriteMessage($"\n[!] Error detaching PDF reference {id}: {ex.Message}");
+                    }
                 }
 
                 tr.Commit();
+
+                if (detached > 0)
+                    ed.WriteMessage($"\n - Detached {detached} PDF reference(s).");
             }
 
             _pdfsToDetach.Clear();

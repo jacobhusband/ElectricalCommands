@@ -48,7 +48,7 @@ namespace AutoCADCleanupTool
 
                 DetachSpecialXrefs();
                 _chainFinalizeAfterEmbed = true;
-                doc.SendStringToExecute("_.EMBEDFROMXREFS ", true, false, false);
+                doc.SendStringToExecute("_.EMBEDIMAGES ", true, false, false);
             }
             catch (System.Exception ex)
             {
@@ -99,10 +99,10 @@ namespace AutoCADCleanupTool
                 // *** MODIFICATION START ***
                 // Set the workflow flag to true
                 _isCleanSheetWorkflowActive = true;
-                ed.WriteMessage("\nCLEANSHEET: Starting EMBEDFROMXREFS...");
+                ed.WriteMessage("\nCLEANSHEET: Starting EMBEDIMAGES...");
 
                 // Queue ONLY the FIRST command. The rest will be chained.
-                doc.SendStringToExecute("_.EMBEDFROMXREFS ", true, false, false);
+                doc.SendStringToExecute("_.EMBEDIMAGES ", true, false, false);
                 // *** MODIFICATION END ***
             }
             catch (System.Exception ex)

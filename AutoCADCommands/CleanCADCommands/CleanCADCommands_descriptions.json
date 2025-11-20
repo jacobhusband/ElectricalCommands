@@ -1,8 +1,8 @@
 {
     "video": "https://loom.com/clean-cad-commands-demo",
     "commands": {
-        "EMBEDFROMXREFS": "Embeds raster images from XREFs into the drawing by converting them to OLE objects using PowerPoint, preserving orientation.",
-        "EMBEDFROMPDFS": "Embeds PDF underlays into the drawing by converting them to PNG and then OLE objects using PowerPoint.",
+        "EMBEDIMAGES": "Embeds raster images from XREFs into the drawing by converting them to OLE objects using PowerPoint, preserving orientation.",
+        "EMBEDPDFS": "Embeds PDF underlays into the drawing by converting them to PNG and then OLE objects using PowerPoint.",
         "CLEANTBLK": "Cleans the title block by exploding blocks, keeping only the title block, detaching XREFs, and embedding images.",
         "CLEANCAD": "Cleans the entire sheet by embedding XREFs and performing cleanup operations."
     }

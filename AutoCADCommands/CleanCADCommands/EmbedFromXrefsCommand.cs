@@ -85,7 +85,7 @@ namespace AutoCADCleanupTool
         }
 
         /// <summary>
-        /// EMBEDFROMXREFS:
+        /// EMBEDIMAGES:
         /// - Collects all raster images (including from XREFs) across layouts.
         /// - Pre-rotates each image to match its orientation.
         /// - Uses PowerPoint as an OLE source and pastes into the correct layout.
@@ -93,8 +93,8 @@ namespace AutoCADCleanupTool
         /// - Records XREFs for detaching and image defs for purging.
         /// This implementation mirrors your previously working rotated-raster behavior.
         /// </summary>
-        [CommandMethod("EMBEDFROMXREFS", CommandFlags.Modal)]
-        public static void EmbedFromXrefs()
+        [CommandMethod("EMBEDIMAGES", CommandFlags.Modal)]
+        public static void EmbedImages()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
@@ -102,7 +102,7 @@ namespace AutoCADCleanupTool
             var db = doc.Database;
             var ed = doc.Editor;
 
-            ed.WriteMessage("\n--- Starting EMBEDFROMXREFS ---");
+            ed.WriteMessage("\n--- Starting EMBEDIMAGES ---");
 
             _pendingXref.Clear();
             _lastPastedOle = ObjectId.Null;

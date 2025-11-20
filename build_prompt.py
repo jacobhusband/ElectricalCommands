@@ -93,7 +93,7 @@ def find_called_methods(body: str) -> set:
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: python {Path(__file__).name} <CommandMethodName>")
-        print("Example: python build_prompt.py EMBEDFROMXREFS")
+        print("Example: python build_prompt.py EMBEDIMAGES")
         return
     target_command = sys.argv[1]
 

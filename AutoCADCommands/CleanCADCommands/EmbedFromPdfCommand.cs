@@ -12,15 +12,15 @@ namespace AutoCADCleanupTool
 {
     public partial class SimplerCommands
     {
-        [CommandMethod("EMBEDFROMPDFS", CommandFlags.Modal)]
-        public static void EmbedFromPdfs()
+        [CommandMethod("EMBEDPDFS", CommandFlags.Modal)]
+        public static void EmbedPdfs()
         {
             var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var db = doc.Database;
             var ed = doc.Editor;
 
-            ed.WriteMessage("\n--- Starting EMBEDFROMPDFS ---");
+            ed.WriteMessage("\n--- Starting EMBEDPDFS ---");
 
             // 1. Reset collections
             _pending.Clear();
