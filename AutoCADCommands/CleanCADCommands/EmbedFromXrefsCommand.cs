@@ -104,21 +104,17 @@ namespace AutoCADCleanupTool
 
             ed.WriteMessage("\n--- Starting EMBEDFROMXREFS ---");
 
-            // Reset shared state used by the XREF pipeline.
             _pendingXref.Clear();
             _lastPastedOle = ObjectId.Null;
             _isEmbeddingProcessActive = false;
             _finalPastedOleForZoom = ObjectId.Null;
-            _xrefsToDetach.Clear();
+            _xrefsToDetach.Clear(); // Ensure clean slate
 
             try
             {
                 DeleteOldEmbedTemps(7);
             }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\n[Warning] Could not delete old temp files: {ex.Message}");
-            }
+            catch { /* Ignore temp clean errors */ }
 
             ObjectId originalClayer = db.Clayer;
             Matrix3d originalUcs = ed.CurrentUserCoordinateSystem;
@@ -128,7 +124,7 @@ namespace AutoCADCleanupTool
             {
                 ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
 
-                // Ensure layer "0" is thawed and set active
+                // 1. THAW LAYER 0
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
@@ -136,108 +132,68 @@ namespace AutoCADCleanupTool
                     {
                         var zeroId = lt["0"];
                         var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
-                        if (zeroLtr.IsFrozen)
-                        {
-                            ed.WriteMessage("\nThawing layer '0'.");
-                            zeroLtr.IsFrozen = false;
-                        }
+                        if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
                         if (_savedClayer.IsNull) _savedClayer = originalClayer;
                         db.Clayer = zeroId;
                     }
                     tr.Commit();
                 }
 
-                // Collect images from all layouts
+                // 2. EXPLODE BLOCKS FIRST
+                // If the JPG is inside an XREF or Block, the scanner won't find it unless we explode it first.
+                ed.WriteMessage("\nPre-exploding blocks to expose nested images...");
+                ExplodeAllBlockReferences();
+
+                // 3. COLLECT IMAGES
                 try
                 {
                     ed.WriteMessage("\nScanning all layouts for raster images...");
                     using (var tr = db.TransactionManager.StartTransaction())
                     {
                         var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                        var modelSpaceId = bt[BlockTableRecord.ModelSpace];
 
-                        ed.WriteMessage("\n- Scanning Model Space...");
-                        CollectAndPreflightImagesInLayoutForXrefs(doc, modelSpaceId);
+                        // Scan Model
+                        CollectAndPreflightImagesInLayoutForXrefs(doc, bt[BlockTableRecord.ModelSpace]);
 
+                        // Scan Layouts
                         var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
                         foreach (DBDictionaryEntry entry in layoutDict)
                         {
-                            if (entry.Key.Equals("Model", StringComparison.OrdinalIgnoreCase))
-                                continue;
-
-                            var layoutId = entry.Value;
-                            var layout = (Layout)tr.GetObject(layoutId, OpenMode.ForRead);
-                            ed.WriteMessage($"\n- Scanning layout: {layout.LayoutName}...");
+                            if (entry.Key.Equals("Model", StringComparison.OrdinalIgnoreCase)) continue;
+                            var layout = (Layout)tr.GetObject(entry.Value, OpenMode.ForRead);
                             CollectAndPreflightImagesInLayoutForXrefs(doc, layout.BlockTableRecordId);
                         }
-
                         tr.Commit();
                     }
                 }
                 catch (System.Exception ex)
                 {
-                    ed.WriteMessage($"\n[!] Critical error during image collection: {ex.Message}");
+                    ed.WriteMessage($"\n[!] Critical error during collection: {ex.Message}");
                     return;
                 }
 
                 if (_pendingXref.Count == 0)
                 {
                     ed.WriteMessage("\nNo valid raster images found to embed.");
-                    _isEmbeddingProcessActive = true;
                     FinishEmbeddingRun(doc, ed, db);
                     return;
                 }
 
                 ed.WriteMessage($"\nSuccessfully queued {_pendingXref.Count} raster image(s).");
 
-                if (!EnsurePowerPoint(ed))
-                {
-                    ed.WriteMessage("\n[!] Failed to start or connect to PowerPoint. Aborting.");
-                    return;
-                }
+                if (!EnsurePowerPoint(ed)) return;
 
                 if (WindowOrchestrator.TryGetPowerPointHwnd(out var pptHwnd))
-                {
                     WindowOrchestrator.EnsureSeparationOrSafeOverlap(ed, pptHwnd, preferDifferentMonitor: true);
-                }
 
                 AttachHandlersForXrefs(db, doc);
                 _isEmbeddingProcessActive = true;
-
-                ed.WriteMessage($"\nStarting paste process for {_pendingXref.Count} raster image(s)...");
                 ProcessNextPasteForXrefs(doc, ed);
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\n[!] Error during EMBEDFROMXREFS: {ex.Message}");
-            }
-            finally
-            {
-                if (!_isEmbeddingProcessActive && _pendingXref.Count == 0)
-                {
-                    ClosePowerPoint(ed);
-                    RestoreOriginalLayer(db, originalClayer);
-                }
-                else if (!_isEmbeddingProcessActive && _pendingXref.Count > 0)
-                {
-                    ed.WriteMessage("\nAborting embedding process due to an earlier error.");
-                    DetachHandlersForXrefs(db, doc);
-                    ClosePowerPoint(ed);
-                    RestoreOriginalLayer(db, originalClayer);
-                    _pendingXref.Clear();
-                }
-
-                ed.CurrentUserCoordinateSystem = originalUcs;
-
-                try
-                {
-                    if (LayoutManager.Current.CurrentLayout != originalLayout)
-                        LayoutManager.Current.CurrentLayout = originalLayout;
-                }
-                catch (System.Exception ex)
-                {
-                    ed.WriteMessage($"\nWarning: Could not restore original layout: {ex.Message}");
-                }
+                ed.WriteMessage($"\n[!] Error: {ex.Message}");
+                FinishEmbeddingRun(doc, ed, db); // Ensure cleanup happens even on crash
             }
         }
 
@@ -256,6 +212,7 @@ namespace AutoCADCleanupTool
 
                 foreach (ObjectId id in space)
                 {
+                    // Look for raster images
                     if (!id.ObjectClass.DxfName.Equals("IMAGE", StringComparison.OrdinalIgnoreCase))
                         continue;
 
@@ -265,40 +222,58 @@ namespace AutoCADCleanupTool
                     var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead) as RasterImageDef;
                     if (def == null) continue;
 
-                    // If hosted in an XREF, mark that XREF for detachment later.
+                    // Mark Owner XREF for detach
                     if (tr.GetObject(img.OwnerId, OpenMode.ForRead) is BlockTableRecord ownerBtr &&
                         ownerBtr.IsFromExternalReference)
                     {
                         _xrefsToDetach.Add(ownerBtr.ObjectId);
                     }
 
+                    // Resolve Path
                     string resolved = ResolveImagePath(db, def.SourceFileName);
                     if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
                     {
-                        ed.WriteMessage($"\nSkipping missing image: {def.SourceFileName}");
-                        continue;
+                        // Try to find it in the same folder as the DWG if path resolution failed
+                        string localAttempt = Path.Combine(Path.GetDirectoryName(doc.Name), Path.GetFileName(def.SourceFileName));
+                        if (File.Exists(localAttempt))
+                        {
+                            resolved = localAttempt;
+                        }
+                        else
+                        {
+                            ed.WriteMessage($"\n[Skipping] Missing image file: {def.SourceFileName}");
+                            continue;
+                        }
                     }
 
-                    string safePath;
+                    string safePath = resolved;
                     var cs = img.Orientation;
+                    double rotationDeg = 0.0;
+
+                    // --- CMYK / PREFLIGHT FIX ---
                     try
                     {
-                        ed.WriteMessage($"\nProcessing: {Path.GetFileName(resolved)}...");
+                        // Calculate AutoCAD rotation
+                        rotationDeg = Math.Atan2(cs.Xaxis.Y, cs.Xaxis.X) * (180.0 / Math.PI);
 
-                        // AutoCAD orientation: counter-clockwise; GDI+ RotateTransform: clockwise.
-                        double rotationDeg = Math.Atan2(cs.Xaxis.Y, cs.Xaxis.X) * (180.0 / Math.PI);
-                        safePath = PreflightRasterForPpt(resolved, -rotationDeg);
+                        // Attempt Preflight (Checks dimensions, rotation, etc.)
+                        // If this is a CMYK JPG, System.Drawing will throw an exception here.
+                        string preflightPath = PreflightRasterForPpt(resolved, -rotationDeg);
+
+                        if (!string.IsNullOrEmpty(preflightPath))
+                        {
+                            safePath = preflightPath;
+                        }
                     }
                     catch (System.Exception pex)
                     {
-                        ed.WriteMessage($"\n[!] PREFLIGHT FAILED for '{Path.GetFileName(resolved)}': {pex.Message} — skipping.");
-                        continue;
-                    }
+                        // Do NOT skip the image. PowerPoint handles CMYK JPGs better than .NET code.
+                        // We log the warning but proceed with the original resolved path.
+                        ed.WriteMessage($"\n[Warning] Preflight check failed for '{Path.GetFileName(resolved)}' (likely CMYK or locked). Attempting raw embed.");
+                        ed.WriteMessage($"\nDetails: {pex.Message}");
 
-                    if (string.IsNullOrEmpty(safePath))
-                    {
-                        ed.WriteMessage($"\n[!] Preflight returned empty path for '{Path.GetFileName(resolved)}'. Skipping.");
-                        continue;
+                        // Fallback: Use original file, assume orientation is handled by PPT or post-transform
+                        safePath = resolved;
                     }
 
                     var placement = new ImagePlacementXref
@@ -312,7 +287,7 @@ namespace AutoCADCleanupTool
                     };
 
                     _pendingXref.Enqueue(placement);
-                    ed.WriteMessage($"\nQueued [{_pendingXref.Count}]: {Path.GetFileName(placement.Path)}");
+                    ed.WriteMessage($"\nQueued: {Path.GetFileName(safePath)}");
                 }
                 tr.Commit();
             }

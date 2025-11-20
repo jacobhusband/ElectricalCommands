@@ -655,60 +655,75 @@ namespace AutoCADCleanupTool
         // ------------------------------------------------------------------------------------
         private static void FinalCleanupOnIdle(object sender, EventArgs e)
         {
+            // Unsubscribe immediately to prevent re-entry
             AutoCADApp.Idle -= FinalCleanupOnIdle;
 
             var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
             if (doc == null || !_isEmbeddingProcessActive)
                 return;
 
-            var db = doc.Database;
-            var ed = doc.Editor;
-
-            try
+            // CRITICAL FIX: You must lock the document when modifying the Database from an Idle event.
+            using (doc.LockDocument())
             {
-                ed.WriteMessage("\nPerforming final cleanup for embedding process...");
-                _isEmbeddingProcessActive = false;
-                _finalPastedOleForZoom = ObjectId.Null;
-
-                DetachHandlers(db, doc);
-                DetachXrefs(db, ed);
-
-                try { doc.SendStringToExecute("_.REGEN ", false, false, true); } catch { }
-
-                PurgeEmbeddedImageDefs(db, ed);
-                DetachPdfDefinitions(db, ed);
-
-                WindowOrchestrator.EndPptInteraction();
-                ClosePowerPoint(ed);
+                var db = doc.Database;
+                var ed = doc.Editor;
 
                 try
                 {
-                    if (!_savedClayer.IsNull)
-                        db.Clayer = _savedClayer;
-                }
-                catch { }
-                _savedClayer = ObjectId.Null;
-                _skipLayerFreezing = false;
+                    ed.WriteMessage("\nPerforming final cleanup for embedding process...");
 
-                if (_chainFinalizeAfterEmbed)
-                {
-                    _chainFinalizeAfterEmbed = false;
-                    ed.WriteMessage("\nEMBEDFROMXREFS complete. Chaining FINALIZE and DETACHREMAININGXREFS...");
-                    doc.SendStringToExecute("_.FINALIZE _.DETACHREMAININGXREFS ", true, false, false);
+                    // 1. Reset flags
+                    _isEmbeddingProcessActive = false;
+                    _finalPastedOleForZoom = ObjectId.Null;
+
+                    // 2. Detach event handlers
+                    DetachHandlersForXrefs(db, doc); // Ensure this matches your handler detachment method name
+
+                    // 3. Execute Database Write Operations (Safe now due to LockDocument)
+                    DetachXrefs(db, ed);
+                    PurgeEmbeddedImageDefs(db, ed);
+                    DetachPdfDefinitions(db, ed);
+
+                    // 4. Clean up external apps
+                    WindowOrchestrator.EndPptInteraction();
+                    ClosePowerPoint(ed);
+
+                    // 5. Restore Layer
+                    try
+                    {
+                        if (!_savedClayer.IsNull && _savedClayer.IsValid)
+                            db.Clayer = _savedClayer;
+                    }
+                    catch { }
+                    _savedClayer = ObjectId.Null;
+                    _skipLayerFreezing = false;
+
+                    // 6. Queue Visual Updates (Regen/Zoom)
+                    // SendStringToExecute is async, so we queue it here.
+                    try { doc.SendStringToExecute("_.REGEN ", false, false, true); } catch { }
+
+                    // 7. Chain commands if needed
+                    if (_chainFinalizeAfterEmbed)
+                    {
+                        _chainFinalizeAfterEmbed = false;
+                        ed.WriteMessage("\nEMBEDFROMXREFS complete. Chaining FINALIZE and DETACHREMAININGXREFS...");
+                        doc.SendStringToExecute("_.FINALIZE _.DETACHREMAININGXREFS ", true, false, false);
+                    }
+                    else if (_isCleanSheetWorkflowActive)
+                    {
+                        _isCleanSheetWorkflowActive = false;
+                        ed.WriteMessage("\nEMBEDFROMXREFS complete. Chaining next commands...");
+                        doc.SendStringToExecute("_.EMBEDFROMPDFS _.CLEANPS _.VP2PL _.FINALIZE _.DETACHREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
+                    }
                 }
-                else if (_isCleanSheetWorkflowActive)
+                catch (System.Exception ex)
                 {
+                    ed.WriteMessage($"\nAn error occurred during final cleanup: {ex.Message}");
+                    // Ensure flags are reset even on error
                     _isCleanSheetWorkflowActive = false;
-                    ed.WriteMessage("\nEMBEDFROMXREFS complete. Chaining next commands...");
-                    doc.SendStringToExecute("_.EMBEDFROMPDFS _.CLEANPS _.VP2PL _.FINALIZE _.DETACHREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
+                    _chainFinalizeAfterEmbed = false;
+                    _skipLayerFreezing = false;
                 }
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nAn error occurred during final cleanup: {ex.Message}");
-                _isCleanSheetWorkflowActive = false;
-                _chainFinalizeAfterEmbed = false;
-                _skipLayerFreezing = false;
             }
         }
 
@@ -820,29 +835,58 @@ namespace AutoCADCleanupTool
 
         private static void DetachXrefs(Database db, Editor ed)
         {
-            if (_xrefsToDetach.Count == 0) return;
+            // Ensure the list exists and has items
+            if (_xrefsToDetach == null || _xrefsToDetach.Count == 0)
+                return;
 
-            ed.WriteMessage($"\nAttempting to detach {_xrefsToDetach.Count} XREF(s)...");
+            // Use a HashSet to ensure we don't try to detach the same XREF twice 
+            // (if multiple images lived in one XREF)
+            var uniqueXrefs = new HashSet<ObjectId>(_xrefsToDetach);
+
+            ed.WriteMessage($"\nProcessing {uniqueXrefs.Count} XREF(s) for detachment...");
+
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                foreach (var xrefId in _xrefsToDetach)
+                foreach (var xrefId in uniqueXrefs)
                 {
                     try
                     {
-                        var btr = tr.GetObject(xrefId, OpenMode.ForRead) as BlockTableRecord;
-                        if (btr != null && btr.IsFromExternalReference && btr.IsResolved)
+                        // 1. Check validity
+                        if (xrefId.IsNull || xrefId.IsErased)
+                            continue;
+
+                        // 2. Get name for logging & verify it's actually an XREF
+                        string xrefName = "Unknown";
+                        try
                         {
-                            db.DetachXref(xrefId);
-                            ed.WriteMessage($"\nSuccessfully detached XREF: {btr.Name}");
+                            var btr = (BlockTableRecord)tr.GetObject(xrefId, OpenMode.ForRead);
+                            if (!btr.IsFromExternalReference)
+                            {
+                                ed.WriteMessage("\nSkipping detach: Object is not an external reference.");
+                                continue;
+                            }
+                            xrefName = btr.Name;
                         }
+                        catch
+                        {
+                            // If we can't read the BTR, we likely can't detach it safely
+                            continue;
+                        }
+
+                        // 3. Perform the Detach
+                        // Note: DetachXref is a Database method, not a Transaction method.
+                        db.DetachXref(xrefId);
+                        ed.WriteMessage($"\n - Successfully detached XREF: {xrefName}");
                     }
                     catch (System.Exception ex)
                     {
-                        ed.WriteMessage($"\nFailed to detach XREF {xrefId}: {ex.Message}");
+                        ed.WriteMessage($"\n [!] Failed to detach XREF: {ex.Message}");
                     }
                 }
                 tr.Commit();
             }
+
+            // Clear the list so we don't try to detach them again later
             _xrefsToDetach.Clear();
         }
 
