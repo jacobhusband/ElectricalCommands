@@ -23,5 +23,30 @@
         "SL": "Alias for SUMLENGTHS.",
         "TEXTCOUNT": "Counts how many times each text/MTEXT value appears and reports totals.",
         "TSELECT": "Keeps only TEXT and MTEXT from a selection set."
+    },
+    "links": {
+        "C1": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "D1": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "C2": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "D2": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "F1": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "CHLAY": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "CLEANUP": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "ETOG": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "LTOG": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "MTOG": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV1": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV2": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV3": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV4": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV5": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV6": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV7": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV8": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV9": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "SUMLENGTHS": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "SL": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "TEXTCOUNT": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "TSELECT": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737"
     }
 }
