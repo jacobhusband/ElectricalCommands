@@ -68,25 +68,23 @@ namespace ElectricalCommands
         }
         else if (paperLayouts.Count > 1)
         {
-          PromptResult sheetNameResult = ed.GetString("\nPlease enter the sheet name (e.g., E01.00 or 01.00): ");
+          // CHANGED: Use PromptStringOptions to allow spaces in layout names (e.g. "Layout 1")
+          PromptStringOptions pso = new PromptStringOptions("\nPlease enter the Layout name: ");
+          pso.AllowSpaces = true;
+
+          PromptResult sheetNameResult = ed.GetString(pso);
           if (sheetNameResult.Status != PromptStatus.OK)
           {
             tr.Abort();
             return;
           }
-          userInputForError = sheetNameResult.StringResult;
-          string inputSheetName = userInputForError;
 
+          userInputForError = sheetNameResult.StringResult.Trim(); // Trim accidental leading/trailing spaces
+
+          // CHANGED: Exact match only, case insensitive. No "E" prefix prediction.
           matchedLayoutName = paperLayouts.FirstOrDefault(name =>
-              name.Equals(inputSheetName, StringComparison.OrdinalIgnoreCase) ||
-              name.Equals("E" + inputSheetName, StringComparison.OrdinalIgnoreCase)
+              name.Equals(userInputForError, StringComparison.OrdinalIgnoreCase)
           );
-
-          if (string.IsNullOrEmpty(matchedLayoutName))
-          {
-            string expectedSheetName = inputSheetName.StartsWith("E-") ? inputSheetName : "E-" + inputSheetName;
-            matchedLayoutName = paperLayouts.FirstOrDefault(layout => layout.Equals(expectedSheetName, StringComparison.OrdinalIgnoreCase));
-          }
         }
         else
         {
@@ -119,13 +117,13 @@ namespace ElectricalCommands
 
         // --- START: Viewport Creation Logic ---
         Dictionary<double, double> scales = new Dictionary<double, double>
-            {
-                { 0.25, 48.0 },
-                { 3.0 / 16.0, 64.0 },
-                { 1.0 / 8.0, 96.0 },
-                { 3.0 / 32.0, 128.0 },
-                { 1.0 / 16.0, 192.0 }
-            };
+                {
+                    { 0.25, 48.0 },
+                    { 3.0 / 16.0, 64.0 },
+                    { 1.0 / 8.0, 96.0 },
+                    { 3.0 / 32.0, 128.0 },
+                    { 1.0 / 16.0, 192.0 }
+                };
 
         double scaleToFit = 0.0;
         double viewportWidth = 0.0;
