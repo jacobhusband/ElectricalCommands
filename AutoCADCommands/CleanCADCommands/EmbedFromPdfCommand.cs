@@ -22,7 +22,9 @@ namespace AutoCADCleanupTool
 
             ed.WriteMessage("\n--- Starting EMBEDFROMPDFS ---");
 
+            // 1. Reset collections
             _pending.Clear();
+            _pdfsToDetach.Clear(); // <--- IMPORTANT: Reset the detach list
             _lastPastedOle = ObjectId.Null;
             _isEmbeddingProcessActive = false;
             _finalPastedOleForZoom = ObjectId.Null;
@@ -31,10 +33,7 @@ namespace AutoCADCleanupTool
             {
                 DeleteOldEmbedTemps(daysOld: 7);
             }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\n[Warning] Could not delete old temp files: {ex.Message}");
-            }
+            catch { /* Ignore temp cleanup errors */ }
 
             ObjectId originalClayer = db.Clayer;
             Matrix3d originalUcs = ed.CurrentUserCoordinateSystem;
@@ -44,6 +43,7 @@ namespace AutoCADCleanupTool
                 ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
                 _savedClayer = originalClayer;
 
+                // Force Layer 0 active and thawed
                 try
                 {
                     using (var tr = db.TransactionManager.StartTransaction())
@@ -52,10 +52,9 @@ namespace AutoCADCleanupTool
                         if (lt.Has("0"))
                         {
                             var zeroId = lt["0"];
-                            if (db.Clayer != zeroId)
-                            {
-                                db.Clayer = zeroId;
-                            }
+                            var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
+                            if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
+                            if (db.Clayer != zeroId) db.Clayer = zeroId;
                         }
                         tr.Commit();
                     }
@@ -65,7 +64,9 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage($"\n[Warning] Could not switch to layer '0': {ex.Message}");
                 }
 
+                // 2. Collect items (This now populates _pdfsToDetach)
                 int queuedCount = CollectAndQueuePdfUnderlays(doc);
+
                 if (queuedCount == 0)
                 {
                     ed.WriteMessage("\nNo PDF underlays found to embed.");
@@ -93,19 +94,14 @@ namespace AutoCADCleanupTool
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\n[!] An error occurred during PDF embedding: {ex.Message}");
+                ed.WriteMessage($"\n[!] Error during PDF embedding: {ex.Message}");
+                DetachHandlers(db, doc);
+                RestoreOriginalLayer(db, originalClayer);
+                _pdfsToDetach.Clear();
             }
             finally
             {
                 ed.CurrentUserCoordinateSystem = originalUcs;
-
-                if (!_isEmbeddingProcessActive)
-                {
-                    DetachHandlers(db, doc);
-                    ClosePowerPoint(ed);
-                    RestoreOriginalLayer(db, originalClayer);
-                    _pending.Clear();
-                }
             }
         }
 
@@ -122,6 +118,7 @@ namespace AutoCADCleanupTool
                 foreach (ObjectId btrId in bt)
                 {
                     var btr = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
+                    // Only look at Layouts (Model + Paper), skip random blocks
                     if (btr == null || !btr.IsLayout)
                         continue;
 
@@ -131,12 +128,14 @@ namespace AutoCADCleanupTool
                             continue;
 
                         var pdfRef = tr.GetObject(entId, OpenMode.ForRead) as UnderlayReference;
-                        if (pdfRef == null)
-                            continue;
+                        if (pdfRef == null) continue;
 
                         var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
-                        if (pdfDef == null)
-                            continue;
+                        if (pdfDef == null) continue;
+
+                        // --- CRITICAL FIX: Track this Definition for later detachment ---
+                        _pdfsToDetach.Add(pdfDef.ObjectId);
+                        // ---------------------------------------------------------------
 
                         string resolvedPdfPath = ResolveImagePath(db, pdfDef.SourceFileName);
                         if (string.IsNullOrEmpty(resolvedPdfPath) || !File.Exists(resolvedPdfPath))
@@ -166,7 +165,6 @@ namespace AutoCADCleanupTool
                         queued++;
                     }
                 }
-
                 tr.Commit();
             }
 

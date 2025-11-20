@@ -72,6 +72,7 @@ namespace AutoCADCleanupTool
         private static readonly HashSet<ObjectId> _imageDefsToPurge = new HashSet<ObjectId>();
         internal static readonly HashSet<ObjectId> _pdfDefinitionsToDetach = new HashSet<ObjectId>();
         private static readonly HashSet<ObjectId> _xrefsToDetach = new HashSet<ObjectId>();
+        private static HashSet<ObjectId> _pdfsToDetach = new HashSet<ObjectId>();
 
         private static bool _chainFinalizeAfterEmbed = false;
         private static bool _isEmbeddingProcessActive = false;
@@ -783,54 +784,77 @@ namespace AutoCADCleanupTool
             }
         }
 
+        /// <summary>
+        /// Removes the PDF Definitions from the Named Objects Dictionary (ACAD_PDF_DEFINITIONS).
+        /// This effectively "Detaches" the PDF from the External References palette.
+        /// </summary>
         private static void DetachPdfDefinitions(Database db, Editor ed)
         {
-            if (_pdfDefinitionsToDetach.Count == 0) return;
+            if (_pdfsToDetach == null || _pdfsToDetach.Count == 0)
+                return;
 
-            ed.WriteMessage($"\nAttempting to detach {_pdfDefinitionsToDetach.Count} PDF definition(s)...");
-            try
+            ed.WriteMessage($"\nPurging {_pdfsToDetach.Count} PDF definition(s)...");
+
+            using (var tr = db.TransactionManager.StartTransaction())
             {
-                using (var tr = db.TransactionManager.StartTransaction())
+                try
                 {
-                    var named = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
-                    if (!named.Contains("ACAD_PDFDEFINITIONS")) return;
+                    var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+                    string pdfDictKey = "ACAD_PDF_DEFINITIONS";
 
-                    var pdfDict = (DBDictionary)tr.GetObject(named.GetAt("ACAD_PDFDEFINITIONS"), OpenMode.ForWrite);
-                    var entriesToRemove = new List<string>();
-
-                    foreach (DBDictionaryEntry entry in pdfDict)
+                    if (nod.Contains(pdfDictKey))
                     {
-                        if (_pdfDefinitionsToDetach.Contains(entry.Value))
+                        var pdfDict = (DBDictionary)tr.GetObject(nod.GetAt(pdfDictKey), OpenMode.ForWrite);
+                        var keysToRemove = new List<string>();
+
+                        // 1. Find dictionary keys that map to our collected ObjectIds
+                        foreach (DBDictionaryEntry entry in pdfDict)
                         {
-                            entriesToRemove.Add(entry.Key);
+                            if (_pdfsToDetach.Contains(entry.Value))
+                            {
+                                keysToRemove.Add(entry.Key);
+                            }
+                        }
+
+                        // 2. Remove the entries from the dictionary (Unlink)
+                        foreach (string key in keysToRemove)
+                        {
                             try
                             {
-                                var defObj = tr.GetObject(entry.Value, OpenMode.ForWrite);
-                                if (!defObj.IsErased) defObj.Erase();
+                                pdfDict.Remove(key);
                             }
-                            catch { }
+                            catch { /* Ignore key errors */ }
                         }
-                    }
 
-                    int detachedCount = 0;
-                    foreach (var key in entriesToRemove)
-                    {
-                        try { pdfDict.Remove(key); detachedCount++; }
-                        catch { }
-                    }
+                        // 3. Erase the Definition Objects themselves
+                        int erasedCount = 0;
+                        foreach (var id in _pdfsToDetach)
+                        {
+                            try
+                            {
+                                if (id.IsValid && !id.IsErased)
+                                {
+                                    var obj = tr.GetObject(id, OpenMode.ForWrite);
+                                    obj.Erase();
+                                    erasedCount++;
+                                }
+                            }
+                            catch { /* Object might already be erased */ }
+                        }
 
-                    ed.WriteMessage($"\nSuccessfully detached {detachedCount} PDF definition(s).");
-                    tr.Commit();
+                        if (erasedCount > 0)
+                            ed.WriteMessage($"\n - Successfully detached {erasedCount} PDF(s).");
+                    }
                 }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\n[!] Error detaching PDFs: {ex.Message}");
+                }
+
+                tr.Commit();
             }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage($"\nError during PDF detachment: {ex.Message}");
-            }
-            finally
-            {
-                _pdfDefinitionsToDetach.Clear();
-            }
+
+            _pdfsToDetach.Clear();
         }
 
         private static void DetachXrefs(Database db, Editor ed)
