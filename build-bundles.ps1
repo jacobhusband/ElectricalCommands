@@ -50,6 +50,7 @@ function New-Zip {
 
 # Map: bundle folder -> zip name prefix
 $bundles = @(
+    @{ Folder = "ElectricalCommands.AutoLispCommands.bundle"; Prefix = "ElectricalCommands.AutoLispCommands" },
     @{ Folder = "ElectricalCommands.CleanCADCommands.bundle"; Prefix = "ElectricalCommands.CleanCADCommands" },
     @{ Folder = "ElectricalCommands.GeneralCommands.bundle"; Prefix = "ElectricalCommands.GeneralCommands" },
     @{ Folder = "ElectricalCommands.GetAttributesCommands.bundle"; Prefix = "ElectricalCommands.GetAttributesCommands" },

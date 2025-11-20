@@ -1,0 +1,27 @@
+{
+    "commands": {
+        "C1": "Increments the first numeric attribute value on each selected block by 1.",
+        "D1": "Decrements the first numeric attribute value on each selected block by 1.",
+        "C2": "Prompts for a custom increment value and applies it to the first numeric attribute on selected blocks.",
+        "D2": "Prompts for a custom decrement value and applies it to the first numeric attribute on selected blocks.",
+        "F1": "Sets the first attribute on each selected block to a user-entered string value.",
+        "CHLAY": "Finds the closest matching layer name from a search string, then moves the previous selection or current layer to that match.",
+        "CLEANUP": "Runs SETBYLAYER on all objects, PURGE ALL, and AUDIT with fixes to clean the current drawing.",
+        "ETOG": "Freezes or thaws layers matching WL/WL-STAMP style names, following the state of the first match.",
+        "LTOG": "Toggles freeze/thaw for XREF layers containing a user-specified text fragment.",
+        "MTOG": "Toggles freeze/thaw for layers containing \"christian\" or \"CD stamp\".",
+        "REV1": "Creates a revision cloud and delta tag labeled 1 with a live preview.",
+        "REV2": "Creates a revision cloud and delta tag labeled 2 with a live preview.",
+        "REV3": "Creates a revision cloud and delta tag labeled 3 with a live preview.",
+        "REV4": "Creates a revision cloud and delta tag labeled 4 with a live preview.",
+        "REV5": "Creates a revision cloud and delta tag labeled 5 with a live preview.",
+        "REV6": "Creates a revision cloud and delta tag labeled 6 with a live preview.",
+        "REV7": "Creates a revision cloud and delta tag labeled 7 with a live preview.",
+        "REV8": "Creates a revision cloud and delta tag labeled 8 with a live preview.",
+        "REV9": "Creates a revision cloud and delta tag labeled 9 with a live preview.",
+        "SUMLENGTHS": "Sums the lengths of selected lines, arcs, polylines, and reports the total.",
+        "SL": "Alias for SUMLENGTHS.",
+        "TEXTCOUNT": "Counts how many times each text/MTEXT value appears and reports totals.",
+        "TSELECT": "Keeps only TEXT and MTEXT from a selection set."
+    }
+}
