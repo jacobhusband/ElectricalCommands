@@ -660,7 +660,8 @@ namespace AutoCADCleanupTool
             AutoCADApp.Idle -= FinalCleanupOnIdle;
 
             var doc = AutoCADApp.DocumentManager.MdiActiveDocument;
-            if (doc == null || !_isEmbeddingProcessActive)
+            bool shouldRun = _isEmbeddingProcessActive || _isCleanSheetWorkflowActive || _chainFinalizeAfterEmbed;
+            if (doc == null || !shouldRun)
                 return;
 
             // CRITICAL FIX: You must lock the document when modifying the Database from an Idle event.
@@ -710,7 +711,8 @@ namespace AutoCADCleanupTool
                         ed.WriteMessage("\nEMBEDIMAGES complete. Chaining FINALIZE and DETACHREMAININGXREFS...");
                         doc.SendStringToExecute("_.FINALIZE _.DETACHREMAININGXREFS ", true, false, false);
                     }
-                    else if (_isCleanSheetWorkflowActive)
+
+                    if (_isCleanSheetWorkflowActive)
                     {
                         _isCleanSheetWorkflowActive = false;
                         ed.WriteMessage("\nEMBEDIMAGES complete. Chaining next commands...");
