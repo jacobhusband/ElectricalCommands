@@ -25,6 +25,8 @@ namespace AutoCADCleanupTool
 
                 EnsureAllLayersVisibleAndUnlocked(db, ed);
 
+                DetachSpecialXrefs();
+
                 _skipLayerFreezing = true;
 
                 PreExplosionCleaner.CleanBeforeExplode();

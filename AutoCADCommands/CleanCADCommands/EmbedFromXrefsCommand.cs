@@ -139,6 +139,8 @@ namespace AutoCADCleanupTool
                     tr.Commit();
                 }
 
+                RemoveInvalidRasterImages(db, ed);
+
                 // 2. EXPLODE BLOCKS FIRST
                 // If the JPG is inside an XREF or Block, the scanner won't find it unless we explode it first.
                 ed.WriteMessage("\nPre-exploding blocks to expose nested images...");
@@ -290,6 +292,119 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage($"\nQueued: {Path.GetFileName(safePath)}");
                 }
                 tr.Commit();
+            }
+        }
+
+        /// <summary>
+        /// Scans ACAD_IMAGE_DICT for RasterImageDefs that are actually pointing to PDF files.
+        /// A RasterImageDef pointing to a PDF causes "Error 1" and crashes XREF BIND.
+        /// </summary>
+        private static void RemoveInvalidRasterImages(Database db, Editor ed)
+        {
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+                    if (!nod.Contains("ACAD_IMAGE_DICT")) return;
+
+                    var imageDict = (DBDictionary)tr.GetObject(nod.GetAt("ACAD_IMAGE_DICT"), OpenMode.ForWrite);
+                    var defsToRemove = new List<ObjectId>();
+                    var keysToRemove = new List<string>();
+
+                    ed.WriteMessage("\nChecking for invalid raster images (mismatched file types)...");
+
+                    foreach (DBDictionaryEntry entry in imageDict)
+                    {
+                        var def = tr.GetObject(entry.Value, OpenMode.ForRead) as RasterImageDef;
+                        if (def == null) continue;
+
+                        string rawPath = def.SourceFileName;
+                        string resolvedPath = ResolveImagePath(db, rawPath);
+
+                        bool isInvalid = false;
+
+                        if (string.IsNullOrEmpty(resolvedPath) || !File.Exists(resolvedPath))
+                        {
+                            // Optionally remove missing files too, though they usually don't crash Bind like corrupted ones do.
+                            // isInvalid = true; 
+                        }
+                        else
+                        {
+                            // Check 1: Extension Mismatch (Explicitly pointing to .pdf)
+                            if (Path.GetExtension(resolvedPath).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+                            {
+                                ed.WriteMessage($"\n[Detected] Image Definition pointing to PDF file: {Path.GetFileName(resolvedPath)}");
+                                isInvalid = true;
+                            }
+                            // Check 2: Header Mismatch (File is named .png but contains PDF data)
+                            else
+                            {
+                                try
+                                {
+                                    using (var fs = File.OpenRead(resolvedPath))
+                                    {
+                                        if (fs.Length > 4)
+                                        {
+                                            byte[] buffer = new byte[4];
+                                            fs.Read(buffer, 0, 4);
+                                            string header = System.Text.Encoding.ASCII.GetString(buffer);
+
+                                            // Check for PDF Magic Number: %PDF
+                                            if (header.StartsWith("%PDF"))
+                                            {
+                                                ed.WriteMessage($"\n[Detected] File is a PDF masquerading as an image: {Path.GetFileName(resolvedPath)}");
+                                                isInvalid = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                catch
+                                {
+                                    // If we can't read the file, it might be corrupt anyway
+                                    ed.WriteMessage($"\n[Warning] Could not read file header for: {Path.GetFileName(resolvedPath)}");
+                                }
+                            }
+                        }
+
+                        if (isInvalid)
+                        {
+                            defsToRemove.Add(def.ObjectId);
+                            keysToRemove.Add(entry.Key);
+                        }
+                    }
+
+                    if (defsToRemove.Count > 0)
+                    {
+                        // 1. Remove from Dictionary
+                        foreach (string key in keysToRemove)
+                        {
+                            try { imageDict.Remove(key); } catch { }
+                        }
+
+                        // 2. Erase the Definition Object
+                        int count = 0;
+                        foreach (ObjectId id in defsToRemove)
+                        {
+                            try
+                            {
+                                var obj = tr.GetObject(id, OpenMode.ForWrite);
+                                obj.Erase();
+                                count++;
+                            }
+                            catch { }
+                        }
+
+                        // 3. (Optional) Force a Regen to clear the frames immediately
+                        ed.WriteMessage($"\nRemoved {count} invalid image definition(s).");
+                    }
+
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nWarning: Error while sanitizing image dictionary: {ex.Message}");
             }
         }
 
