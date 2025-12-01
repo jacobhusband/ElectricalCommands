@@ -19,7 +19,8 @@ Write-Host "OutputRoot:  $OutputRoot"
 Write-Host ""
 
 if (-not (Test-Path $SourceRoot)) {
-    throw "SourceRoot '$SourceRoot' does not exist. Adjust -SourceRoot."
+    Write-Host "SourceRoot '$SourceRoot' does not exist. Creating it..."
+    New-Item -ItemType Directory -Force -Path $SourceRoot | Out-Null
 }
 
 # Normalize output directory relative to current working directory if needed
@@ -46,6 +47,76 @@ function New-Zip {
 
     Add-Type -AssemblyName "System.IO.Compression.FileSystem" -ErrorAction Stop
     [System.IO.Compression.ZipFile]::CreateFromDirectory($SourcePath, $ZipPath)
+}
+
+function New-AutoLispBundle {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceDir,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetRoot,
+        [string]$BundleName = "ElectricalCommands.AutoLispCommands",
+        [string]$Version = "0.0.0"
+    )
+
+    if (-not (Test-Path $SourceDir)) {
+        Write-Warning "AutoLISP source directory '$SourceDir' not found. Skipping AutoLISP bundle build."
+        return
+    }
+
+    if (-not (Test-Path $TargetRoot)) {
+        New-Item -ItemType Directory -Force -Path $TargetRoot | Out-Null
+    }
+
+    $bundleDir = Join-Path $TargetRoot "$BundleName.bundle"
+    $contentsDir = Join-Path $bundleDir "Contents"
+
+    Write-Host "=== Building AutoLISP bundle ==="
+    Write-Host "SourceDir : $SourceDir"
+    Write-Host "BundleDir : $bundleDir"
+    Write-Host "Version   : $Version"
+    Write-Host ""
+
+    if (Test-Path $bundleDir) { Remove-Item $bundleDir -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $contentsDir | Out-Null
+
+    Get-ChildItem -Path $SourceDir -Filter *.lsp -File | Copy-Item -Destination $contentsDir -Force
+
+    $packageContents = @"
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+  SchemaVersion="1.0"
+  AutodeskProduct="AutoCAD"
+  ProductType="Application"
+  Name="$BundleName"
+  Description="AutoLISP utilities for layer toggles, revision clouds, attributes, and text helpers."
+  AppVersion="$Version"
+  Author="ACIES Engineering"
+  ProductCode="{8704562b-e29a-4b5e-8a37-e6db4d303cc0}"
+  UpgradeCode="{b1d4f24c-3075-4c76-9e16-b407098b150c}">
+  
+  <CompanyDetails
+    Name="ACIES Engineering"
+    Url="www.acies.engineering"
+    Email="jacob.h@acies.engineering" />
+
+  <Components>
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SupportPath="./Contents" />
+    
+    <ComponentEntry
+      AppName="ElectricalLoader"
+      ModuleName="./Contents/ElectricalCommands.AutoLispCommands.lsp"
+      PerDocument="True" />
+  </Components>
+
+</ApplicationPackage>
+"@
+
+    Set-Content -Path (Join-Path $bundleDir "PackageContents.xml") -Value $packageContents -Encoding UTF8
+    Set-Content -Path (Join-Path $bundleDir "version.txt") -Value ("v{0}" -f $Version) -Encoding UTF8
+
+    Write-Host "[done] AutoLISP bundle created at $bundleDir"
+    Write-Host ""
 }
 
 # Map: bundle folder -> zip name prefix
@@ -81,6 +152,10 @@ if (-not $Version) {
 
 Write-Host "Using version: $Version"
 Write-Host ""
+
+# Build AutoLISP bundle (it doesn't have its own project build step)
+$autoLispSourceDir = Join-Path $PSScriptRoot "AutoCADCommands\AutoLispCommands"
+New-AutoLispBundle -SourceDir $autoLispSourceDir -TargetRoot $SourceRoot -Version $Version
 
 # Collect metadata from description files
 $metadata = @{}
