@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <AutoCADBundleName>ElectricalCommands.CleanCADCommands</AutoCADBundleName>
-    <AutoCADBundleVersion>1.0.0</AutoCADBundleVersion>
+    <AutoCADBundleVersion>$(Version)</AutoCADBundleVersion>
     <AutoCADBundleDescription>Commands for cleaning and preparing AutoCAD drawings.</AutoCADBundleDescription>
     <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>
     <AutoCADBundleProductCode>{c2cf5543-3525-4933-b79c-24139a635b53}</AutoCADBundleProductCode>

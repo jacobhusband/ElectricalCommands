@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <AutoCADBundleName>ElectricalCommands.T24Commands</AutoCADBundleName>
-    <AutoCADBundleVersion>1.0.0</AutoCADBundleVersion>
+    <AutoCADBundleVersion>$(Version)</AutoCADBundleVersion>
     <AutoCADBundleDescription>Commands for T24 compliance.</AutoCADBundleDescription>
     <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>
     <AutoCADBundleProductCode>{a3a2b3a9-c5e8-4338-9a3e-3e8b8a2a3345}</AutoCADBundleProductCode>

@@ -60,3 +60,5 @@ tools/
 logs/
 
 dist/
+
+.env

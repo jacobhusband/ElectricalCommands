@@ -1,4 +1,14 @@
 <Project>
+  <!-- Central version import -->
+  <Import Project="version.props" Condition="Exists('version.props')" />
+
+  <PropertyGroup>
+    <!-- Default to 0.0.0 if version.props is missing -->
+    <Version Condition="'$(Version)' == ''">0.0.0</Version>
+    <FileVersion Condition="'$(FileVersion)' == ''">$(Version)</FileVersion>
+    <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">$(Version)</AssemblyVersion>
+  </PropertyGroup>
+
   <PropertyGroup>
     <!-- Target both .NET 8 (AutoCAD 2025) and .NET 4.8 (AutoCAD 2021-2024) -->
     <TargetFrameworks>net8.0-windows;net48</TargetFrameworks>

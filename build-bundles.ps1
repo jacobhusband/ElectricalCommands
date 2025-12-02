@@ -13,6 +13,30 @@ Param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-VersionFromProps {
+    param([string]$VersionOverride)
+
+    if ($VersionOverride) {
+        return $VersionOverride
+    }
+
+    $propsPath = Join-Path $PSScriptRoot "version.props"
+    if (Test-Path $propsPath) {
+        try {
+            $xml = [xml](Get-Content $propsPath)
+            $verNode = $xml.Project.PropertyGroup.Version
+            if ($verNode) {
+                return $verNode
+            }
+        }
+        catch {
+            Write-Warning "Failed to read Version from '$propsPath': $($_.Exception.Message)"
+        }
+    }
+
+    return "0.0.0"
+}
+
 Write-Host "=== AutoCAD Bundle Packaging ==="
 Write-Host "SourceRoot : $SourceRoot"
 Write-Host "OutputRoot:  $OutputRoot"
@@ -130,25 +154,7 @@ $bundles = @(
     @{ Folder = "ElectricalCommands.TextCommands.bundle"; Prefix = "ElectricalCommands.TextCommands" }
 )
 
-# Determine version if not explicitly provided
-if (-not $Version) {
-    $Version = "0.0.0"
-    # Look for a csproj in the repo structure above/around OutputRoot
-    $repoRoot = (Get-Location)
-    $csproj = Get-ChildItem -Path $repoRoot -Recurse -Filter "*.csproj" | Select-Object -First 1
-    if ($csproj) {
-        try {
-            $xml = [xml](Get-Content $csproj.FullName)
-            $verNode = $xml.Project.PropertyGroup.Version
-            if ($verNode) {
-                $Version = $verNode
-            }
-        }
-        catch {
-            Write-Warning "Failed to read Version from '$($csproj.FullName)': $($_.Exception.Message)"
-        }
-    }
-}
+$Version = Get-VersionFromProps -VersionOverride $Version
 
 Write-Host "Using version: $Version"
 Write-Host ""
@@ -156,24 +162,6 @@ Write-Host ""
 # Build AutoLISP bundle (it doesn't have its own project build step)
 $autoLispSourceDir = Join-Path $PSScriptRoot "AutoCADCommands\AutoLispCommands"
 New-AutoLispBundle -SourceDir $autoLispSourceDir -TargetRoot $SourceRoot -Version $Version
-
-# Collect metadata from description files
-$metadata = @{}
-$descriptionFiles = Get-ChildItem -Path "AutoCADCommands" -Recurse -Filter "*_descriptions.json"
-foreach ($file in $descriptionFiles) {
-    try {
-        $json = Get-Content $file.FullName -Raw | ConvertFrom-Json
-        $bundleName = $file.Directory.Name
-        $prefix = "ElectricalCommands.$bundleName"
-        $metadata[$prefix] = @{
-            video    = $json.video
-            commands = $json.commands
-        }
-    }
-    catch {
-        Write-Warning "Failed to parse $($file.FullName): $($_.Exception.Message)"
-    }
-}
 
 foreach ($b in $bundles) {
     $bundlePath = Join-Path $SourceRoot $b.Folder
@@ -190,27 +178,6 @@ foreach ($b in $bundles) {
     New-Zip -SourcePath $bundlePath -ZipPath $zipPath
 }
 
-# Generate release_meta.json
-$assets = @()
-foreach ($b in $bundles) {
-    $zipName = "{0}-v{1}.zip" -f $b.Prefix, $Version
-    $commands = @{}
-    $video = $null
-    if ($metadata.ContainsKey($b.Prefix)) {
-        $commands = $metadata[$b.Prefix].commands
-        $video = $metadata[$b.Prefix].video
-    }
-    $assets += @{
-        filename  = $zipName
-        video_url = $video
-        commands  = $commands
-    }
-}
-
-$releaseMeta = @{ assets = $assets } | ConvertTo-Json -Depth 10
-$metaPath = Join-Path $OutputRoot "release_meta.json"
-$releaseMeta | Out-File $metaPath -Encoding UTF8
-
 Write-Host ""
-Write-Host "Done. Zips and metadata are in: $OutputRoot"
+Write-Host "Done. Zips are in: $OutputRoot"
 Write-Host "Upload these as GitHub Release assets."

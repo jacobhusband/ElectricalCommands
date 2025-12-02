@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <AutoCADBundleName>ElectricalCommands.GetAttributesCommands</AutoCADBundleName>
-    <AutoCADBundleVersion>1.0.0</AutoCADBundleVersion>
+    <AutoCADBundleVersion>$(Version)</AutoCADBundleVersion>
     <AutoCADBundleDescription>Commands for getting attributes from AutoCAD objects.</AutoCADBundleDescription>
     <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>
     <AutoCADBundleProductCode>{b9a2b3a9-c5e8-4338-9a3e-3e8b8a2a3345}</AutoCADBundleProductCode>

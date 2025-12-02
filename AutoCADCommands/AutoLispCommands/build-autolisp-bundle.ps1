@@ -8,8 +8,28 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-VersionFromProps {
+  param([string]$VersionOverride)
+
+  if ($VersionOverride) { return $VersionOverride }
+
+  $propsPath = Join-Path $PSScriptRoot "..\\..\\version.props"
+  if (Test-Path $propsPath) {
+    try {
+      $xml = [xml](Get-Content $propsPath)
+      $verNode = $xml.Project.PropertyGroup.Version
+      if ($verNode) { return $verNode }
+    }
+    catch {
+      Write-Warning "Failed to read Version from '$propsPath': $($_.Exception.Message)"
+    }
+  }
+
+  return "0.0.0"
+}
+
 if (-not $SourceDir) { $SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
-if (-not $Version) { $Version = "0.0.0" }
+$Version = Get-VersionFromProps -VersionOverride $Version
 
 $bundleDir = Join-Path $TargetRoot "$BundleName.bundle"
 $contentsDir = Join-Path $bundleDir "Contents"
