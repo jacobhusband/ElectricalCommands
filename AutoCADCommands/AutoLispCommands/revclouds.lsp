@@ -2,10 +2,34 @@
 ;; FINAL VERSION - Fixed "Rectangular" Error.
 ;; Breaks command inputs into separate steps to force Modern REVCLOUD behavior.
 
-(defun c:REV (/ input loop start_pt mode ent_before ent_data new_data rev_layer_name delta_layer_name temp_val approx_arc min_arc max_arc last_ent)
+(defun c:REV (/ input loop start_pt mode ent_before ent_data new_data rev_layer_name delta_layer_name temp_val approx_arc min_arc max_arc last_ent env_val env_arc)
   ;; --- 1. Memory Setup ---
   (if (null *last_rev_val*)
-      (setq *last_rev_val* "1")
+    (progn
+      (setq env_val (getenv "REV_LAST_VAL"))
+      (if (and env_val (/= env_val ""))
+        (setq *last_rev_val* env_val)
+        (setq *last_rev_val* "1")
+      )
+    )
+  )
+
+  (if (null *last_rev_arc*)
+    (progn
+      (setq env_arc (getenv "REV_ARC_APPROX"))
+      (if (and env_arc (/= env_arc ""))
+        (setq *last_rev_arc* (atof env_arc))
+      )
+    )
+  )
+
+  (if (and *last_rev_arc* (> *last_rev_arc* 0.0))
+    (progn
+      (setq min_arc (* *last_rev_arc* 0.8))
+      (setq max_arc (* *last_rev_arc* 1.2))
+      (command "_.REVCLOUD" "_A" min_arc max_arc)
+      (command) ; Cancel immediately to save settings for this drawing
+    )
   )
   
   (setq loop T)
@@ -25,7 +49,10 @@
       ((= input "Value")
        (setq temp_val (getstring (strcat "\nEnter new revision value <" *last_rev_val* ">: ")))
        (if (/= temp_val "") 
-           (setq *last_rev_val* temp_val)
+           (progn
+             (setq *last_rev_val* temp_val)
+             (setenv "REV_LAST_VAL" *last_rev_val*)
+           )
        )
       )
 
@@ -34,6 +61,8 @@
        (setq approx_arc (getdist "\nSpecify approximate length of arc: "))
        (if approx_arc
          (progn
+           (setq *last_rev_arc* approx_arc)
+           (setenv "REV_ARC_APPROX" (rtos *last_rev_arc* 2 4))
            (setq min_arc (* approx_arc 0.8))
            (setq max_arc (* approx_arc 1.2))
            (command "_.REVCLOUD" "_A" min_arc max_arc) 
