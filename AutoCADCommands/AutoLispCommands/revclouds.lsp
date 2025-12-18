@@ -2,7 +2,105 @@
 ;; FINAL VERSION - Fixed "Rectangular" Error.
 ;; Breaks command inputs into separate steps to force Modern REVCLOUD behavior.
 
-(defun c:REV (/ input loop start_pt mode ent_before ent_data new_data rev_layer_name delta_layer_name temp_val approx_arc min_arc max_arc last_ent env_val env_arc)
+(defun rev-read-file (path / file line text)
+  (if (setq file (open path "r"))
+    (progn
+      (setq text "")
+      (while (setq line (read-line file))
+        (setq text (strcat text line))
+      )
+      (close file)
+      text
+    )
+  )
+)
+
+(defun rev-extract-quoted-values (text / values idx start end)
+  (setq values '())
+  (setq idx 0)
+  (while (setq start (vl-string-search "\"" text idx))
+    (setq end (vl-string-search "\"" text (+ start 1)))
+    (if end
+      (progn
+        (setq values (append values (list (substr text (+ start 2) (- end start 1)))))
+        (setq idx (+ end 1))
+      )
+      (setq idx (strlen text))
+    )
+  )
+  values
+)
+
+(defun rev-read-disciplines (/ path contents key-pos list-start list-end list-text)
+  (vl-load-com)
+  (setq path (strcat (getenv "APPDATA") "\\ProjectManagementApp\\settings.json"))
+  (setq contents (rev-read-file path))
+  (if contents
+    (progn
+      (setq key-pos (vl-string-search "\"discipline\"" contents))
+      (if key-pos
+        (progn
+          (setq list-start (vl-string-search "[" contents key-pos))
+          (if list-start
+            (progn
+              (setq list-end (vl-string-search "]" contents list-start))
+              (if list-end
+                (progn
+                  (setq list-text (substr contents (+ list-start 2) (- list-end list-start 1)))
+                  (rev-extract-quoted-values list-text)
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(defun rev-discipline-to-letter (name / upper)
+  (setq upper (strcase name))
+  (cond
+    ((= upper "ELECTRICAL") "E")
+    ((= upper "MECHANICAL") "M")
+    ((= upper "PLUMBING") "P")
+    (T nil)
+  )
+)
+
+(defun rev-discipline-letters (names / letters letter)
+  (setq letters '())
+  (foreach name names
+    (setq letter (rev-discipline-to-letter name))
+    (if letter
+      (setq letters (append letters (list letter)))
+    )
+  )
+  letters
+)
+
+(defun rev-letter-from-leading (text / first)
+  (if (and text (> (strlen text) 0))
+    (progn
+      (setq first (substr (strcase text) 1 1))
+      (if (member first '("E" "M" "P")) first nil)
+    )
+  )
+)
+
+(defun rev-discipline-prefix (/ discipline_letters discipline_count file_letter layout_letter)
+  (setq discipline_letters (rev-discipline-letters (rev-read-disciplines)))
+  (setq discipline_count (length discipline_letters))
+  (setq file_letter (rev-letter-from-leading (getvar "DWGNAME")))
+  (setq layout_letter (rev-letter-from-leading (getvar "CTAB")))
+  (cond
+    ((> discipline_count 1) (or file_letter layout_letter (car discipline_letters)))
+    ((= discipline_count 1) (car discipline_letters))
+    (T (or file_letter layout_letter))
+  )
+)
+
+(defun c:REV (/ input loop start_pt mode ent_before ent_data new_data rev_layer_name delta_layer_name temp_val approx_arc min_arc max_arc last_ent env_val env_arc discipline_prefix)
   ;; --- 1. Memory Setup ---
   (if (null *last_rev_val*)
     (progn
@@ -96,8 +194,17 @@
   )
 
   ;; --- 3. Execute Drawing & Layer Management ---
-  (setq rev_layer_name (strcat "rev-" *last_rev_val*))
-  (setq delta_layer_name (strcat "delta-" *last_rev_val*))
+  (setq discipline_prefix (rev-discipline-prefix))
+  (if discipline_prefix
+    (progn
+      (setq rev_layer_name (strcat discipline_prefix "-Rev-" *last_rev_val*))
+      (setq delta_layer_name (strcat discipline_prefix "-Delta-" *last_rev_val*))
+    )
+    (progn
+      (setq rev_layer_name (strcat "rev-" *last_rev_val*))
+      (setq delta_layer_name (strcat "delta-" *last_rev_val*))
+    )
+  )
 
   (if (not (tblsearch "LAYER" rev_layer_name))
     (command "_.-LAYER" "_NEW" rev_layer_name "_COLOR" "6" rev_layer_name "")
