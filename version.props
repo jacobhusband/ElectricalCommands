@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
     <!-- Single source of truth for package/bundle version -->
-    <Version>0.0.1</Version>
+    <Version>0.0.2</Version>
   </PropertyGroup>
 </Project>
