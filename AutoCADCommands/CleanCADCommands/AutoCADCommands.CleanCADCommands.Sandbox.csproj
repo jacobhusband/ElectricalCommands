@@ -1,0 +1,109 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  
+  <PropertyGroup>
+    <Configuration>Release</Configuration>
+    <!-- TargetFramework REMOVED (Inherited from Directory.Build.props) -->
+    <PackageId>Electrical.AutoCAD.CleanCADCommands.Sandbox</PackageId>
+    <Description>Sandbox commands for rapid iteration.</Description>
+    <AssemblyName>AutoCADCommands.CleanCADCommands.Sandbox</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AutoCADBundleName>ElectricalCommands.CleanCADCommands.Sandbox</AutoCADBundleName>
+    <AutoCADBundleVersion>$(Version)</AutoCADBundleVersion>
+    <AutoCADBundleDescription>Sandbox commands for rapid iteration.</AutoCADBundleDescription>
+    <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>
+    <AutoCADBundleProductCode>{55d0a0d9-8e5b-4c54-8db1-2a28b3e6a6d6}</AutoCADBundleProductCode>
+    <AutoCADCompanyUrl>www.acies.engineering</AutoCADCompanyUrl>
+    <AutoCADCompanyEmail>jacob.h@acies.engineering</AutoCADCompanyEmail>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="*.cs" />
+  </ItemGroup>
+
+  <!-- XML GENERATION (Runs once on net48 build) -->
+  <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">
+    <PropertyGroup>
+      <BundleDir>$(AppData)\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>
+      <BundleContentsDir>$(BundleDir)\Contents</BundleContentsDir>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(BundleContentsDir)" />
+
+<PropertyGroup>
+      <PackageContents><![CDATA[<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+  SchemaVersion="1.0"
+  AutodeskProduct="AutoCAD"
+  ProductType="Application"
+  Name="$(AutoCADBundleName)"
+  Description="$(AutoCADBundleDescription)"
+  AppVersion="$(AutoCADBundleVersion)"
+  Author="$(AutoCADBundleAuthor)"
+  Icon=""
+  OnlineDocumentation=""
+  ProductCode="$(AutoCADBundleProductCode)"
+  UpgradeCode="{9b7a214b-8b7a-4e76-9f6f-8ec4c117a02a}"
+  HelpFile="">
+  <CompanyDetails
+    Name="$(AutoCADBundleAuthor)"
+    Url="$(AutoCADCompanyUrl)"
+    Email="$(AutoCADCompanyEmail)" />
+  
+  <!-- COMPONENT 1: AutoCAD 2025+ (.NET 8) -->
+  <Components Description="AutoCAD 2025+">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R25.0" />
+    <ComponentEntry
+      AppName="$(AssemblyName)"
+      ModuleName="Contents\net8.0-windows\$(AssemblyName).dll"
+      AppDescription="$(AutoCADBundleDescription)"
+      LoadOnAutoCADStartup="False"
+      LoadOnCommandInvocation="False">
+      <Commands>
+        <Command Global="*" Local="*" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+
+  <!-- COMPONENT 2: AutoCAD 2021-2024 (.NET 4.8) -->
+  <Components Description="AutoCAD 2021-2024">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.0" SeriesMax="R24.9" />
+    <ComponentEntry
+      AppName="$(AssemblyName)"
+      ModuleName="Contents\net48\$(AssemblyName).dll"
+      AppDescription="$(AutoCADBundleDescription)"
+      LoadOnAutoCADStartup="False"
+      LoadOnCommandInvocation="False">
+      <Commands>
+        <Command Global="*" Local="*" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+
+</ApplicationPackage>]]></PackageContents>
+    </PropertyGroup>
+
+    <WriteLinesToFile File="$(BundleDir)\PackageContents.xml" Lines="$(PackageContents)" Overwrite="true" Encoding="utf-8" />
+  </Target>
+
+  <!-- 
+    FILE COPY TARGET
+    Copies the Main DLL *AND* all dependency DLLs (NuGet packages) to the bundle folder.
+  -->
+  <Target Name="CopyDllsToBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <BundleDir>$(AppData)\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>
+      <TargetSubFolder>$(BundleDir)\Contents\$(TargetFramework)</TargetSubFolder>
+    </PropertyGroup>
+    
+    <MakeDir Directories="$(TargetSubFolder)" />
+    
+    <!-- Copy the Main Output DLL -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(TargetSubFolder)" />
+
+    <!-- Copy all Dependencies (NuGet DLLs like Newtonsoft.Json, FreeSpire.PDF, etc.) -->
+    <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFolder="$(TargetSubFolder)" />
+  </Target>
+
+</Project>
