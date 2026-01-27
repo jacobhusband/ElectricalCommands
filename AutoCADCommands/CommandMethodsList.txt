@@ -6,6 +6,7 @@ ElectricalCommands.TextCommands
 ElectricalCommands.T24Commands
 - INSERTPNGIMAGES / T24 (AutoCADCommands/T24Commands/InsertPNGImages.cs:15)
 - INSERTPDFSHEETS / IPDF (AutoCADCommands/T24Commands/InsertPDFSheets.cs:21)
+- T24 / T24Command (AutoCADCommands/T24Commands/TextInfoCommands.cs:488)
 - GETSUMFROMTEXTEXPORT / SumTextExport (AutoCADCommands/T24Commands/GetSumFromTextExport.cs:16)
 - GETSUMFROMTEXT / SUMTEXT (AutoCADCommands/T24Commands/GetSumFromText.cs:11)
 - CALCULATEAREAS / AREACALCULATOR (AutoCADCommands/T24Commands/CalculateAreas.cs:12)
