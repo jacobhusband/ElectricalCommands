@@ -81,6 +81,23 @@ namespace ElectricalCommands
     public string SourceDrawing { get; set; }
   }
 
+  /// <summary>
+  /// Settings for T24 command persistence.
+  /// </summary>
+  public class T24Settings
+  {
+    /// <summary>
+    /// Full path to the custom signature image file.
+    /// Null or empty means use default hardcoded image.
+    /// </summary>
+    public string CustomSignatureImagePath { get; set; }
+
+    /// <summary>
+    /// When the custom signature was last set.
+    /// </summary>
+    public DateTime? LastModified { get; set; }
+  }
+
   public partial class GeneralCommands
   {
     // ============================================================================
@@ -151,6 +168,44 @@ namespace ElectricalCommands
         Directory.CreateDirectory(folderPath);
       }
       return Path.Combine(folderPath, "ImageInfo.json");
+    }
+
+    private static string GetT24SettingsFilePath()
+    {
+      string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+      string folderPath = Path.Combine(appDataPath, "ElectricalCommands");
+      if (!Directory.Exists(folderPath))
+      {
+        Directory.CreateDirectory(folderPath);
+      }
+      return Path.Combine(folderPath, "T24Settings.json");
+    }
+
+    private static T24Settings LoadT24Settings()
+    {
+      try
+      {
+        string jsonPath = GetT24SettingsFilePath();
+        if (File.Exists(jsonPath))
+        {
+          string json = File.ReadAllText(jsonPath);
+          return JsonConvert.DeserializeObject<T24Settings>(json) ?? new T24Settings();
+        }
+      }
+      catch { }
+      return new T24Settings();
+    }
+
+    private static void SaveT24Settings(T24Settings settings)
+    {
+      try
+      {
+        string jsonPath = GetT24SettingsFilePath();
+        settings.LastModified = DateTime.Now;
+        string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
+        File.WriteAllText(jsonPath, json);
+      }
+      catch { }
     }
 
     // ============================================================================
@@ -499,10 +554,63 @@ namespace ElectricalCommands
 
         ed.WriteMessage($"\nInserting {pageCount} PDF page(s)...");
 
-        // 3. Get anchor point
-        PromptPointResult ppr = ed.GetPoint("\nSelect top-right point to insert PDF pages: ");
-        if (ppr.Status != PromptStatus.OK) return;
-        Point3d anchorTR = ppr.Value;
+        // 3. Get anchor point with Upload option for custom signature
+        T24Settings currentSettings = LoadT24Settings();
+        string customSignaturePath = currentSettings.CustomSignatureImagePath;
+
+        Point3d anchorTR = Point3d.Origin;
+        bool pointSelected = false;
+
+        while (!pointSelected)
+        {
+          string signatureStatus = string.IsNullOrEmpty(customSignaturePath)
+              ? "default"
+              : Path.GetFileName(customSignaturePath);
+
+          PromptPointOptions ppo = new PromptPointOptions(
+              $"\nSignature: [{signatureStatus}] - Select top-right point or [Upload/Clear]: ");
+          ppo.Keywords.Add("Upload");
+          ppo.Keywords.Add("Clear");
+          ppo.AllowNone = false;
+
+          PromptPointResult ppr = ed.GetPoint(ppo);
+
+          if (ppr.Status == PromptStatus.Keyword)
+          {
+            if (ppr.StringResult == "Upload")
+            {
+              var imgDialog = new Microsoft.Win32.OpenFileDialog
+              {
+                Filter = "Image Files (*.png;*.gif;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff)|*.png;*.gif;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff",
+                Title = "Select Signature Image"
+              };
+
+              if (imgDialog.ShowDialog() == true)
+              {
+                customSignaturePath = imgDialog.FileName;
+                currentSettings.CustomSignatureImagePath = customSignaturePath;
+                SaveT24Settings(currentSettings);
+                ed.WriteMessage($"\nCustom signature set: {Path.GetFileName(customSignaturePath)}");
+              }
+            }
+            else if (ppr.StringResult == "Clear")
+            {
+              customSignaturePath = null;
+              currentSettings.CustomSignatureImagePath = null;
+              SaveT24Settings(currentSettings);
+              ed.WriteMessage("\nSignature reset to default.");
+            }
+          }
+          else if (ppr.Status == PromptStatus.OK)
+          {
+            anchorTR = ppr.Value;
+            pointSelected = true;
+          }
+          else
+          {
+            return; // User cancelled
+          }
+        }
 
         // Track the last page's top-left corner
         Point3d lastPageTopLeft = Point3d.Origin;
@@ -657,11 +765,43 @@ namespace ElectricalCommands
           int textCount = CreateTextObjectsAtPoint(db, ed, T24TextData, lastPageTopLeft, true);
           ed.WriteMessage($"\nCreated {textCount} text object(s) with current date: {DateTime.Now:MM/dd/yyyy}");
 
-          // 5. Place images if configured
+          // 5. Place images - use custom signature if set, otherwise default
           if (T24ImageData.Count > 0)
           {
-            string dwgFolder = Path.GetDirectoryName(db.Filename);
-            int imageCount = CreateImagesAtPoint(db, ed, T24ImageData, lastPageTopLeft, dwgFolder);
+            List<ImageInfoData> imageDataToUse;
+            string imageFolder;
+
+            if (!string.IsNullOrEmpty(customSignaturePath) && File.Exists(customSignaturePath))
+            {
+              // Use custom signature - create modified image data list
+              imageDataToUse = T24ImageData.Select(img => new ImageInfoData
+              {
+                ImageFileName = Path.GetFileName(customSignaturePath),
+                OffsetX = img.OffsetX,
+                OffsetY = img.OffsetY,
+                OffsetZ = img.OffsetZ,
+                ScaleX = img.ScaleX,
+                ScaleY = img.ScaleY,
+                Rotation = img.Rotation,
+                Layer = img.Layer
+              }).ToList();
+
+              imageFolder = Path.GetDirectoryName(customSignaturePath);
+              ed.WriteMessage($"\nUsing custom signature: {Path.GetFileName(customSignaturePath)}");
+            }
+            else
+            {
+              // Use default hardcoded images
+              imageDataToUse = T24ImageData;
+              imageFolder = Path.GetDirectoryName(db.Filename);
+
+              if (!string.IsNullOrEmpty(customSignaturePath))
+              {
+                ed.WriteMessage($"\nWarning: Custom signature file not found, using default.");
+              }
+            }
+
+            int imageCount = CreateImagesAtPoint(db, ed, imageDataToUse, lastPageTopLeft, imageFolder);
             ed.WriteMessage($"\nCreated {imageCount} image(s).");
           }
         }
