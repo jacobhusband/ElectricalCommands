@@ -88,6 +88,7 @@ namespace ElectricalCommands
       }
 
       _isLoadingTemplate = false;
+      UpdateTemplateActiveState();
       LoadTemplateDetails(GetSelectedTemplate());
     }
 
@@ -281,8 +282,23 @@ namespace ElectricalCommands
       if (_isLoadingTemplate)
         return;
 
+      UpdateTemplateActiveState();
       var template = GetSelectedTemplate();
       LoadTemplateDetails(template);
+    }
+
+    private void UpdateTemplateActiveState()
+    {
+      var selectedVm = TemplateListBox.SelectedItem as TemplateViewModel;
+      if (_templateViewModels == null || _templateViewModels.Count == 0)
+        return;
+
+      foreach (var vm in _templateViewModels)
+      {
+        vm.IsActive = selectedVm != null && vm.Id == selectedVm.Id;
+      }
+
+      TemplateListBox.Items.Refresh();
     }
 
     private void TemplateField_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
