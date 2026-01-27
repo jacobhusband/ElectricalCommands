@@ -79,6 +79,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
@@ -138,7 +139,19 @@
                             </Grid>
                         </GroupBox>
 
-                        <GroupBox Grid.Row="2" Header="Preview" Margin="0,8,0,0">
+                        <GroupBox Grid.Row="2" Header="Form Layout" Margin="0,8,0,0">
+                            <StackPanel Margin="8">
+                                <RadioButton x:Name="Layout2025Radio"
+                                             Content="2025 layout"
+                                             Checked="Layout2025Radio_Checked"/>
+                                <RadioButton x:Name="Layout2022Radio"
+                                             Content="2022 layout"
+                                             Margin="0,4,0,0"
+                                             Checked="Layout2022Radio_Checked"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Grid.Row="3" Header="Preview" Margin="0,8,0,0">
                             <Border Background="#F5F5F5" CornerRadius="4">
                                 <Image x:Name="TemplatePreviewImage"
                                        Stretch="Uniform"

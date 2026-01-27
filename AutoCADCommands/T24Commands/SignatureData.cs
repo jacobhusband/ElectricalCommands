@@ -123,6 +123,11 @@ namespace ElectricalCommands
     /// List of all available templates.
     /// </summary>
     public List<T24TemplateEntry> Templates { get; set; } = new List<T24TemplateEntry>();
+
+    /// <summary>
+    /// Selected T24 form layout ("2025" or "2022").
+    /// </summary>
+    public string SelectedLayout { get; set; }
   }
 
   /// <summary>
@@ -130,6 +135,8 @@ namespace ElectricalCommands
   /// </summary>
   public static class SignatureManager
   {
+    public const string Layout2025 = "2025";
+    public const string Layout2022 = "2022";
     private const string DEFAULT_SIGNATURE_NAME = "Wilson Lee (Default)";
     private const string DEFAULT_SIGNATURE_FILENAME = "WL_Sig_Blue_Small.gif";
     private const string SETTINGS_FILENAME = "T24SignatureSettings.json";
@@ -141,6 +148,7 @@ namespace ElectricalCommands
     private const string DEFAULT_ADDRESS2 = "Milipitas, CA 95035";
     private const string DEFAULT_PHONE = "(408) 522-5255";
     private const string DEFAULT_LICENSE = "E015418";
+    private const string DEFAULT_LAYOUT = Layout2025;
 
     /// <summary>
     /// Gets the path to the signatures storage folder.
@@ -246,6 +254,13 @@ namespace ElectricalCommands
       }
 
       settingsChanged |= EnsureTemplates(settings);
+
+      string normalizedLayout = NormalizeLayout(settings.SelectedLayout);
+      if (!string.Equals(settings.SelectedLayout, normalizedLayout, StringComparison.Ordinal))
+      {
+        settings.SelectedLayout = normalizedLayout;
+        settingsChanged = true;
+      }
 
       var activeTemplate = GetSelectedTemplate(settings);
       if (activeTemplate != null &&
@@ -394,7 +409,8 @@ namespace ElectricalCommands
       var settings = new T24SignatureSettings
       {
         Signatures = new List<SignatureEntry>(),
-        Templates = new List<T24TemplateEntry>()
+        Templates = new List<T24TemplateEntry>(),
+        SelectedLayout = DEFAULT_LAYOUT
       };
 
       // Extract bundled default signature
@@ -425,6 +441,16 @@ namespace ElectricalCommands
 
       SaveSettings(settings);
       return settings;
+    }
+
+    public static string NormalizeLayout(string layout)
+    {
+      if (string.Equals(layout, Layout2022, StringComparison.OrdinalIgnoreCase))
+      {
+        return Layout2022;
+      }
+
+      return Layout2025;
     }
 
     /// <summary>

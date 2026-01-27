@@ -40,6 +40,7 @@ namespace ElectricalCommands
     private List<TemplateViewModel> _templateViewModels;
     private bool _isLoadingTemplate;
     private bool _isLoadingSignature;
+    private bool _isLoadingLayout;
 
     /// <summary>
     /// Gets whether the user confirmed their selection.
@@ -63,6 +64,7 @@ namespace ElectricalCommands
       _settings = settings ?? SignatureManager.LoadSettings();
       LoadSignatures();
       LoadTemplates();
+      LoadLayoutSelection();
       UpdateStatus();
     }
 
@@ -138,6 +140,31 @@ namespace ElectricalCommands
       {
         StatusText.Text = "Active Template: None";
       }
+    }
+
+    private void LoadLayoutSelection()
+    {
+      _isLoadingLayout = true;
+
+      string layout = SignatureManager.NormalizeLayout(_settings?.SelectedLayout);
+      Layout2025Radio.IsChecked = layout == SignatureManager.Layout2025;
+      Layout2022Radio.IsChecked = layout == SignatureManager.Layout2022;
+
+      _isLoadingLayout = false;
+    }
+
+    private void SetLayoutSelection(string layout)
+    {
+      if (_isLoadingLayout || _settings == null)
+        return;
+
+      string normalized = SignatureManager.NormalizeLayout(layout);
+      if (string.Equals(_settings.SelectedLayout, normalized, StringComparison.Ordinal))
+        return;
+
+      _settings.SelectedLayout = normalized;
+      SignatureManager.SaveSettings(_settings);
+      UpdateStatus();
     }
 
     private T24TemplateEntry GetSelectedTemplate()
@@ -319,6 +346,16 @@ namespace ElectricalCommands
 
       SignatureManager.SaveSettings(_settings);
       UpdateStatus();
+    }
+
+    private void Layout2025Radio_Checked(object sender, RoutedEventArgs e)
+    {
+      SetLayoutSelection(SignatureManager.Layout2025);
+    }
+
+    private void Layout2022Radio_Checked(object sender, RoutedEventArgs e)
+    {
+      SetLayoutSelection(SignatureManager.Layout2022);
     }
 
     private void TemplateSignatureComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

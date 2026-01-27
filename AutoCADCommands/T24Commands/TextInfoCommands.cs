@@ -91,7 +91,7 @@ namespace ElectricalCommands
     /// Embedded T24 text data for automatic form filling.
     /// These are the constant text entries that will be placed on the T24 form.
     /// </summary>
-    private static readonly List<TextInfoData> T24TextData = new List<TextInfoData>
+    private static readonly List<TextInfoData> T24TextData2022 = new List<TextInfoData>
     {
       // Row 1 - Left column (Responsible Person info)
       new TextInfoData { TextType = "MText", TextContent = "{NAME}", OffsetX = 2.4575724590123826, OffsetY = -4.605522133300136, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
@@ -113,6 +113,30 @@ namespace ElectricalCommands
       // Row 2 - Right column (Phone, Date)
       new TextInfoData { TextType = "MText", TextContent = "{PHONE}", OffsetX = 6.8598242698728455, OffsetY = -2.9268530282783622, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
       new TextInfoData { TextType = "MText", TextContent = "{DATE}", OffsetX = 6.8598242698728455, OffsetY = -2.5170374839403884, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+    };
+
+    private static readonly List<TextInfoData> T24TextData2025 = new List<TextInfoData>
+    {
+      // Row 2 - Left column (Responsible Person info)
+      new TextInfoData { TextType = "MText", TextContent = "{NAME}", OffsetX = 2.4575724590123826, OffsetY = -2.177877868536209, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{COMPANY}", OffsetX = 2.4575724590123826, OffsetY = -2.489218470561264, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS1}", OffsetX = 2.4575724590123826, OffsetY = -2.7560817909954896, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS2}", OffsetX = 2.4575724590123826, OffsetY = -2.93997586225313, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+
+      // Row 2 - Right column (Phone, Date)
+      new TextInfoData { TextType = "MText", TextContent = "{DATE}", OffsetX = 6.883854789430856, OffsetY = -2.4509716625377997, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{PHONE}", OffsetX = 6.8598242698728455, OffsetY = -2.9268530282783622, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+
+      // Row 1 - Left column (Responsible Person info)
+      new TextInfoData { TextType = "MText", TextContent = "{NAME}", OffsetX = 2.4575724590123826, OffsetY = -4.614056695121912, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{COMPANY}", OffsetX = 2.4575724590123826, OffsetY = -4.976356293061125, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS1}", OffsetX = 2.4575724590123826, OffsetY = -5.1570193541036335, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS2}", OffsetX = 2.4575724590123826, OffsetY = -5.330108910222856, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+
+      // Row 1 - Right column (Phone, License, Date)
+      new TextInfoData { TextType = "MText", TextContent = "{DATE}", OffsetX = 7.0577125306994475, OffsetY = -4.969382518623496, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{LICENSE}", OffsetX = 7.067721730676951, OffsetY = -5.141140231182012, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{PHONE}", OffsetX = 7.015472016179885, OffsetY = -5.319764232627724, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
     };
 
     /// <summary>
@@ -696,7 +720,7 @@ namespace ElectricalCommands
           // 4. Now place text and images on the last page
           ed.WriteMessage($"\nPlacing text on last page at top-left: ({lastPageTopLeft.X:F4}, {lastPageTopLeft.Y:F4})");
 
-          var textDataToUse = BuildT24TextDataForTemplate(selectedTemplate);
+          var textDataToUse = BuildT24TextDataForTemplate(selectedTemplate, signatureSettings?.SelectedLayout);
           int textCount = CreateTextObjectsAtPoint(db, ed, textDataToUse, lastPageTopLeft, true);
           ed.WriteMessage($"\nCreated {textCount} text object(s) with current date: {DateTime.Now:MM/dd/yyyy}");
 
@@ -754,10 +778,11 @@ namespace ElectricalCommands
     /// <summary>
     /// Builds T24 text data with template values applied.
     /// </summary>
-    private List<TextInfoData> BuildT24TextDataForTemplate(T24TemplateEntry template)
+    private List<TextInfoData> BuildT24TextDataForTemplate(T24TemplateEntry template, string layout)
     {
+      var baseTextData = GetT24TextDataForLayout(layout);
       if (template == null)
-        return T24TextData.Select(CloneTextInfoData).ToList();
+        return baseTextData.Select(CloneTextInfoData).ToList();
 
       string name = template.ResponsibleName ?? string.Empty;
       string company = template.Company ?? string.Empty;
@@ -766,7 +791,7 @@ namespace ElectricalCommands
       string phone = template.Phone ?? string.Empty;
       string license = template.License ?? string.Empty;
 
-      return T24TextData.Select(info =>
+      return baseTextData.Select(info =>
       {
         var clone = CloneTextInfoData(info);
         clone.TextContent = (clone.TextContent ?? string.Empty)
@@ -778,6 +803,12 @@ namespace ElectricalCommands
           .Replace("{LICENSE}", license);
         return clone;
       }).ToList();
+    }
+
+    private static List<TextInfoData> GetT24TextDataForLayout(string layout)
+    {
+      string normalizedLayout = SignatureManager.NormalizeLayout(layout);
+      return normalizedLayout == SignatureManager.Layout2022 ? T24TextData2022 : T24TextData2025;
     }
 
     private static TextInfoData CloneTextInfoData(TextInfoData info)
