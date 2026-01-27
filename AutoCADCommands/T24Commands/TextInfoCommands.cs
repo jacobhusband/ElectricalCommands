@@ -94,24 +94,24 @@ namespace ElectricalCommands
     private static readonly List<TextInfoData> T24TextData = new List<TextInfoData>
     {
       // Row 1 - Left column (Responsible Person info)
-      new TextInfoData { TextType = "MText", TextContent = "Wilson Lee, PE", OffsetX = 2.4575724590123826, OffsetY = -4.605522133300136, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
-      new TextInfoData { TextType = "MText", TextContent = "ACIES Engineering", OffsetX = 2.4575724590123826, OffsetY = -4.78756234623763, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
-      new TextInfoData { TextType = "MText", TextContent = "400 N McCarthy Blvd., Suite 250", OffsetX = 2.4575724590123826, OffsetY = -4.968225407280139, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
-      new TextInfoData { TextType = "MText", TextContent = "Milipitas, CA 95035", OffsetX = 2.4575724590123826, OffsetY = -5.141314963399362, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{NAME}", OffsetX = 2.4575724590123826, OffsetY = -4.605522133300136, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{COMPANY}", OffsetX = 2.4575724590123826, OffsetY = -4.78756234623763, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS1}", OffsetX = 2.4575724590123826, OffsetY = -4.968225407280139, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS2}", OffsetX = 2.4575724590123826, OffsetY = -5.141314963399362, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
 
       // Row 1 - Right column (Phone, License, Date)
-      new TextInfoData { TextType = "MText", TextContent = "(408) 522-5255", OffsetX = 7.015472016179885, OffsetY = -5.140839890951543, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
-      new TextInfoData { TextType = "MText", TextContent = "E015418", OffsetX = 7.067721730676951, OffsetY = -4.962215889505831, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{PHONE}", OffsetX = 7.015472016179885, OffsetY = -5.140839890951543, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{LICENSE}", OffsetX = 7.067721730676951, OffsetY = -4.962215889505831, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
       new TextInfoData { TextType = "MText", TextContent = "{DATE}", OffsetX = 7.0577125306994475, OffsetY = -4.790458176947315, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
 
       // Row 2 - Left column (Responsible Person info - duplicate section)
-      new TextInfoData { TextType = "MText", TextContent = "Wilson Lee, PE", OffsetX = 2.4575724590123826, OffsetY = -2.177877868536209, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
-      new TextInfoData { TextType = "MText", TextContent = "ACIES Engineering", OffsetX = 2.4575724590123826, OffsetY = -2.489218470561264, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
-      new TextInfoData { TextType = "MText", TextContent = "400 N McCarthy Blvd., Suite 250", OffsetX = 2.4575724590123826, OffsetY = -2.7560817909954896, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
-      new TextInfoData { TextType = "MText", TextContent = "Milipitas, CA 95035", OffsetX = 2.4575724590123826, OffsetY = -2.93997586225313, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{NAME}", OffsetX = 2.4575724590123826, OffsetY = -2.177877868536209, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{COMPANY}", OffsetX = 2.4575724590123826, OffsetY = -2.489218470561264, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS1}", OffsetX = 2.4575724590123826, OffsetY = -2.7560817909954896, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS2}", OffsetX = 2.4575724590123826, OffsetY = -2.93997586225313, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
 
       // Row 2 - Right column (Phone, Date)
-      new TextInfoData { TextType = "MText", TextContent = "(408) 522-5255", OffsetX = 6.8598242698728455, OffsetY = -2.9268530282783622, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{PHONE}", OffsetX = 6.8598242698728455, OffsetY = -2.9268530282783622, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
       new TextInfoData { TextType = "MText", TextContent = "{DATE}", OffsetX = 6.8598242698728455, OffsetY = -2.5170374839403884, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
     };
 
@@ -499,19 +499,21 @@ namespace ElectricalCommands
 
         ed.WriteMessage($"\nInserting {pageCount} PDF page(s)...");
 
-        // 3. Get anchor point with Manage option for signatures
+        // 3. Get anchor point with Manage option for templates
         T24SignatureSettings signatureSettings = SignatureManager.LoadSettings();
-        SignatureEntry selectedSignature = SignatureManager.ValidateAndGetSignature(signatureSettings);
+        T24TemplateEntry selectedTemplate = SignatureManager.ValidateAndGetTemplate(signatureSettings);
+        SignatureEntry selectedSignature = SignatureManager.GetSignatureForTemplate(signatureSettings, selectedTemplate);
 
         Point3d anchorTR = Point3d.Origin;
         bool pointSelected = false;
 
         while (!pointSelected)
         {
+          string templateName = selectedTemplate?.Name ?? "Default";
           string signatureName = selectedSignature?.Name ?? "None";
 
           PromptPointOptions ppo = new PromptPointOptions(
-              $"\nSignature: [{signatureName}] - Select top-right point or [Manage]: ");
+              $"\nTemplate: [{templateName}] (Signature: {signatureName}) - Select top-right point or [Manage]: ");
           ppo.Keywords.Add("Manage");
           ppo.AllowNone = false;
 
@@ -521,14 +523,15 @@ namespace ElectricalCommands
           {
             if (ppr.StringResult == "Manage")
             {
-              // Open signature manager dialog
+              // Open template manager dialog
               var managerWindow = new SignatureManagerWindow(signatureSettings);
               if (managerWindow.ShowDialog() == true)
               {
                 // Reload settings after dialog
                 signatureSettings = SignatureManager.LoadSettings();
-                selectedSignature = SignatureManager.ValidateAndGetSignature(signatureSettings);
-                ed.WriteMessage($"\nSignature updated: {selectedSignature?.Name ?? "None"}");
+                selectedTemplate = SignatureManager.ValidateAndGetTemplate(signatureSettings);
+                selectedSignature = SignatureManager.GetSignatureForTemplate(signatureSettings, selectedTemplate);
+                ed.WriteMessage($"\nTemplate updated: {selectedTemplate?.Name ?? "Default"}");
               }
             }
           }
@@ -693,7 +696,8 @@ namespace ElectricalCommands
           // 4. Now place text and images on the last page
           ed.WriteMessage($"\nPlacing text on last page at top-left: ({lastPageTopLeft.X:F4}, {lastPageTopLeft.Y:F4})");
 
-          int textCount = CreateTextObjectsAtPoint(db, ed, T24TextData, lastPageTopLeft, true);
+          var textDataToUse = BuildT24TextDataForTemplate(selectedTemplate);
+          int textCount = CreateTextObjectsAtPoint(db, ed, textDataToUse, lastPageTopLeft, true);
           ed.WriteMessage($"\nCreated {textCount} text object(s) with current date: {DateTime.Now:MM/dd/yyyy}");
 
           // 5. Place images using selected signature
@@ -746,6 +750,61 @@ namespace ElectricalCommands
     // ============================================================================
     // HELPER METHODS
     // ============================================================================
+
+    /// <summary>
+    /// Builds T24 text data with template values applied.
+    /// </summary>
+    private List<TextInfoData> BuildT24TextDataForTemplate(T24TemplateEntry template)
+    {
+      if (template == null)
+        return T24TextData.Select(CloneTextInfoData).ToList();
+
+      string name = template.ResponsibleName ?? string.Empty;
+      string company = template.Company ?? string.Empty;
+      string address1 = template.AddressLine1 ?? string.Empty;
+      string address2 = template.AddressLine2 ?? string.Empty;
+      string phone = template.Phone ?? string.Empty;
+      string license = template.License ?? string.Empty;
+
+      return T24TextData.Select(info =>
+      {
+        var clone = CloneTextInfoData(info);
+        clone.TextContent = (clone.TextContent ?? string.Empty)
+          .Replace("{NAME}", name)
+          .Replace("{COMPANY}", company)
+          .Replace("{ADDRESS1}", address1)
+          .Replace("{ADDRESS2}", address2)
+          .Replace("{PHONE}", phone)
+          .Replace("{LICENSE}", license);
+        return clone;
+      }).ToList();
+    }
+
+    private static TextInfoData CloneTextInfoData(TextInfoData info)
+    {
+      return new TextInfoData
+      {
+        TextType = info.TextType,
+        TextContent = info.TextContent,
+        OffsetX = info.OffsetX,
+        OffsetY = info.OffsetY,
+        OffsetZ = info.OffsetZ,
+        Height = info.Height,
+        Rotation = info.Rotation,
+        TextStyleName = info.TextStyleName,
+        Layer = info.Layer,
+        ColorIndex = info.ColorIndex,
+        WidthFactor = info.WidthFactor,
+        Oblique = info.Oblique,
+        HorizontalMode = info.HorizontalMode,
+        VerticalMode = info.VerticalMode,
+        AlignmentOffsetX = info.AlignmentOffsetX,
+        AlignmentOffsetY = info.AlignmentOffsetY,
+        AlignmentOffsetZ = info.AlignmentOffsetZ,
+        MTextWidth = info.MTextWidth,
+        Attachment = info.Attachment
+      };
+    }
 
     /// <summary>
     /// Creates text objects at a specified base point from a list of TextInfoData.

@@ -39,6 +39,67 @@ namespace ElectricalCommands
   }
 
   /// <summary>
+  /// Represents a single template entry for T24 form data.
+  /// </summary>
+  public class T24TemplateEntry
+  {
+    /// <summary>
+    /// Unique identifier for the template.
+    /// </summary>
+    public string Id { get; set; }
+
+    /// <summary>
+    /// User-friendly template name (e.g., "Wilson").
+    /// </summary>
+    public string Name { get; set; }
+
+    /// <summary>
+    /// Responsible person name (e.g., "Wilson Lee, PE").
+    /// </summary>
+    public string ResponsibleName { get; set; }
+
+    /// <summary>
+    /// Company name.
+    /// </summary>
+    public string Company { get; set; }
+
+    /// <summary>
+    /// Address line 1.
+    /// </summary>
+    public string AddressLine1 { get; set; }
+
+    /// <summary>
+    /// Address line 2.
+    /// </summary>
+    public string AddressLine2 { get; set; }
+
+    /// <summary>
+    /// Phone number.
+    /// </summary>
+    public string Phone { get; set; }
+
+    /// <summary>
+    /// License number.
+    /// </summary>
+    public string License { get; set; }
+
+    /// <summary>
+    /// Signature ID to use with this template.
+    /// </summary>
+    public string SignatureId { get; set; }
+
+    /// <summary>
+    /// True if this is the bundled default template (cannot be deleted).
+    /// </summary>
+    public bool IsDefault { get; set; }
+
+    /// <summary>
+    /// When this template was added.
+    /// </summary>
+    public DateTime DateAdded { get; set; }
+  }
+
+  /// <summary>
   /// Settings for T24 signature management.
   /// </summary>
   public class T24SignatureSettings
@@ -52,6 +113,16 @@ namespace ElectricalCommands
     /// List of all available signatures.
     /// </summary>
     public List<SignatureEntry> Signatures { get; set; } = new List<SignatureEntry>();
+
+    /// <summary>
+    /// ID of the currently selected/active template.
+    /// </summary>
+    public string SelectedTemplateId { get; set; }
+
+    /// <summary>
+    /// List of all available templates.
+    /// </summary>
+    public List<T24TemplateEntry> Templates { get; set; } = new List<T24TemplateEntry>();
   }
 
   /// <summary>
@@ -63,6 +134,13 @@ namespace ElectricalCommands
     private const string DEFAULT_SIGNATURE_FILENAME = "WL_Sig_Blue_Small.gif";
     private const string SETTINGS_FILENAME = "T24SignatureSettings.json";
     private const string SIGNATURES_FOLDER = "signatures";
+    private const string DEFAULT_TEMPLATE_NAME = "Wilson";
+    private const string DEFAULT_RESPONSIBLE_NAME = "Wilson Lee, PE";
+    private const string DEFAULT_COMPANY = "ACIES Engineering";
+    private const string DEFAULT_ADDRESS1 = "400 N McCarthy Blvd., Suite 250";
+    private const string DEFAULT_ADDRESS2 = "Milipitas, CA 95035";
+    private const string DEFAULT_PHONE = "(408) 522-5255";
+    private const string DEFAULT_LICENSE = "E015418";
 
     /// <summary>
     /// Gets the path to the signatures storage folder.
@@ -100,6 +178,7 @@ namespace ElectricalCommands
       string settingsPath = GetSettingsFilePath();
 
       T24SignatureSettings settings = null;
+      bool settingsChanged = false;
 
       // Try to load existing settings
       if (File.Exists(settingsPath))
@@ -116,9 +195,36 @@ namespace ElectricalCommands
       }
 
       // Initialize if needed
-      if (settings == null || settings.Signatures == null || settings.Signatures.Count == 0)
+      if (settings == null)
       {
         settings = InitializeDefaultSettings();
+        return settings;
+      }
+
+      if (settings.Signatures == null)
+      {
+        settings.Signatures = new List<SignatureEntry>();
+        settingsChanged = true;
+      }
+
+      if (settings.Signatures.Count == 0)
+      {
+        // Ensure default signature exists
+        string defaultPath = ExtractDefaultSignature();
+        if (!string.IsNullOrEmpty(defaultPath))
+        {
+          var defaultEntry = new SignatureEntry
+          {
+            Id = Guid.NewGuid().ToString(),
+            Name = DEFAULT_SIGNATURE_NAME,
+            FilePath = defaultPath,
+            IsDefault = true,
+            DateAdded = DateTime.Now
+          };
+          settings.Signatures.Add(defaultEntry);
+          settings.SelectedSignatureId = defaultEntry.Id;
+          settingsChanged = true;
+        }
       }
 
       // Validate that selected signature exists
@@ -130,11 +236,29 @@ namespace ElectricalCommands
         if (defaultSig != null)
         {
           settings.SelectedSignatureId = defaultSig.Id;
+          settingsChanged = true;
         }
         else if (settings.Signatures.Count > 0)
         {
           settings.SelectedSignatureId = settings.Signatures[0].Id;
+          settingsChanged = true;
         }
+      }
+
+      settingsChanged |= EnsureTemplates(settings);
+
+      var activeTemplate = GetSelectedTemplate(settings);
+      if (activeTemplate != null &&
+          !string.IsNullOrEmpty(activeTemplate.SignatureId) &&
+          activeTemplate.SignatureId != settings.SelectedSignatureId)
+      {
+        settings.SelectedSignatureId = activeTemplate.SignatureId;
+        settingsChanged = true;
+      }
+
+      if (settingsChanged)
+      {
+        SaveSettings(settings);
       }
 
       return settings;
@@ -230,10 +354,19 @@ namespace ElectricalCommands
 
       settings.Signatures.Remove(entry);
 
+      // Update templates referencing this signature
+      var defaultSig = settings.Signatures.FirstOrDefault(s => s.IsDefault) ?? settings.Signatures.FirstOrDefault();
+      if (settings.Templates != null && settings.Templates.Count > 0)
+      {
+        foreach (var template in settings.Templates.Where(t => t.SignatureId == signatureId))
+        {
+          template.SignatureId = defaultSig?.Id;
+        }
+      }
+
       // If this was the selected signature, switch to default
       if (settings.SelectedSignatureId == signatureId)
       {
-        var defaultSig = settings.Signatures.FirstOrDefault(s => s.IsDefault);
         settings.SelectedSignatureId = defaultSig?.Id ?? settings.Signatures.FirstOrDefault()?.Id;
       }
 
@@ -260,7 +393,8 @@ namespace ElectricalCommands
     {
       var settings = new T24SignatureSettings
       {
-        Signatures = new List<SignatureEntry>()
+        Signatures = new List<SignatureEntry>(),
+        Templates = new List<T24TemplateEntry>()
       };
 
       // Extract bundled default signature
@@ -279,6 +413,14 @@ namespace ElectricalCommands
 
         settings.Signatures.Add(defaultEntry);
         settings.SelectedSignatureId = defaultEntry.Id;
+      }
+
+      // Create default template
+      var defaultTemplate = CreateDefaultTemplate(settings);
+      if (defaultTemplate != null)
+      {
+        settings.Templates.Add(defaultTemplate);
+        settings.SelectedTemplateId = defaultTemplate.Id;
       }
 
       SaveSettings(settings);
@@ -395,6 +537,213 @@ namespace ElectricalCommands
       }
 
       return null;
+    }
+
+    /// <summary>
+    /// Gets the currently selected template entry.
+    /// </summary>
+    public static T24TemplateEntry GetSelectedTemplate(T24SignatureSettings settings)
+    {
+      if (settings == null || settings.Templates == null || settings.Templates.Count == 0)
+        return null;
+
+      if (string.IsNullOrEmpty(settings.SelectedTemplateId))
+        return settings.Templates.FirstOrDefault();
+
+      return settings.Templates.FirstOrDefault(t => t.Id == settings.SelectedTemplateId) ?? settings.Templates.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Gets the signature entry associated with a template.
+    /// </summary>
+    public static SignatureEntry GetSignatureForTemplate(T24SignatureSettings settings, T24TemplateEntry template)
+    {
+      if (settings == null || template == null || string.IsNullOrEmpty(template.SignatureId))
+        return null;
+
+      return settings.Signatures.FirstOrDefault(s => s.Id == template.SignatureId);
+    }
+
+    /// <summary>
+    /// Validates selected template and signature; falls back to defaults if needed.
+    /// </summary>
+    public static T24TemplateEntry ValidateAndGetTemplate(T24SignatureSettings settings)
+    {
+      if (settings == null)
+        return null;
+
+      bool settingsChanged = false;
+
+      if (settings.Templates == null || settings.Templates.Count == 0)
+      {
+        settingsChanged |= EnsureTemplates(settings);
+      }
+
+      var template = GetSelectedTemplate(settings);
+      if (template == null)
+      {
+        settingsChanged |= EnsureTemplates(settings);
+        template = GetSelectedTemplate(settings);
+      }
+
+      if (template != null)
+      {
+        var signature = GetSignatureForTemplate(settings, template);
+        if (signature == null)
+        {
+          var defaultSig = settings.Signatures.FirstOrDefault(s => s.IsDefault) ?? settings.Signatures.FirstOrDefault();
+          template.SignatureId = defaultSig?.Id;
+          signature = defaultSig;
+          settingsChanged = true;
+        }
+
+        if (signature != null && !File.Exists(signature.FilePath))
+        {
+          signature = ValidateAndGetSignature(settings);
+          if (signature != null)
+          {
+            template.SignatureId = signature.Id;
+            settingsChanged = true;
+          }
+        }
+      }
+
+      if (settingsChanged)
+      {
+        SaveSettings(settings);
+      }
+
+      return template;
+    }
+
+    /// <summary>
+    /// Adds a new template, optionally cloning an existing template.
+    /// </summary>
+    public static T24TemplateEntry AddTemplate(T24SignatureSettings settings, T24TemplateEntry sourceTemplate, string name)
+    {
+      if (settings == null || string.IsNullOrWhiteSpace(name))
+        return null;
+
+      var template = new T24TemplateEntry
+      {
+        Id = Guid.NewGuid().ToString(),
+        Name = name.Trim(),
+        ResponsibleName = sourceTemplate?.ResponsibleName ?? DEFAULT_RESPONSIBLE_NAME,
+        Company = sourceTemplate?.Company ?? DEFAULT_COMPANY,
+        AddressLine1 = sourceTemplate?.AddressLine1 ?? DEFAULT_ADDRESS1,
+        AddressLine2 = sourceTemplate?.AddressLine2 ?? DEFAULT_ADDRESS2,
+        Phone = sourceTemplate?.Phone ?? DEFAULT_PHONE,
+        License = sourceTemplate?.License ?? DEFAULT_LICENSE,
+        SignatureId = sourceTemplate?.SignatureId ?? settings.SelectedSignatureId ?? settings.Signatures.FirstOrDefault()?.Id,
+        IsDefault = false,
+        DateAdded = DateTime.Now
+      };
+
+      settings.Templates.Add(template);
+      return template;
+    }
+
+    /// <summary>
+    /// Renames a template.
+    /// </summary>
+    public static bool RenameTemplate(T24SignatureSettings settings, string templateId, string newName)
+    {
+      var entry = settings?.Templates?.FirstOrDefault(t => t.Id == templateId);
+      if (entry == null || string.IsNullOrWhiteSpace(newName))
+        return false;
+
+      entry.Name = newName.Trim();
+      return true;
+    }
+
+    /// <summary>
+    /// Removes a template (cannot remove default).
+    /// </summary>
+    public static bool RemoveTemplate(T24SignatureSettings settings, string templateId)
+    {
+      var entry = settings?.Templates?.FirstOrDefault(t => t.Id == templateId);
+      if (entry == null || entry.IsDefault)
+        return false;
+
+      settings.Templates.Remove(entry);
+
+      if (settings.SelectedTemplateId == templateId)
+      {
+        var defaultTemplate = settings.Templates.FirstOrDefault(t => t.IsDefault);
+        settings.SelectedTemplateId = defaultTemplate?.Id ?? settings.Templates.FirstOrDefault()?.Id;
+      }
+
+      return true;
+    }
+
+    private static T24TemplateEntry CreateDefaultTemplate(T24SignatureSettings settings)
+    {
+      var selectedSig = settings.Signatures.FirstOrDefault(s => s.Id == settings.SelectedSignatureId);
+      var defaultSig = selectedSig ?? settings.Signatures.FirstOrDefault(s => s.IsDefault) ?? settings.Signatures.FirstOrDefault();
+
+      return new T24TemplateEntry
+      {
+        Id = Guid.NewGuid().ToString(),
+        Name = DEFAULT_TEMPLATE_NAME,
+        ResponsibleName = DEFAULT_RESPONSIBLE_NAME,
+        Company = DEFAULT_COMPANY,
+        AddressLine1 = DEFAULT_ADDRESS1,
+        AddressLine2 = DEFAULT_ADDRESS2,
+        Phone = DEFAULT_PHONE,
+        License = DEFAULT_LICENSE,
+        SignatureId = defaultSig?.Id,
+        IsDefault = true,
+        DateAdded = DateTime.Now
+      };
+    }
+
+    private static bool EnsureTemplates(T24SignatureSettings settings)
+    {
+      bool settingsChanged = false;
+
+      if (settings.Templates == null)
+      {
+        settings.Templates = new List<T24TemplateEntry>();
+        settingsChanged = true;
+      }
+
+      if (settings.Templates.Count == 0)
+      {
+        var defaultTemplate = CreateDefaultTemplate(settings);
+        if (defaultTemplate != null)
+        {
+          settings.Templates.Add(defaultTemplate);
+          settings.SelectedTemplateId = defaultTemplate.Id;
+          settingsChanged = true;
+        }
+      }
+
+      if (string.IsNullOrEmpty(settings.SelectedTemplateId) ||
+          !settings.Templates.Any(t => t.Id == settings.SelectedTemplateId))
+      {
+        var defaultTemplate = settings.Templates.FirstOrDefault(t => t.IsDefault);
+        settings.SelectedTemplateId = defaultTemplate?.Id ?? settings.Templates.FirstOrDefault()?.Id;
+        settingsChanged = true;
+      }
+
+      if (!settings.Templates.Any(t => t.IsDefault) && settings.Templates.Count > 0)
+      {
+        settings.Templates[0].IsDefault = true;
+        settingsChanged = true;
+      }
+
+      var defaultSig = settings.Signatures.FirstOrDefault(s => s.IsDefault) ?? settings.Signatures.FirstOrDefault();
+      foreach (var template in settings.Templates)
+      {
+        if (string.IsNullOrEmpty(template.SignatureId) ||
+            !settings.Signatures.Any(s => s.Id == template.SignatureId))
+        {
+          template.SignatureId = defaultSig?.Id;
+          settingsChanged = true;
+        }
+      }
+
+      return settingsChanged;
     }
   }
 }

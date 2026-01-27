@@ -1,8 +1,8 @@
 <Window x:Class="ElectricalCommands.SignatureManagerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="T24 Signature Manager"
-        Height="380" Width="480"
+        Title="T24 Template Manager"
+        Height="560" Width="720"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         ShowInTaskbar="False">
@@ -20,73 +20,196 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <TextBlock Grid.Row="0" Text="Manage your T24 form signatures:"
+        <TextBlock Grid.Row="0" Text="Manage T24 templates and signatures:"
                    FontWeight="SemiBold" Margin="0,0,0,8"/>
 
         <!-- Main Content -->
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="12"/>
-                <ColumnDefinition Width="160"/>
-            </Grid.ColumnDefinitions>
+        <TabControl Grid.Row="1" x:Name="ManagerTabs">
+            <TabItem Header="Templates">
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="220"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-            <!-- Signature List -->
-            <GroupBox Grid.Column="0" Header="Signatures">
-                <ListBox x:Name="SignatureListBox"
-                         SelectionChanged="SignatureListBox_SelectionChanged"
-                         HorizontalContentAlignment="Stretch">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <Grid>
+                    <!-- Template List -->
+                    <GroupBox Grid.Column="0" Grid.Row="0" Header="Templates">
+                        <ListBox x:Name="TemplateListBox"
+                                 SelectionChanged="TemplateListBox_SelectionChanged"
+                                 HorizontalContentAlignment="Stretch">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <RadioButton Grid.Column="0"
+                                                     IsChecked="{Binding IsActive, Mode=OneWay}"
+                                                     GroupName="Templates"
+                                                     VerticalAlignment="Center"
+                                                     Margin="0,0,6,0"
+                                                     IsHitTestVisible="False"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Name}"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </GroupBox>
+
+                    <!-- Template Buttons -->
+                    <StackPanel Grid.Column="0" Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button x:Name="AddTemplateButton" Content="Add New" Click="AddTemplateButton_Click"/>
+                        <Button x:Name="RenameTemplateButton" Content="Rename" Click="RenameTemplateButton_Click" Margin="8,0,0,0"/>
+                        <Button x:Name="DeleteTemplateButton" Content="Delete" Click="DeleteTemplateButton_Click" Margin="8,0,0,0"/>
+                    </StackPanel>
+
+                    <!-- Template Details -->
+                    <StackPanel Grid.Column="2" Grid.Row="0" Grid.RowSpan="2">
+                        <GroupBox Header="Details">
+                            <Grid Margin="8">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="120"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <RadioButton Grid.Column="0"
-                                             IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                             GroupName="Signatures"
-                                             VerticalAlignment="Center"
-                                             Margin="0,0,6,0"
-                                             IsHitTestVisible="False"/>
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding Name}"
-                                           VerticalAlignment="Center"/>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Responsible:" VerticalAlignment="Center"/>
+                                <TextBox Grid.Row="0" Grid.Column="1" x:Name="ResponsibleNameTextBox" TextChanged="TemplateField_TextChanged"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Company:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" x:Name="CompanyTextBox" Margin="0,8,0,0" TextChanged="TemplateField_TextChanged"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Address 1:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" x:Name="Address1TextBox" Margin="0,8,0,0" TextChanged="TemplateField_TextChanged"/>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Address 2:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                <TextBox Grid.Row="3" Grid.Column="1" x:Name="Address2TextBox" Margin="0,8,0,0" TextChanged="TemplateField_TextChanged"/>
+
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Phone:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                <TextBox Grid.Row="4" Grid.Column="1" x:Name="PhoneTextBox" Margin="0,8,0,0" TextChanged="TemplateField_TextChanged"/>
+
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="License:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                <TextBox Grid.Row="5" Grid.Column="1" x:Name="LicenseTextBox" Margin="0,8,0,0" TextChanged="TemplateField_TextChanged"/>
                             </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </GroupBox>
+                        </GroupBox>
 
-            <!-- Preview -->
-            <GroupBox Grid.Column="2" Header="Preview">
-                <Border Background="#F5F5F5" CornerRadius="4">
-                    <Image x:Name="PreviewImage"
-                           Stretch="Uniform"
-                           Margin="8"
-                           RenderOptions.BitmapScalingMode="HighQuality"/>
-                </Border>
-            </GroupBox>
-        </Grid>
+                        <GroupBox Header="Signature" Margin="0,8,0,0">
+                            <Grid Margin="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
 
-        <!-- Action Buttons -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,0">
-            <Button x:Name="AddButton" Content="Add New" Click="AddButton_Click"/>
-            <Button x:Name="RenameButton" Content="Rename" Click="RenameButton_Click" Margin="8,0,0,0"/>
-            <Button x:Name="DeleteButton" Content="Delete" Click="DeleteButton_Click" Margin="8,0,0,0"/>
-        </StackPanel>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Signature:" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="TemplateSignatureComboBox"
+                                          DisplayMemberPath="Name"
+                                          SelectionChanged="TemplateSignatureComboBox_SelectionChanged"/>
+
+                                <Button Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" x:Name="ManageSignaturesButton"
+                                        Content="Manage Signatures..." Click="ManageSignaturesButton_Click" Margin="0,8,0,0"/>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="Preview" Margin="0,8,0,0">
+                            <Border Background="#F5F5F5" CornerRadius="4">
+                                <Image x:Name="TemplatePreviewImage"
+                                       Stretch="Uniform"
+                                       Margin="8"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </Border>
+                        </GroupBox>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Signatures">
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="200"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Signature List -->
+                    <GroupBox Grid.Column="0" Grid.Row="0" Header="Signatures">
+                        <ListBox x:Name="SignatureListBox"
+                                 SelectionChanged="SignatureListBox_SelectionChanged"
+                                 HorizontalContentAlignment="Stretch">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <RadioButton Grid.Column="0"
+                                                     IsChecked="{Binding IsActive, Mode=OneWay}"
+                                                     GroupName="Signatures"
+                                                     VerticalAlignment="Center"
+                                                     Margin="0,0,6,0"
+                                                     IsHitTestVisible="False"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Name}"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </GroupBox>
+
+                    <!-- Preview -->
+                    <GroupBox Grid.Column="2" Grid.Row="0" Header="Preview">
+                        <Border Background="#F5F5F5" CornerRadius="4">
+                            <Image x:Name="PreviewImage"
+                                   Stretch="Uniform"
+                                   Margin="8"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </Border>
+                    </GroupBox>
+
+                    <!-- Signature Buttons -->
+                    <StackPanel Grid.Column="0" Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button x:Name="AddSignatureButton" Content="Add New" Click="AddSignatureButton_Click"/>
+                        <Button x:Name="RenameSignatureButton" Content="Rename" Click="RenameSignatureButton_Click" Margin="8,0,0,0"/>
+                        <Button x:Name="DeleteSignatureButton" Content="Delete" Click="DeleteSignatureButton_Click" Margin="8,0,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
 
         <!-- Status -->
-        <Border Grid.Row="3" Background="#E8F4E8" CornerRadius="4" Padding="8" Margin="0,12,0,0">
-            <TextBlock x:Name="StatusText" Text="Active: Wilson Lee (Default)"/>
+        <Border Grid.Row="2" Background="#E8F4E8" CornerRadius="4" Padding="8" Margin="0,12,0,0">
+            <TextBlock x:Name="StatusText" Text="Active Template: Wilson"/>
         </Border>
 
         <!-- Dialog Buttons -->
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button x:Name="UseSelectedButton" Content="Use Selected" Click="UseSelectedButton_Click" IsDefault="True"/>
             <Button Content="Cancel" Click="CancelButton_Click" Margin="8,0,0,0" IsCancel="True"/>
         </StackPanel>
