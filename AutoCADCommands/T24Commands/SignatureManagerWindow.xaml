@@ -1,0 +1,94 @@
+<Window x:Class="ElectricalCommands.SignatureManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="T24 Signature Manager"
+        Height="380" Width="480"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False">
+
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="MinWidth" Value="80"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0" Text="Manage your T24 form signatures:"
+                   FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+        <!-- Main Content -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="160"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Signature List -->
+            <GroupBox Grid.Column="0" Header="Signatures">
+                <ListBox x:Name="SignatureListBox"
+                         SelectionChanged="SignatureListBox_SelectionChanged"
+                         HorizontalContentAlignment="Stretch">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <RadioButton Grid.Column="0"
+                                             IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                             GroupName="Signatures"
+                                             VerticalAlignment="Center"
+                                             Margin="0,0,6,0"
+                                             IsHitTestVisible="False"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Name}"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </GroupBox>
+
+            <!-- Preview -->
+            <GroupBox Grid.Column="2" Header="Preview">
+                <Border Background="#F5F5F5" CornerRadius="4">
+                    <Image x:Name="PreviewImage"
+                           Stretch="Uniform"
+                           Margin="8"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                </Border>
+            </GroupBox>
+        </Grid>
+
+        <!-- Action Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,0">
+            <Button x:Name="AddButton" Content="Add New" Click="AddButton_Click"/>
+            <Button x:Name="RenameButton" Content="Rename" Click="RenameButton_Click" Margin="8,0,0,0"/>
+            <Button x:Name="DeleteButton" Content="Delete" Click="DeleteButton_Click" Margin="8,0,0,0"/>
+        </StackPanel>
+
+        <!-- Status -->
+        <Border Grid.Row="3" Background="#E8F4E8" CornerRadius="4" Padding="8" Margin="0,12,0,0">
+            <TextBlock x:Name="StatusText" Text="Active: Wilson Lee (Default)"/>
+        </Border>
+
+        <!-- Dialog Buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="UseSelectedButton" Content="Use Selected" Click="UseSelectedButton_Click" IsDefault="True"/>
+            <Button Content="Cancel" Click="CancelButton_Click" Margin="8,0,0,0" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

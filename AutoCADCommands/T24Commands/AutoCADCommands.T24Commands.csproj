@@ -22,6 +22,16 @@
     <Compile Include="*.cs" />
   </ItemGroup>
 
+  <!-- WPF XAML Pages -->
+  <ItemGroup>
+    <Page Include="SignatureManagerWindow.xaml" />
+  </ItemGroup>
+
+  <!-- Embedded Resources -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\WL_Sig_Blue_Small.gif" />
+  </ItemGroup>
+
   <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">
     <PropertyGroup>
       <BundleDir>$(AppData)\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>

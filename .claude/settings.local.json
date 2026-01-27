@@ -3,7 +3,8 @@
     "allow": [
       "Bash(dotnet build:*)",
       "Bash(powershell:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(copy \"P:\\\\Standards\\\\STAMPS\\\\signatures\\\\WL_Sig_Blue_Small.gif\" \"c:\\\\Users\\\\JacobH\\\\Documents\\\\dev\\\\ElectricalCommands\\\\AutoCADCommands\\\\T24Commands\\\\Resources\\\\WL_Sig_Blue_Small.gif\")"
     ]
   }
 }
