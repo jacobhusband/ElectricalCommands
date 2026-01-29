@@ -22,6 +22,11 @@
     <Compile Include="*.cs" />
   </ItemGroup>
 
+  <!-- WPF XAML Pages -->
+  <ItemGroup>
+    <Page Include="XrefPickerWindow.xaml" />
+  </ItemGroup>
+
   <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">
     <PropertyGroup>
       <BundleDir>$(AppData)\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>

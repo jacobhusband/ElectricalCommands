@@ -4,7 +4,11 @@
       "Bash(dotnet build:*)",
       "Bash(powershell:*)",
       "Bash(findstr:*)",
-      "Bash(copy \"P:\\\\Standards\\\\STAMPS\\\\signatures\\\\WL_Sig_Blue_Small.gif\" \"c:\\\\Users\\\\JacobH\\\\Documents\\\\dev\\\\ElectricalCommands\\\\AutoCADCommands\\\\T24Commands\\\\Resources\\\\WL_Sig_Blue_Small.gif\")"
+      "Bash(copy \"P:\\\\Standards\\\\STAMPS\\\\signatures\\\\WL_Sig_Blue_Small.gif\" \"c:\\\\Users\\\\JacobH\\\\Documents\\\\dev\\\\ElectricalCommands\\\\AutoCADCommands\\\\T24Commands\\\\Resources\\\\WL_Sig_Blue_Small.gif\")",
+      "Bash(where:*)",
+      "Bash(dotnet --list-sdks:*)",
+      "Bash(\"C:\\\\Users\\\\JacobH\\\\OneDrive - ACIES Engineering\\\\Documents\\\\dotnet-sdk\\\\dotnet.exe\" --list-sdks)",
+      "Bash(\"C:\\\\Users\\\\JacobH\\\\OneDrive - ACIES Engineering\\\\Documents\\\\dotnet-sdk\\\\dotnet.exe\" build \"c:\\\\Users\\\\JacobH\\\\Documents\\\\dev\\\\ElectricalCommands\\\\AutoCADCommands\\\\GeneralCommands\\\\AutoCADCommands.GeneralCommands.csproj\")"
     ]
   }
 }
