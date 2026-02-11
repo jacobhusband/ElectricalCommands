@@ -40,6 +40,11 @@ namespace AutoCADCleanupTool
                         var btr = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
                         if (btr != null && btr.IsFromExternalReference)
                         {
+                            if (CleanupCommands.IsProtectedTitleBlockXref(btrId))
+                            {
+                                ed.WriteMessage($"\nSkipping protected titleblock XREF: {btr.Name}");
+                                continue;
+                            }
                             xrefIdsToDetach.Add(btrId);
                         }
                     }
@@ -268,6 +273,10 @@ namespace AutoCADCleanupTool
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nAn error occurred during XREF removal: {ex.Message}");
+            }
+            finally
+            {
+                CleanupCommands.ResetStrictTitleBlockProtection();
             }
         }
 

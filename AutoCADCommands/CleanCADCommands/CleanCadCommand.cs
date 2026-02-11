@@ -4,6 +4,8 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using System;
+using System.IO;
+using System.Linq;
 
 namespace AutoCADCleanupTool
 {
@@ -21,6 +23,7 @@ namespace AutoCADCleanupTool
 
             try
             {
+                CleanupCommands.ResetStrictTitleBlockProtection();
                 _lastFoundTitleBlockPoly = null;
 
                 EnsureAllLayersVisibleAndUnlocked(db, ed);
@@ -74,6 +77,13 @@ namespace AutoCADCleanupTool
             var db = doc.Database;
 
             _lastFoundTitleBlockPoly = null; // Reset at the start of the workflow
+            CleanupCommands.ResetStrictTitleBlockProtection();
+
+            if (!TryConfigureTitleBlockProtectionForCleanCad(ed, db))
+            {
+                CleanupCommands.ResetStrictTitleBlockProtection();
+                return;
+            }
 
             try
             {
@@ -111,7 +121,126 @@ namespace AutoCADCleanupTool
             {
                 ed.WriteMessage($"\nCLEANSHEET failed to queue commands: {ex.Message}");
                 _isCleanSheetWorkflowActive = false; // Reset flag on failure
+                CleanupCommands.ResetStrictTitleBlockProtection();
             }
+        }
+
+        private static bool TryConfigureTitleBlockProtectionForCleanCad(Editor ed, Database db)
+        {
+            var resolution = TitleBlockXrefResolver.Resolve(db);
+            if (resolution.Kind == TitleBlockResolutionKind.Resolved && resolution.Winner != null)
+            {
+                var winner = resolution.Winner;
+                CleanupCommands.EnableStrictTitleBlockProtection(winner.XrefBtrId, winner.BlockName, winner.PathName);
+
+                string fileName = string.Empty;
+                try { fileName = Path.GetFileName(winner.PathName ?? string.Empty) ?? string.Empty; } catch { }
+                string fileSuffix = string.IsNullOrWhiteSpace(fileName) ? string.Empty : $" ({fileName})";
+
+                ed.WriteMessage(
+                    $"\nCLEANCAD: Protecting inferred titleblock XREF '{winner.BlockName}' on layout '{winner.LayoutName}'{fileSuffix}.");
+                return true;
+            }
+
+            if (resolution.Candidates.Count > 0)
+            {
+                ed.WriteMessage("\nCLEANCAD: Titleblock inference was ambiguous. Top candidate XREFs:");
+                foreach (var candidate in resolution.Candidates.Take(8))
+                {
+                    string fileName = string.Empty;
+                    try { fileName = Path.GetFileName(candidate.PathName ?? string.Empty) ?? string.Empty; } catch { }
+                    string fileSuffix = string.IsNullOrWhiteSpace(fileName) ? string.Empty : $" ({fileName})";
+                    ed.WriteMessage(
+                        $"\n - Score {candidate.Score}: Layout '{candidate.LayoutName}', XREF '{candidate.BlockName}'{fileSuffix}");
+                }
+            }
+            else
+            {
+                ed.WriteMessage("\nCLEANCAD: No paper-space XREF candidates were inferred as a titleblock.");
+            }
+
+            if (!TryPromptForTitleBlockXrefSelection(
+                ed,
+                db,
+                out ObjectId selectedXrefId,
+                out string selectedName,
+                out string selectedPath,
+                out string selectedLayout))
+            {
+                ed.WriteMessage("\nCLEANCAD cancelled: a titleblock XREF selection is required.");
+                return false;
+            }
+
+            CleanupCommands.EnableStrictTitleBlockProtection(selectedXrefId, selectedName, selectedPath);
+            ed.WriteMessage(
+                $"\nCLEANCAD: Protecting user-selected titleblock XREF '{selectedName}' on layout '{selectedLayout}'.");
+            return true;
+        }
+
+        private static bool TryPromptForTitleBlockXrefSelection(
+            Editor ed,
+            Database db,
+            out ObjectId xrefId,
+            out string xrefName,
+            out string xrefPath,
+            out string layoutName)
+        {
+            xrefId = ObjectId.Null;
+            xrefName = string.Empty;
+            xrefPath = string.Empty;
+            layoutName = string.Empty;
+
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                var peo = new PromptEntityOptions("\nSelect the titleblock XREF block reference (ESC to cancel): ");
+                peo.SetRejectMessage("\nSelection must be a block reference.");
+                peo.AddAllowedClass(typeof(BlockReference), false);
+
+                var per = ed.GetEntity(peo);
+                if (per.Status != PromptStatus.OK)
+                {
+                    return false;
+                }
+
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var br = tr.GetObject(per.ObjectId, OpenMode.ForRead, false) as BlockReference;
+                    if (br == null)
+                    {
+                        ed.WriteMessage("\nSelection was not a block reference.");
+                        tr.Commit();
+                        continue;
+                    }
+
+                    var def = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead, false) as BlockTableRecord;
+                    if (def == null || (!def.IsFromExternalReference && !def.IsFromOverlayReference))
+                    {
+                        ed.WriteMessage("\nSelected block is not an external reference.");
+                        tr.Commit();
+                        continue;
+                    }
+
+                    xrefId = br.BlockTableRecord;
+                    xrefName = def.Name ?? string.Empty;
+                    xrefPath = def.PathName ?? string.Empty;
+
+                    var owner = tr.GetObject(br.OwnerId, OpenMode.ForRead, false) as BlockTableRecord;
+                    if (owner != null && owner.IsLayout)
+                    {
+                        var layout = tr.GetObject(owner.LayoutId, OpenMode.ForRead, false) as Layout;
+                        if (layout != null)
+                        {
+                            layoutName = layout.LayoutName ?? string.Empty;
+                        }
+                    }
+
+                    tr.Commit();
+                    return true;
+                }
+            }
+
+            ed.WriteMessage("\nToo many invalid selections. Aborting.");
+            return false;
         }
 
         [CommandMethod("ZOOMTOLASTTB", CommandFlags.Modal)]

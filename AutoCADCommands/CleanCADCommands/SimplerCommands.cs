@@ -726,6 +726,7 @@ namespace AutoCADCleanupTool
                     _isCleanSheetWorkflowActive = false;
                     _chainFinalizeAfterEmbed = false;
                     _skipLayerFreezing = false;
+                    CleanupCommands.ResetStrictTitleBlockProtection();
                 }
             }
         }
@@ -882,6 +883,26 @@ namespace AutoCADCleanupTool
                         // 1. Check validity
                         if (xrefId.IsNull || xrefId.IsErased)
                             continue;
+
+                        if (CleanupCommands.IsProtectedTitleBlockXref(xrefId))
+                        {
+                            string protectedName = CleanupCommands.ProtectedTitleBlockName;
+                            if (string.IsNullOrWhiteSpace(protectedName))
+                            {
+                                try
+                                {
+                                    var protectedBtr = (BlockTableRecord)tr.GetObject(xrefId, OpenMode.ForRead);
+                                    protectedName = protectedBtr?.Name ?? "Unknown";
+                                }
+                                catch
+                                {
+                                    protectedName = "Unknown";
+                                }
+                            }
+
+                            ed.WriteMessage($"\n - Skipping protected titleblock XREF during embed cleanup: {protectedName}");
+                            continue;
+                        }
 
                         // 2. Get name for logging & verify it's actually an XREF
                         string xrefName = "Unknown";

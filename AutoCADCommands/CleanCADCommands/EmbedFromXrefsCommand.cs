@@ -228,7 +228,10 @@ namespace AutoCADCleanupTool
                     if (tr.GetObject(img.OwnerId, OpenMode.ForRead) is BlockTableRecord ownerBtr &&
                         ownerBtr.IsFromExternalReference)
                     {
-                        _xrefsToDetach.Add(ownerBtr.ObjectId);
+                        if (!CleanupCommands.IsProtectedTitleBlockXref(ownerBtr.ObjectId))
+                        {
+                            _xrefsToDetach.Add(ownerBtr.ObjectId);
+                        }
                     }
 
                     // Resolve Path

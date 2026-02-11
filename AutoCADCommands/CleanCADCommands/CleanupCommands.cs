@@ -19,6 +19,33 @@ namespace AutoCADCleanupTool
         internal static bool SkipBindDuringFinalize = false;
         internal static bool ForceDetachOriginalXrefs = false;
         internal static bool RunRemoveRemainingAfterFinalize = false;
+        internal static bool StrictTitleBlockProtectionActive = false;
+        internal static ObjectId ProtectedTitleBlockXrefId = ObjectId.Null;
+        internal static string ProtectedTitleBlockName = string.Empty;
+        internal static string ProtectedTitleBlockPath = string.Empty;
+
+        internal static void EnableStrictTitleBlockProtection(ObjectId xrefId, string blockName, string pathName)
+        {
+            StrictTitleBlockProtectionActive = !xrefId.IsNull;
+            ProtectedTitleBlockXrefId = xrefId;
+            ProtectedTitleBlockName = blockName ?? string.Empty;
+            ProtectedTitleBlockPath = pathName ?? string.Empty;
+        }
+
+        internal static void ResetStrictTitleBlockProtection()
+        {
+            StrictTitleBlockProtectionActive = false;
+            ProtectedTitleBlockXrefId = ObjectId.Null;
+            ProtectedTitleBlockName = string.Empty;
+            ProtectedTitleBlockPath = string.Empty;
+        }
+
+        internal static bool IsProtectedTitleBlockXref(ObjectId xrefId)
+        {
+            return StrictTitleBlockProtectionActive &&
+                   !ProtectedTitleBlockXrefId.IsNull &&
+                   xrefId == ProtectedTitleBlockXrefId;
+        }
 
         private static Extents3d? TryGetExtents(Entity ent)
         {

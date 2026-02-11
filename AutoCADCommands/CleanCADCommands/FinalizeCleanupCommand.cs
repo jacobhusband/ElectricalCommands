@@ -68,6 +68,12 @@ namespace AutoCADCleanupTool
                         var btr = trans.GetObject(btrId, OpenMode.ForRead, false, true) as BlockTableRecord;
                         if (btr == null || btr.IsErased || !btr.IsFromExternalReference) continue;
 
+                        if (IsProtectedTitleBlockXref(btrId))
+                        {
+                            ed.WriteMessage($"\nSkipping protected titleblock XREF during finalize cleanup: {btr.Name}");
+                            continue;
+                        }
+
                         string btrNameLower = (btr.Name ?? string.Empty).ToLowerInvariant();
                         string path = (btr.PathName ?? string.Empty);
                         string fileNoExt = string.Empty;
