@@ -5,6 +5,7 @@ using Autodesk.AutoCAD.EditorInput;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 
 namespace AutoCADCleanupTool
 {
@@ -28,11 +29,44 @@ namespace AutoCADCleanupTool
 
             try
             {
+                if (CleanupCommands.AbortRemainingXrefDetach)
+                {
+                    string reason = CleanupCommands.StrictTitleBlockBindFailed
+                        ? "strict titleblock bind validation failed upstream"
+                        : "upstream strict workflow requested an abort";
+                    ed.WriteMessage($"\nDETACHREMAININGXREFS aborted: {reason}. No DWG/image/PDF references were removed.");
+                    return;
+                }
+
+                var resolverLikelyIds = new HashSet<ObjectId>();
+                if (CleanupCommands.StrictTitleBlockProtectionActive)
+                {
+                    foreach (var candidate in TitleBlockXrefResolver.GetLikelyTitleBlockCandidates(db))
+                    {
+                        if (!candidate.XrefBtrId.IsNull)
+                        {
+                            resolverLikelyIds.Add(candidate.XrefBtrId);
+                        }
+                    }
+                }
+
                 // --- Part 1: Detach ALL DWG XREFs ---
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    var paperSpaceLayoutsByXref = BuildPaperSpaceLayoutMap(db, tr);
+                    var protectedReasons = BuildProtectedTitleBlockCandidates(
+                        db,
+                        tr,
+                        bt,
+                        paperSpaceLayoutsByXref,
+                        resolverLikelyIds);
+
                     var xrefIdsToDetach = new HashSet<ObjectId>();
+                    if (protectedReasons.Count > 0)
+                    {
+                        ed.WriteMessage($"\nDETACHREMAININGXREFS: Protecting {protectedReasons.Count} titleblock-like XREF definition(s).");
+                    }
 
                     // Collect all DWG XREF definitions
                     foreach (ObjectId btrId in bt)
@@ -40,9 +74,17 @@ namespace AutoCADCleanupTool
                         var btr = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
                         if (btr != null && btr.IsFromExternalReference)
                         {
-                            if (CleanupCommands.IsProtectedTitleBlockXref(btrId))
+                            if (protectedReasons.TryGetValue(btrId, out var reasons))
                             {
-                                ed.WriteMessage($"\nSkipping protected titleblock XREF: {btr.Name}");
+                                string reasonText = string.Join(", ", reasons.OrderBy(r => r, StringComparer.OrdinalIgnoreCase));
+                                string shortPath = string.Empty;
+                                try
+                                {
+                                    shortPath = Path.GetFileName(btr.PathName ?? string.Empty) ?? string.Empty;
+                                }
+                                catch { }
+                                string pathSuffix = string.IsNullOrWhiteSpace(shortPath) ? string.Empty : $" ({shortPath})";
+                                ed.WriteMessage($"\nSkipping protected titleblock XREF: {btr.Name}{pathSuffix} [{reasonText}]");
                                 continue;
                             }
                             xrefIdsToDetach.Add(btrId);
@@ -276,8 +318,119 @@ namespace AutoCADCleanupTool
             }
             finally
             {
+                CleanupCommands.StrictTitleBlockBindFailed = false;
+                CleanupCommands.AbortRemainingXrefDetach = false;
                 CleanupCommands.ResetStrictTitleBlockProtection();
             }
+        }
+
+        private static Dictionary<ObjectId, HashSet<string>> BuildPaperSpaceLayoutMap(Database db, Transaction tr)
+        {
+            var result = new Dictionary<ObjectId, HashSet<string>>();
+
+            try
+            {
+                var layoutDict = tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead) as DBDictionary;
+                if (layoutDict == null) return result;
+
+                foreach (DBDictionaryEntry entry in layoutDict)
+                {
+                    var layout = tr.GetObject(entry.Value, OpenMode.ForRead, false) as Layout;
+                    if (layout == null || layout.ModelType) continue;
+
+                    var psBtr = tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead, false) as BlockTableRecord;
+                    if (psBtr == null) continue;
+
+                    foreach (ObjectId entId in psBtr)
+                    {
+                        var br = tr.GetObject(entId, OpenMode.ForRead, false) as BlockReference;
+                        if (br == null) continue;
+
+                        var def = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead, false) as BlockTableRecord;
+                        if (def == null || (!def.IsFromExternalReference && !def.IsFromOverlayReference)) continue;
+
+                        if (!result.TryGetValue(br.BlockTableRecord, out var layoutNames))
+                        {
+                            layoutNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            result[br.BlockTableRecord] = layoutNames;
+                        }
+                        layoutNames.Add(layout.LayoutName ?? string.Empty);
+                    }
+                }
+            }
+            catch
+            {
+                // Best effort map for fallback matching.
+            }
+
+            return result;
+        }
+
+        private static Dictionary<ObjectId, HashSet<string>> BuildProtectedTitleBlockCandidates(
+            Database db,
+            Transaction tr,
+            BlockTable bt,
+            Dictionary<ObjectId, HashSet<string>> paperSpaceLayoutsByXref,
+            HashSet<ObjectId> resolverLikelyIds)
+        {
+            var protectedReasons = new Dictionary<ObjectId, HashSet<string>>();
+            bool strict = CleanupCommands.StrictTitleBlockProtectionActive;
+            if (!strict) return protectedReasons;
+
+            if (!CleanupCommands.ProtectedTitleBlockXrefId.IsNull)
+            {
+                AddProtectedReason(protectedReasons, CleanupCommands.ProtectedTitleBlockXrefId, "id");
+            }
+
+            if (resolverLikelyIds != null)
+            {
+                foreach (var id in resolverLikelyIds)
+                {
+                    if (!id.IsNull)
+                    {
+                        AddProtectedReason(protectedReasons, id, "resolver");
+                    }
+                }
+            }
+
+            foreach (ObjectId btrId in bt)
+            {
+                var btr = tr.GetObject(btrId, OpenMode.ForRead, false) as BlockTableRecord;
+                if (btr == null || !btr.IsFromExternalReference) continue;
+
+                bool inPaperSpace = paperSpaceLayoutsByXref.TryGetValue(btrId, out var layouts) && layouts.Count > 0;
+                bool inProtectedLayout = inPaperSpace &&
+                    !string.IsNullOrWhiteSpace(CleanupCommands.ProtectedTitleBlockLayoutName) &&
+                    layouts.Contains(CleanupCommands.ProtectedTitleBlockLayoutName);
+
+                bool fingerprintMatch = CleanupCommands.IsProtectedTitleBlockFingerprintMatch(db, btr.Name, btr.PathName);
+
+                if (fingerprintMatch && (inPaperSpace || inProtectedLayout || string.IsNullOrWhiteSpace(CleanupCommands.ProtectedTitleBlockLayoutName)))
+                {
+                    AddProtectedReason(protectedReasons, btrId, "fingerprint");
+                }
+
+                if (protectedReasons.ContainsKey(btrId))
+                {
+                    if (inPaperSpace) AddProtectedReason(protectedReasons, btrId, "paper-space");
+                    if (inProtectedLayout) AddProtectedReason(protectedReasons, btrId, "layout");
+                }
+            }
+
+            return protectedReasons;
+        }
+
+        private static void AddProtectedReason(Dictionary<ObjectId, HashSet<string>> protectedReasons, ObjectId id, string reason)
+        {
+            if (id.IsNull || string.IsNullOrWhiteSpace(reason)) return;
+
+            if (!protectedReasons.TryGetValue(id, out var reasons))
+            {
+                reasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                protectedReasons[id] = reasons;
+            }
+
+            reasons.Add(reason);
         }
 
         [CommandMethod("DETACHSPECIALXREFS", CommandFlags.Modal)]

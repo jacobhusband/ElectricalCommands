@@ -48,6 +48,19 @@ namespace AutoCADCleanupTool
     {
         private static readonly string[] _hints = { "x-tb", "title", "tblock", "border", "sheet" };
 
+        internal static IReadOnlyList<TitleBlockXrefCandidate> GetLikelyTitleBlockCandidates(Database db)
+        {
+            List<TitleBlockXrefCandidate> sorted = GetScoredCandidates(db);
+            if (sorted.Count == 0) return Array.Empty<TitleBlockXrefCandidate>();
+
+            int best = sorted[0].Score;
+            int threshold = Math.Max(80, best - 25);
+
+            return sorted
+                .Where(c => c.Score >= threshold)
+                .ToList();
+        }
+
         internal static TitleBlockXrefResolutionResult Resolve(Database db)
         {
             if (db == null)
@@ -55,34 +68,11 @@ namespace AutoCADCleanupTool
                 return new TitleBlockXrefResolutionResult(TitleBlockResolutionKind.NotFound, null, Array.Empty<TitleBlockXrefCandidate>());
             }
 
-            List<TitleBlockXrefCandidate> candidates = CollectPaperSpaceXrefCandidates(db);
-            if (candidates.Count == 0)
+            List<TitleBlockXrefCandidate> sorted = GetScoredCandidates(db);
+            if (sorted.Count == 0)
             {
-                return new TitleBlockXrefResolutionResult(TitleBlockResolutionKind.NotFound, null, candidates);
+                return new TitleBlockXrefResolutionResult(TitleBlockResolutionKind.NotFound, null, sorted);
             }
-
-            string currentLayout = string.Empty;
-            try
-            {
-                currentLayout = LayoutManager.Current?.CurrentLayout ?? string.Empty;
-            }
-            catch { }
-
-            var layoutCounts = candidates
-                .GroupBy(c => c.LayoutName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
-
-            foreach (var candidate in candidates)
-            {
-                candidate.LayoutXrefCount = layoutCounts.TryGetValue(candidate.LayoutName ?? string.Empty, out int count) ? count : 0;
-                candidate.Score = ScoreCandidate(candidate, currentLayout);
-            }
-
-            List<TitleBlockXrefCandidate> sorted = candidates
-                .OrderByDescending(c => c.Score)
-                .ThenBy(c => c.LayoutName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(c => c.BlockName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
-                .ToList();
 
             TitleBlockXrefCandidate best = sorted[0];
             int runnerUpScore = sorted.Count > 1 ? sorted[1].Score : int.MinValue;
@@ -109,6 +99,35 @@ namespace AutoCADCleanupTool
             }
 
             return new TitleBlockXrefResolutionResult(TitleBlockResolutionKind.Ambiguous, null, sorted);
+        }
+
+        private static List<TitleBlockXrefCandidate> GetScoredCandidates(Database db)
+        {
+            List<TitleBlockXrefCandidate> candidates = CollectPaperSpaceXrefCandidates(db);
+            if (candidates.Count == 0) return candidates;
+
+            string currentLayout = string.Empty;
+            try
+            {
+                currentLayout = LayoutManager.Current?.CurrentLayout ?? string.Empty;
+            }
+            catch { }
+
+            var layoutCounts = candidates
+                .GroupBy(c => c.LayoutName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var candidate in candidates)
+            {
+                candidate.LayoutXrefCount = layoutCounts.TryGetValue(candidate.LayoutName ?? string.Empty, out int count) ? count : 0;
+                candidate.Score = ScoreCandidate(candidate, currentLayout);
+            }
+
+            return candidates
+                .OrderByDescending(c => c.Score)
+                .ThenBy(c => c.LayoutName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(c => c.BlockName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         private static List<TitleBlockXrefCandidate> CollectPaperSpaceXrefCandidates(Database db)
@@ -171,7 +190,12 @@ namespace AutoCADCleanupTool
             int score = 0;
             string name = (candidate.BlockName ?? string.Empty).ToLowerInvariant();
             string path = (candidate.PathName ?? string.Empty).ToLowerInvariant();
+            string normalizedPath = path.Replace('/', '\\');
             string fileNoExt = string.Empty;
+            string blockToken = CleanupCommands.CanonicalizeXrefToken(candidate.BlockName);
+            string fileToken = string.Empty;
+            try { fileToken = CleanupCommands.CanonicalizeXrefToken(Path.GetFileName(candidate.PathName ?? string.Empty)); } catch { }
+            bool exactXtb = IsExactXtbToken(blockToken) || IsExactXtbToken(fileToken);
 
             try { fileNoExt = Path.GetFileNameWithoutExtension(path)?.ToLowerInvariant() ?? string.Empty; } catch { }
 
@@ -189,6 +213,20 @@ namespace AutoCADCleanupTool
             if (ContainsHint(path))
             {
                 score += 120;
+            }
+
+            if (exactXtb)
+            {
+                score += 220;
+            }
+
+            bool inXrefsFolder = normalizedPath.Contains("\\xrefs\\") ||
+                                 normalizedPath.StartsWith("xrefs\\", StringComparison.OrdinalIgnoreCase) ||
+                                 normalizedPath.StartsWith("..\\xrefs\\", StringComparison.OrdinalIgnoreCase);
+            bool hasXtbInPath = normalizedPath.Contains("x-tb") || normalizedPath.Contains("x_tb");
+            if (inXrefsFolder && (exactXtb || hasXtbInPath))
+            {
+                score += 140;
             }
 
             if (candidate.LayoutXrefCount == 1)
@@ -228,6 +266,15 @@ namespace AutoCADCleanupTool
             }
 
             return score;
+        }
+
+        private static bool IsExactXtbToken(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token)) return false;
+            string normalized = token.Trim().ToLowerInvariant();
+            return string.Equals(normalized, "x-tb", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(normalized, "x_tb", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(normalized, "xtb", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool ContainsHint(string input)

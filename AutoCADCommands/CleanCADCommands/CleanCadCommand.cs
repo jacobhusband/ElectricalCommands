@@ -131,7 +131,7 @@ namespace AutoCADCleanupTool
             if (resolution.Kind == TitleBlockResolutionKind.Resolved && resolution.Winner != null)
             {
                 var winner = resolution.Winner;
-                CleanupCommands.EnableStrictTitleBlockProtection(winner.XrefBtrId, winner.BlockName, winner.PathName);
+                CleanupCommands.EnableStrictTitleBlockProtection(winner.XrefBtrId, winner.BlockName, winner.PathName, winner.LayoutName);
 
                 string fileName = string.Empty;
                 try { fileName = Path.GetFileName(winner.PathName ?? string.Empty) ?? string.Empty; } catch { }
@@ -171,7 +171,7 @@ namespace AutoCADCleanupTool
                 return false;
             }
 
-            CleanupCommands.EnableStrictTitleBlockProtection(selectedXrefId, selectedName, selectedPath);
+            CleanupCommands.EnableStrictTitleBlockProtection(selectedXrefId, selectedName, selectedPath, selectedLayout);
             ed.WriteMessage(
                 $"\nCLEANCAD: Protecting user-selected titleblock XREF '{selectedName}' on layout '{selectedLayout}'.");
             return true;

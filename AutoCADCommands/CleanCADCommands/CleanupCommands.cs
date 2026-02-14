@@ -5,6 +5,7 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace AutoCADCleanupTool
@@ -20,24 +21,44 @@ namespace AutoCADCleanupTool
         internal static bool ForceDetachOriginalXrefs = false;
         internal static bool RunRemoveRemainingAfterFinalize = false;
         internal static bool StrictTitleBlockProtectionActive = false;
+        internal static bool StrictTitleBlockBindFailed = false;
+        internal static bool AbortRemainingXrefDetach = false;
         internal static ObjectId ProtectedTitleBlockXrefId = ObjectId.Null;
         internal static string ProtectedTitleBlockName = string.Empty;
         internal static string ProtectedTitleBlockPath = string.Empty;
+        internal static string ProtectedTitleBlockCanonicalName = string.Empty;
+        internal static string ProtectedTitleBlockFileName = string.Empty;
+        internal static string ProtectedTitleBlockLayoutName = string.Empty;
 
-        internal static void EnableStrictTitleBlockProtection(ObjectId xrefId, string blockName, string pathName)
+        internal static void EnableStrictTitleBlockProtection(ObjectId xrefId, string blockName, string pathName, string layoutName = "")
         {
             StrictTitleBlockProtectionActive = !xrefId.IsNull;
+            StrictTitleBlockBindFailed = false;
+            AbortRemainingXrefDetach = false;
             ProtectedTitleBlockXrefId = xrefId;
             ProtectedTitleBlockName = blockName ?? string.Empty;
             ProtectedTitleBlockPath = pathName ?? string.Empty;
+
+            string canonicalFromBlock = CanonicalizeXrefToken(blockName);
+            string canonicalFromPath = CanonicalizeXrefToken(Path.GetFileName(pathName ?? string.Empty));
+            ProtectedTitleBlockCanonicalName = !string.IsNullOrWhiteSpace(canonicalFromBlock)
+                ? canonicalFromBlock
+                : canonicalFromPath;
+            ProtectedTitleBlockFileName = canonicalFromPath;
+            ProtectedTitleBlockLayoutName = (layoutName ?? string.Empty).Trim();
         }
 
         internal static void ResetStrictTitleBlockProtection()
         {
             StrictTitleBlockProtectionActive = false;
+            StrictTitleBlockBindFailed = false;
+            AbortRemainingXrefDetach = false;
             ProtectedTitleBlockXrefId = ObjectId.Null;
             ProtectedTitleBlockName = string.Empty;
             ProtectedTitleBlockPath = string.Empty;
+            ProtectedTitleBlockCanonicalName = string.Empty;
+            ProtectedTitleBlockFileName = string.Empty;
+            ProtectedTitleBlockLayoutName = string.Empty;
         }
 
         internal static bool IsProtectedTitleBlockXref(ObjectId xrefId)
@@ -45,6 +66,155 @@ namespace AutoCADCleanupTool
             return StrictTitleBlockProtectionActive &&
                    !ProtectedTitleBlockXrefId.IsNull &&
                    xrefId == ProtectedTitleBlockXrefId;
+        }
+
+        internal static void MarkStrictTitleBlockBindFailure()
+        {
+            StrictTitleBlockBindFailed = true;
+            AbortRemainingXrefDetach = true;
+        }
+
+        internal static string CanonicalizeXrefToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            string token = value.Trim().ToLowerInvariant();
+            token = token.Replace("\\", "/");
+            try
+            {
+                token = Path.GetFileNameWithoutExtension(token) ?? token;
+            }
+            catch { }
+            return token.Trim();
+        }
+
+        internal static string NormalizeXrefPathToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            return value.Trim().Trim('"').Replace('/', '\\');
+        }
+
+        private static string GetDrawingDirectoryForXrefComparison(Database db)
+        {
+            try
+            {
+                var doc = Application.DocumentManager.MdiActiveDocument;
+                if (doc != null && !string.IsNullOrWhiteSpace(doc.Name))
+                {
+                    string docDir = Path.GetDirectoryName(doc.Name);
+                    if (!string.IsNullOrWhiteSpace(docDir)) return docDir;
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (db != null && !string.IsNullOrWhiteSpace(db.Filename))
+                {
+                    string dbDir = Path.GetDirectoryName(db.Filename);
+                    if (!string.IsNullOrWhiteSpace(dbDir)) return dbDir;
+                }
+            }
+            catch { }
+
+            return string.Empty;
+        }
+
+        internal static string ResolveXrefPathForComparison(Database db, string rawPath)
+        {
+            string normalized = NormalizeXrefPathToken(rawPath);
+            if (string.IsNullOrWhiteSpace(normalized)) return string.Empty;
+
+            try
+            {
+                if (Path.IsPathRooted(normalized))
+                {
+                    return Path.GetFullPath(normalized);
+                }
+            }
+            catch { }
+
+            try
+            {
+                string drawingDir = GetDrawingDirectoryForXrefComparison(db);
+                if (!string.IsNullOrWhiteSpace(drawingDir))
+                {
+                    return Path.GetFullPath(Path.Combine(drawingDir, normalized));
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (db != null)
+                {
+                    string nameOnly = Path.GetFileName(normalized);
+                    if (!string.IsNullOrWhiteSpace(nameOnly))
+                    {
+                        string found = HostApplicationServices.Current?.FindFile(nameOnly, db, FindFileHint.Default);
+                        if (!string.IsNullOrWhiteSpace(found))
+                        {
+                            return Path.GetFullPath(found);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return normalized;
+        }
+
+        internal static bool AreEquivalentXrefPaths(Database db, string leftPath, string rightPath)
+        {
+            string leftRaw = NormalizeXrefPathToken(leftPath);
+            string rightRaw = NormalizeXrefPathToken(rightPath);
+            if (string.IsNullOrWhiteSpace(leftRaw) || string.IsNullOrWhiteSpace(rightRaw))
+            {
+                return false;
+            }
+
+            if (string.Equals(leftRaw, rightRaw, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            string leftResolved = ResolveXrefPathForComparison(db, leftRaw);
+            string rightResolved = ResolveXrefPathForComparison(db, rightRaw);
+            if (!string.IsNullOrWhiteSpace(leftResolved) &&
+                !string.IsNullOrWhiteSpace(rightResolved) &&
+                string.Equals(leftResolved, rightResolved, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            string leftFile = CanonicalizeXrefToken(Path.GetFileName(leftRaw));
+            string rightFile = CanonicalizeXrefToken(Path.GetFileName(rightRaw));
+            return !string.IsNullOrWhiteSpace(leftFile) &&
+                   string.Equals(leftFile, rightFile, StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsProtectedTitleBlockFingerprintMatch(Database db, string blockName, string pathName)
+        {
+            if (!StrictTitleBlockProtectionActive) return false;
+
+            string blockCanonical = CanonicalizeXrefToken(blockName);
+            string pathCanonical = CanonicalizeXrefToken(Path.GetFileName(pathName ?? string.Empty));
+
+            bool canonicalMatch = !string.IsNullOrWhiteSpace(ProtectedTitleBlockCanonicalName) &&
+                (string.Equals(blockCanonical, ProtectedTitleBlockCanonicalName, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(pathCanonical, ProtectedTitleBlockCanonicalName, StringComparison.OrdinalIgnoreCase));
+
+            bool fileMatch = !string.IsNullOrWhiteSpace(ProtectedTitleBlockFileName) &&
+                (string.Equals(pathCanonical, ProtectedTitleBlockFileName, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(blockCanonical, ProtectedTitleBlockFileName, StringComparison.OrdinalIgnoreCase));
+
+            bool pathMatch = AreEquivalentXrefPaths(db, pathName, ProtectedTitleBlockPath);
+
+            return canonicalMatch || fileMatch || pathMatch;
+        }
+
+        internal static bool IsProtectedTitleBlockFingerprintMatch(string blockName, string pathName)
+        {
+            return IsProtectedTitleBlockFingerprintMatch(null, blockName, pathName);
         }
 
         private static Extents3d? TryGetExtents(Entity ent)
