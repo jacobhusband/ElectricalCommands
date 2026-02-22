@@ -30,6 +30,7 @@
   <!-- Embedded Resources -->
   <ItemGroup>
     <EmbeddedResource Include="Resources\WL_Sig_Blue_Small.gif" />
+    <EmbeddedResource Include="Resources\LightingFixtureSchedule.tableanalyze.json" />
   </ItemGroup>
 
   <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">
