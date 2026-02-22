@@ -9,7 +9,8 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("CALCULATEAREAS", CommandFlags.UsePickSet)]
+    [CommandMethod("AREALABEL", CommandFlags.UsePickSet)]
+    [CommandMethod("QA", CommandFlags.UsePickSet)]
     public void AREACALCULATOR()
     {
       var (doc, db, ed) = Globals.GetGlobals();

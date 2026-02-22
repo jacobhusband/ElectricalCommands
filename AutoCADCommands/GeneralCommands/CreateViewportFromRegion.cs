@@ -12,7 +12,8 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("CREATEVIEWPORTFROMREGION")]
+    [CommandMethod("VPFROMREG")]
+    [CommandMethod("QVP")]
     public void CREATEVIEWPORTFROMREGION()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk

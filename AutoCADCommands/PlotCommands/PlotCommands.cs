@@ -11,7 +11,7 @@ namespace ElectricalCommands
     /// - P22
     /// - P24
     /// - P30
-    /// - PLOTANDMOVE
+    /// - PLOTMOVE
     /// </summary>
     public class PlotCommands
     {
@@ -73,12 +73,13 @@ namespace ElectricalCommands
         }
 
         /// <summary>
-        /// PLOTANDMOVE:
+        /// PLOTMOVE:
         /// 1. Prompts for a point.
         /// 2. Runs a scripted 30x42 plot to PDF (DWG to PDF.pc3).
         /// 3. Moves all entities in the current space so that the selected point ends up at (0,0,0).
         /// </summary>
-        [CommandMethod("PLOTANDMOVE", CommandFlags.Modal)]
+        [CommandMethod("PLOTMOVE", CommandFlags.Modal)]
+        [CommandMethod("QM", CommandFlags.Modal)]
         public static void PlotAndMove()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -95,7 +96,7 @@ namespace ElectricalCommands
             }
             Point3d sourcePoint = ppr.Value;
 
-            // 2) Fire the plot sequence (mirrors the original PLOTANDMOVE implementation).
+            // 2) Fire the plot sequence (mirrors the original PLOTMOVE implementation).
             ed.WriteMessage("\nStarting plot sequence...");
             doc.SendStringToExecute("-PLOT\n", false, false, true);
             doc.SendStringToExecute("Y\n", false, false, true);                             // Detailed plot configuration

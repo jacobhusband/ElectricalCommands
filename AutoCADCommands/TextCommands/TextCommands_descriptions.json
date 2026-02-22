@@ -1,12 +1,12 @@
 {
     "commands": {
-        "REPLACETEXTCONTENT": "Replaces the text content of selected TEXT and MTEXT objects with new user-specified text.",
-        "INCREMENTTEXTCONTENT": "Increments text content with a prefix, start/end numbers, and odd/even filtering, sorted by distance from a reference point.",
-        "ADDVALUETOTEXT": "Adds a specified integer value to numbers found in selected text objects, handling various formats like ranges and separators."
+        "TXTREPLACE": "Replaces the text content of selected TEXT and MTEXT objects with new user-specified text.",
+        "TXTINCR": "Increments text content with a prefix, start/end numbers, and odd/even filtering, sorted by distance from a reference point.",
+        "TXTADD": "Adds a specified integer value to numbers found in selected text objects, handling various formats like ranges and separators."
     },
     "links": {
-        "REPLACETEXTCONTENT": "https://brainy-seahorse-3c5.notion.site/REPLACETEXTCONTENT-2b13fdbb662c80f19897c73b90801e7e",
-        "INCREMENTTEXTCONTENT": "https://brainy-seahorse-3c5.notion.site/INCREMENTTEXTCONTENT-2b13fdbb662c80d8b2f6ef30877488ca",
-        "ADDVALUETOTEXT": "https://brainy-seahorse-3c5.notion.site/ADDVALUETOTEXT-2b13fdbb662c808c9016dc9a230f7403"
+        "TXTREPLACE": "https://brainy-seahorse-3c5.notion.site/REPLACETEXTCONTENT-2b13fdbb662c80f19897c73b90801e7e",
+        "TXTINCR": "https://brainy-seahorse-3c5.notion.site/INCREMENTTEXTCONTENT-2b13fdbb662c80d8b2f6ef30877488ca",
+        "TXTADD": "https://brainy-seahorse-3c5.notion.site/ADDVALUETOTEXT-2b13fdbb662c808c9016dc9a230f7403"
     }
 }

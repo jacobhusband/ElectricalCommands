@@ -11,7 +11,8 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("INCREMENTTEXTCONTENT", CommandFlags.UsePickSet)]
+    [CommandMethod("TXTINCR", CommandFlags.UsePickSet)]
+    [CommandMethod("TI", CommandFlags.UsePickSet)]
     public void Incrementer()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;

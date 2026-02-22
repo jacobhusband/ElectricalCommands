@@ -10,7 +10,8 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("ADDVALUETOTEXT", CommandFlags.UsePickSet)]
+    [CommandMethod("TXTADD", CommandFlags.UsePickSet)]
+    [CommandMethod("TA", CommandFlags.UsePickSet)]
     public void Add2Txt()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;

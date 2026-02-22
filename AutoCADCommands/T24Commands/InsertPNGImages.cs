@@ -12,8 +12,9 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("INSERTPNGIMAGES")]
-    public void T24()
+    [CommandMethod("IMGSHEETS")]
+    [CommandMethod("QI")]
+    public void InsertPNGImages()
     {
       Database acCurDb;
       acCurDb = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument.Database;

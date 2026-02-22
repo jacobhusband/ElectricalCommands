@@ -19,7 +19,8 @@ namespace ElectricalCommands
             Region = 3
         }
 
-        [CommandMethod("TURNRED", CommandFlags.UsePickSet)]
+        [CommandMethod("LAYRED", CommandFlags.UsePickSet)]
+        [CommandMethod("LR", CommandFlags.UsePickSet)]
         public static void TurnLayerRed()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
@@ -68,7 +69,7 @@ namespace ElectricalCommands
         {
             PromptKeywordOptions pko =
                 new PromptKeywordOptions(
-                    "\nTURNRED option [Xref/Layer/Region] <Layer>: ",
+                    "\nLAYRED option [Xref/Layer/Region] <Layer>: ",
                     "Xref Layer Region");
             pko.AllowNone = true;
 

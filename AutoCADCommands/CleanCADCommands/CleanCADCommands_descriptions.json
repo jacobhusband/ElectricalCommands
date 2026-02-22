@@ -3,7 +3,9 @@
         "EMBEDIMAGES": "Embeds raster images from XREFs into the drawing by converting them to OLE objects using PowerPoint, preserving orientation.",
         "EMBEDPDFS": "Embeds PDF underlays into the drawing by converting them to PNG and then OLE objects using PowerPoint.",
         "CLEANTBLK": "Cleans the title block by exploding blocks, keeping only the title block, detaching XREFs, and embedding images.",
-        "CLEANCAD": "Cleans the entire sheet by embedding XREFs and performing cleanup operations."
+        "CLEANCAD": "Cleans the entire sheet by embedding XREFs and performing cleanup operations.",
+        "DETACHSIGX": "Detaches signature/logo/stamp style XREFs and related special references.",
+        "WALLSONLY": "Keeps wall objects and turns off non-wall layers in model space."
     },
     "links": {
         "EMBEDIMAGES": "https://brainy-seahorse-3c5.notion.site/EMBEDIMAGES-2b03fdbb662c80a08954db8d05ac745f",

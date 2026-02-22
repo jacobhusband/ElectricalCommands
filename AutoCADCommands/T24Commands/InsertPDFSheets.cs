@@ -18,7 +18,8 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("INSERTPDFSHEETS")]
+    [CommandMethod("PDFSHEETS")]
+    [CommandMethod("QP")]
     public void IPDF()
     {
       var doc = AcadApp.DocumentManager.MdiActiveDocument;

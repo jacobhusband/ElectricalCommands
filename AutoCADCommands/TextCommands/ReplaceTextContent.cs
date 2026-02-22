@@ -9,7 +9,8 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("REPLACETEXTCONTENT", CommandFlags.UsePickSet)]
+    [CommandMethod("TXTNEW", CommandFlags.UsePickSet)]
+    [CommandMethod("TN", CommandFlags.UsePickSet)]
     public void TextNew()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;

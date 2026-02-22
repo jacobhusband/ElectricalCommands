@@ -8,7 +8,8 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("WIPEOUTOBJECTS", CommandFlags.UsePickSet)]
+    [CommandMethod("OBJMASK", CommandFlags.UsePickSet)]
+    [CommandMethod("OM", CommandFlags.UsePickSet)]
     public static void WO()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;

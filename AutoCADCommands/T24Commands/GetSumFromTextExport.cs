@@ -13,7 +13,8 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("GETSUMFROMTEXTEXPORT", CommandFlags.UsePickSet)]
+    [CommandMethod("TXTSUMEXPORT", CommandFlags.UsePickSet)]
+    [CommandMethod("TSE", CommandFlags.UsePickSet)]
     public void SumTextExport()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;

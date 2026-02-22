@@ -8,7 +8,8 @@ namespace ElectricalCommands
 {
     public partial class GeneralCommands
     {
-        [CommandMethod("TURNGREEN", CommandFlags.UsePickSet)]
+        [CommandMethod("LAYGREEN", CommandFlags.UsePickSet)]
+        [CommandMethod("LG", CommandFlags.UsePickSet)]
         public static void TurnXrefLayersGreen()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;

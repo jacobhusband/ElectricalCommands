@@ -10,7 +10,8 @@ namespace AutoCADCleanupTool
 {
     public partial class CleanupCommands
     {
-        [CommandMethod("ONLYWALLS", CommandFlags.Modal)]
+        [CommandMethod("ISOWALLS", CommandFlags.Modal)]
+        [CommandMethod("IW", CommandFlags.Modal)]
         public static void OnlyWalls()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
@@ -140,13 +141,13 @@ namespace AutoCADCleanupTool
                         tr.Commit();
                     }
 
-                    ed.WriteMessage($"\nONLYWALLS: Erased {erased} non-wall object(s). Turned off {layersOff} non-wall layer(s).");
+                    ed.WriteMessage($"\nWALLSONLY: Erased {erased} non-wall object(s). Turned off {layersOff} non-wall layer(s).");
                     if (wallLayersFound == 0)
-                        ed.WriteMessage("\nONLYWALLS: No layers containing 'wall' were found.");
+                        ed.WriteMessage("\nWALLSONLY: No layers containing 'wall' were found.");
                 }
                 catch (System.Exception ex)
                 {
-                    ed.WriteMessage($"\nONLYWALLS failed: {ex.Message}");
+                    ed.WriteMessage($"\nWALLSONLY failed: {ex.Message}");
                 }
             }
         }

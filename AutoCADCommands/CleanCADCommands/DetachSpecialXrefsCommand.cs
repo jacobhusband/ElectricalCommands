@@ -433,7 +433,8 @@ namespace AutoCADCleanupTool
             reasons.Add(reason);
         }
 
-        [CommandMethod("DETACHSPECIALXREFS", CommandFlags.Modal)]
+        [CommandMethod("DETACHSIGX", CommandFlags.Modal)]
+        [CommandMethod("QD", CommandFlags.Modal)]
         public static void DetachSpecialXrefs()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;

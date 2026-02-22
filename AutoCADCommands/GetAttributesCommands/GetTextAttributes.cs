@@ -10,7 +10,7 @@ namespace ElectricalCommands
   using static ElectricalCommands.Globals;
   public partial class GeneralCommands
   {
-    [CommandMethod("GETTEXTATTRIBUTES")]
+    [CommandMethod("TEXTATTR")]
     public void GETTEXTATTRIBUTES()
     {
       var (doc, db, ed) = GetGlobals();
