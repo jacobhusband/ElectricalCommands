@@ -1,14 +1,23 @@
 Param(
     [string]$Notes = "Automated release",
     [string]$Version = "",
-    [switch]$Build
+    [switch]$Build,
+    [string]$SourceRoot = "$env:APPDATA\Autodesk\ApplicationPlugins",
+    [string]$OutputRoot = "AutoCADCommands\\dist",
+    [string]$Configuration = "Release",
+    [string]$SolutionPath = (Join-Path $PSScriptRoot "ElectricalCommands.sln"),
+    [string]$DotnetPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 # --- Config ---
 $repo = "jacobhusband/ElectricalCommands"
-$distRoot = Join-Path $PSScriptRoot "AutoCADCommands\\dist"
+$distRoot = if ([System.IO.Path]::IsPathRooted($OutputRoot)) {
+    [System.IO.Path]::GetFullPath($OutputRoot)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot $OutputRoot))
+}
 $versionPropsPath = Join-Path $PSScriptRoot "version.props"
 
 function Import-DotEnv {
@@ -60,12 +69,18 @@ $tag = "v$version"
 
 # --- Optional build ---
 if ($Build) {
-    & (Join-Path $PSScriptRoot "build-bundles.ps1") -Version $version
+    & (Join-Path $PSScriptRoot "build-all-bundles.ps1") `
+        -Version $version `
+        -SourceRoot $SourceRoot `
+        -OutputRoot $distRoot `
+        -Configuration $Configuration `
+        -SolutionPath $SolutionPath `
+        -DotnetPath $DotnetPath
     if ($LASTEXITCODE -ne 0) { exit 1 }
 }
 
 if (-not (Test-Path $distRoot)) {
-    Write-Error "dist folder not found at $distRoot. Run build-bundles.ps1 or pass -Build."
+    Write-Error "dist folder not found at $distRoot. Run build-all-bundles.ps1 or pass -Build."
     exit 1
 }
 

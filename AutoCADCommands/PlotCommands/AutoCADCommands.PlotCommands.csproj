@@ -30,7 +30,7 @@
   -->
   <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">
     <PropertyGroup>
-      <BundleDir>$(AppData)\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>
+      <BundleDir>$(AutoCADBundleRoot)\$(AutoCADBundleName).bundle</BundleDir>
       <BundleContentsDir>$(BundleDir)\Contents</BundleContentsDir>
     </PropertyGroup>
 
@@ -104,7 +104,7 @@
   -->
   <Target Name="CopyDllsToBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
     <PropertyGroup>
-      <BundleDir>$(AppData)\Autodesk\ApplicationPlugins\$(AutoCADBundleName).bundle</BundleDir>
+      <BundleDir>$(AutoCADBundleRoot)\$(AutoCADBundleName).bundle</BundleDir>
       <TargetSubFolder>$(BundleDir)\Contents\$(TargetFramework)</TargetSubFolder>
     </PropertyGroup>
     
@@ -118,3 +118,4 @@
   </Target>
 
 </Project>
+

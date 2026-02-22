@@ -6,7 +6,12 @@ Param(
     [string]$OutputRoot = "AutoCADCommands\\dist",
 
     # Optional explicit version override. If empty, script reads from version.props.
-    [string]$Version = ""
+    [string]$Version = "",
+
+    # Build settings forwarded to build.ps1.
+    [string]$Configuration = "Release",
+    [string]$SolutionPath = (Join-Path $PSScriptRoot "ElectricalCommands.sln"),
+    [string]$DotnetPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,12 +28,18 @@ if (-not (Test-Path $bundleScript)) {
 
 Write-Host "=== Build + Package All Bundles ==="
 Write-Host "Build script : $buildScript"
+Write-Host "SolutionPath : $SolutionPath"
 Write-Host "SourceRoot   : $SourceRoot"
 Write-Host "OutputRoot   : $OutputRoot"
 Write-Host ""
 
 # Build .NET bundles + AutoLISP bundle into SourceRoot.
-& $buildScript
+& $buildScript `
+    -Configuration $Configuration `
+    -SolutionPath $SolutionPath `
+    -SourceRoot $SourceRoot `
+    -DotnetPath $DotnetPath
+if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # Zip all bundles into OutputRoot.
 & $bundleScript -SourceRoot $SourceRoot -OutputRoot $OutputRoot -Version $Version

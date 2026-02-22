@@ -10,6 +10,11 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <!-- Central override for where .bundle folders are emitted -->
+    <AutoCADBundleRoot Condition="'$(AutoCADBundleRoot)' == ''">$(AppData)\Autodesk\ApplicationPlugins</AutoCADBundleRoot>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <!-- Target both .NET 8 (AutoCAD 2025) and .NET 4.8 (AutoCAD 2021-2024) -->
     <TargetFrameworks>net8.0-windows;net48</TargetFrameworks>
     <UseWindowsForms>true</UseWindowsForms>

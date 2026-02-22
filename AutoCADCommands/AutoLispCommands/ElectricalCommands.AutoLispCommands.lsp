@@ -2,6 +2,7 @@
 ;; Loads all bundled LSP utilities safely.
 
 (vl-load-com)
+(setq ec-loader-file "ElectricalCommands.AutoLispCommands.lsp")
 
 ;; Function to safely find the bundle directory based on this file's location
 (defun ec-get-bundle-dir ( / this-file full-path dir)
@@ -51,24 +52,53 @@
   loaded
 )
 
-;; List of files to load
-(setq ec-autolisp-files
-      '("blockIncrementDecrement.lsp"
-        "chlay.lsp"
-        "cleanup.lsp"
-        "etog.lsp"
-        "ltog.lsp"
-        "mtog.lsp"
-        "revclouds.lsp"
-        "sumlengths.lsp"
-        "textcount.lsp"
-        "tselect.lsp")
+;; Discover utility files in the bundle folder and exclude the loader itself.
+(defun ec-discover-lisp-files ( / files)
+  (if (= (type ec-base-dir) 'STR)
+    (progn
+      (setq files (vl-directory-files ec-base-dir "*.lsp" 1))
+      (if files
+        (setq files
+          (vl-remove-if
+            '(lambda (x) (= (strcase x) (strcase ec-loader-file)))
+            files
+          )
+        )
+      )
+      (if files
+        (acad_strlsort files)
+        nil
+      )
+    )
+    nil
+  )
 )
 
-;; Load loop
-(foreach f ec-autolisp-files
-  (ec-load-lisp f)
+(setq ec-autolisp-files (ec-discover-lisp-files))
+
+(if ec-autolisp-files
+  (progn
+    (setq ec-total-count (length ec-autolisp-files))
+    (setq ec-loaded-count 0)
+    (princ (strcat "\n[ElectricalCommands] Discovered " (itoa ec-total-count) " utility .lsp file(s)."))
+
+    (foreach f ec-autolisp-files
+      (if (ec-load-lisp f)
+        (setq ec-loaded-count (+ ec-loaded-count 1))
+      )
+    )
+
+    (princ
+      (strcat
+        "\nElectricalCommands AutoLISP commands loaded ("
+        (itoa ec-loaded-count)
+        "/"
+        (itoa ec-total-count)
+        ")."
+      )
+    )
+  )
+  (princ "\n[ElectricalCommands] Warning: No utility .lsp files discovered to load.")
 )
 
-(princ "\nElectricalCommands AutoLISP commands loaded.")
 (princ)
