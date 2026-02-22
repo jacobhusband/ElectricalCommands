@@ -5,7 +5,8 @@
         "PNGSHEETS": "Inserts all PNG pages from a selected folder into paper space in a grid layout.",
         "TXTSUMEXPORT": "Extracts room types and square footage from selected text objects and exports the combined data to a JSON file.",
         "TXTSUM": "Sums numerical values from selected text objects, handling various formats including VA ratings.",
-        "AREALABEL": "Calculates areas of selected polylines and adds text labels with the area in square feet at the center of each."
+        "AREALABEL": "Calculates areas of selected polylines and adds text labels with the area in square feet at the center of each.",
+        "TABLEANALYZE": "Captures a selected AutoCAD table at full fidelity and exports a reconstruction-ready JSON file."
     },
     "links": {
         "T24": "https://www.notion.so/T24-2f53fdbb662c808c881ffd0bd69dc5b1",
