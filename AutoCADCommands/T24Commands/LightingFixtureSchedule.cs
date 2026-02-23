@@ -43,6 +43,8 @@ namespace ElectricalCommands
 
         ObjectId newTableId = ObjectId.Null;
         string handle = "UNKNOWN";
+        bool syncApplied = false;
+        string syncMessage = string.Empty;
 
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
@@ -57,10 +59,25 @@ namespace ElectricalCommands
           newTableId = currentSpace.AppendEntity(table);
           tr.AddNewlyCreatedDBObject(table, true);
 
+          bool syncError;
+          if (TryApplyLightingFixtureScheduleSyncToTable(table, db, out syncMessage, out syncError))
+          {
+            syncApplied = true;
+          }
+          else if (syncError && !string.IsNullOrWhiteSpace(syncMessage))
+          {
+            AddWarning(warnings, "sync.apply", syncMessage);
+          }
+
           SafeApply(
             warnings,
             "table.generateLayout",
             () => table.GenerateLayout()
+          );
+          SafeApply(
+            warnings,
+            "table.recomputeTableBlock",
+            () => TryRecomputeTableBlock(table)
           );
 
           handle = SafeGet(
@@ -76,8 +93,12 @@ namespace ElectricalCommands
         }
 
         ed.WriteMessage(
-          $"\nLIGHTINGFIXTURESCHEDULE complete. Handle: {handle}, ObjectId: {newTableId}, Rows: {template.Table.NumRows}, Columns: {template.Table.NumColumns}, Warnings: {warnings.Count}, Template: {resourceName}"
+          $"\nLIGHTINGFIXTURESCHEDULE complete. Handle: {handle}, ObjectId: {newTableId}, Rows: {template.Table.NumRows}, Columns: {template.Table.NumColumns}, Warnings: {warnings.Count}, Template: {resourceName}, SyncApplied: {syncApplied}"
         );
+        if (syncApplied && !string.IsNullOrWhiteSpace(syncMessage))
+        {
+          ed.WriteMessage($"\n{syncMessage}");
+        }
 
         if (warnings.Count > 0)
         {
