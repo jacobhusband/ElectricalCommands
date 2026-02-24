@@ -1,6 +1,6 @@
 ; keyed_note_tools.lsp
 ; Commands:
-;   KN       - Insert KEYED_NOTE in modelspace or active viewport and set keyed value
+;   KN       - Insert KEYED_NOTE while editing inside an active layout viewport
 
 (vl-load-com)
 
@@ -9,7 +9,6 @@
 (setq kn:*layer-color* 2) ; ACI 2 = yellow
 (setq kn:*default-tag* "KEYNO")
 (setq kn:*insert-scale* 1.0)
-(setq kn:*modelspace-anno-scale* "1/4\" = 1'-0\"")
 (setq kn:*canonical-text-style-name* "ARIALNARROW-1-8")
 (setq kn:*canonical-text-style-font* "ARIALN.TTF")
 
@@ -383,6 +382,25 @@
   blockObj
 )
 
+(defun kn--set-block-record-annotative (blockName / blkEnt blkRecEnt ed xdata)
+  (if (not (tblsearch "APPID" "AcadAnnotative"))
+    (regapp "AcadAnnotative")
+  )
+  (setq blkEnt (tblobjname "BLOCK" blockName))
+  (if blkEnt
+    (progn
+      (setq blkRecEnt (cdr (assoc 330 (entget blkEnt))))
+      (if blkRecEnt
+        (progn
+          (setq ed (entget blkRecEnt '("AcadAnnotative")))
+          (setq xdata '(-3 ("AcadAnnotative" (1000 . "AnnotativeData") (1002 . "{") (1070 . 1) (1070 . 1) (1002 . "}"))))
+          (entmod (append (vl-remove (assoc -3 ed) ed) (list xdata)))
+        )
+      )
+    )
+  )
+)
+
 (defun kn--build-block-from-source (doc polyEname attEname / basePoint blockObj sourceObjects copyResult)
   ; Anchor inserts at the hexagon center so click point matches symbol center.
   (setq basePoint kn:*canonical-base-point*)
@@ -430,7 +448,7 @@
           nil
         )
         (progn
-          (kn--set-annotative-if-possible blockObj)
+          (kn--set-block-record-annotative kn:*block-name*)
           (vl-cmdf "_.ATTSYNC" "_N" kn:*block-name*)
           T
         )
@@ -515,47 +533,12 @@
   value
 )
 
-(defun kn--in-modelspace-p ()
-  (or (= 1 (getvar "TILEMODE")) (> (getvar "CVPORT") 1))
-)
-
 (defun kn--in-viewport-editing-p ()
   (and (= 0 (getvar "TILEMODE")) (> (getvar "CVPORT") 1))
 )
 
 (defun kn--approx-eq (a b tol)
   (< (abs (- a b)) tol)
-)
-
-(defun kn--anno-scale-name-from-denom (denom / scaleMap name item)
-  (setq scaleMap
-    (list
-      (cons 1 "1'-0\" = 1'-0\"")
-      (cons 2 "6\" = 1'-0\"")
-      (cons 4 "3\" = 1'-0\"")
-      (cons 8 "1 1/2\" = 1'-0\"")
-      (cons 12 "1\" = 1'-0\"")
-      (cons 16 "3/4\" = 1'-0\"")
-      (cons 24 "1/2\" = 1'-0\"")
-      (cons 32 "3/8\" = 1'-0\"")
-      (cons 48 "1/4\" = 1'-0\"")
-      (cons 64 "3/16\" = 1'-0\"")
-      (cons 96 "1/8\" = 1'-0\"")
-      (cons 128 "3/32\" = 1'-0\"")
-      (cons 192 "1/16\" = 1'-0\"")
-      (cons 384 "1/32\" = 1'-0\"")
-    )
-  )
-  (setq name nil)
-  (foreach item scaleMap
-    (if (= (car item) denom)
-      (setq name (cdr item))
-    )
-  )
-  (if name
-    name
-    (strcat "1:" (itoa denom))
-  )
 )
 
 (defun kn--active-viewport-custom-scale (doc / vpObj value)
@@ -583,16 +566,89 @@
   )
 )
 
-(defun kn--target-anno-scale-for-viewport (doc / customScale denom rounded)
-  (setq customScale (kn--active-viewport-custom-scale doc))
-  (if (or (null customScale) (<= customScale 0.0))
+(defun kn--trim-trailing-zeros (text / out)
+  (setq out text)
+  (while (and (> (strlen out) 0) (= "0" (substr out (strlen out) 1)))
+    (setq out (substr out 1 (- (strlen out) 1)))
+  )
+  (if (and (> (strlen out) 0) (= "." (substr out (strlen out) 1)))
+    (setq out (substr out 1 (- (strlen out) 1)))
+  )
+  out
+)
+
+(defun kn--format-scale-denom-text (denom / rounded text)
+  (if (or (not (numberp denom)) (<= denom 0.0))
     nil
     (progn
-      (setq denom (/ 1.0 customScale))
       (setq rounded (fix (+ denom 0.5)))
-      (if (kn--approx-eq denom rounded 1e-4)
-        (kn--anno-scale-name-from-denom rounded)
-        nil
+      (if (kn--approx-eq denom rounded 1e-6)
+        (itoa rounded)
+        (progn
+          (setq text (rtos denom 2 8))
+          (kn--trim-trailing-zeros text)
+        )
+      )
+    )
+  )
+)
+
+(defun kn--find-scale-name-by-ratio (targetRatio / dict bestName isExisting eqFound ename ed name paper drawing scaleValue)
+  (setq dict (dictsearch (namedobjdict) "ACAD_SCALELIST"))
+  (setq bestName nil)
+  (if dict
+    (foreach item dict
+      (if (= 350 (car item))
+        (progn
+          (setq ename (cdr item))
+          (setq ed (entget ename))
+          (if (= "SCALE" (cdr (assoc 0 ed)))
+            (progn
+              (setq name (cdr (assoc 300 ed)))
+              (setq paper (cdr (assoc 140 ed)))
+              (setq drawing (cdr (assoc 141 ed)))
+              (if (and paper drawing (> drawing 0.0))
+                (setq scaleValue (/ paper drawing))
+                (setq scaleValue 0.0)
+              )
+              (if (< (abs (- scaleValue targetRatio)) 1e-6)
+                (progn
+                  (if (null bestName)
+                    (setq bestName name)
+                  )
+                  ; Prefer architectural scales (contains '=')
+                  (setq isExisting (vl-string-search "=" name))
+                  (setq eqFound (if bestName (vl-string-search "=" bestName) nil))
+                  (if (and isExisting (not eqFound))
+                    (setq bestName name)
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+  bestName
+)
+
+(defun kn--target-ratio-scale-for-viewport (doc / customScale existingName denom denomText)
+  (setq customScale (kn--active-viewport-custom-scale doc))
+  (if (or (not (numberp customScale)) (<= customScale 0.0))
+    nil
+    (progn
+      (setq existingName (kn--find-scale-name-by-ratio customScale))
+      (if existingName
+        existingName
+        (progn
+          (setq denom (/ 1.0 customScale))
+          (setq denomText (kn--format-scale-denom-text denom))
+          (if (or (null denomText) (= "" denomText))
+            nil
+            (strcat "1:" denomText)
+          )
+        )
       )
     )
   )
@@ -605,6 +661,54 @@
       (setq result (vl-catch-all-apply 'setvar (list "CANNOSCALE" scaleName)))
       (not (vl-catch-all-error-p result))
     )
+  )
+)
+
+(defun kn--add-ratio-scale-to-list (ratioScale / colonIndex denomText denomValue result)
+  (if (or (null ratioScale) (= "" ratioScale))
+    nil
+    (progn
+      (setq colonIndex (vl-string-search ":" ratioScale))
+      ; vl-string-search is zero-based: for "1:64", ":" must be at index 1.
+      (if
+        (or
+          (< (strlen ratioScale) 3)
+          (/= "1:" (substr ratioScale 1 2))
+          (null colonIndex)
+          (/= 1 colonIndex)
+        )
+        nil
+        (progn
+          (setq denomText (substr ratioScale (+ colonIndex 2)))
+          (setq denomValue (distof denomText 2))
+          (if
+            (or
+              (null denomText)
+              (= "" denomText)
+              (null denomValue)
+              (<= denomValue 0.0)
+            )
+            nil
+            (progn
+              (setq result
+                (vl-catch-all-apply
+                  'vl-cmdf
+                  (list "_.-SCALELISTEDIT" "_Add" ratioScale "1" denomText "_Exit")
+                )
+              )
+              (not (vl-catch-all-error-p result))
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(defun kn--ensure-ratio-scale-active (ratioScale)
+  (if (kn--try-set-cannoscale ratioScale)
+    T
+    (and (kn--add-ratio-scale-to-list ratioScale) (kn--try-set-cannoscale ratioScale))
   )
 )
 
@@ -689,7 +793,7 @@
   )
 )
 
-(defun c:KN (/ *error* doc oldCmdecho oldLayer targetAnnoScale keyValue insertPoint blockRef)
+(defun c:KN (/ *error* doc oldCmdecho oldLayer targetRatioScale keyValue insertPoint blockRef)
   (vl-load-com)
   (setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))
   (setq oldCmdecho (getvar "CMDECHO"))
@@ -707,64 +811,54 @@
   )
 
   (cond
-    ((not (kn--in-modelspace-p))
-      (prompt "\nKN works in modelspace or inside an active layout viewport. Activate one and run again.")
+    ((not (kn--in-viewport-editing-p))
+      (prompt "\nKN requires layout viewport editing (paperspace sheet with an active viewport). Activate a viewport and run again.")
     )
     (T
       (kn--ensure-layer doc)
       (if (kn--ensure-canonical-keyed-note doc)
         (progn
-          (if (kn--in-viewport-editing-p)
-            (progn
-              (setq targetAnnoScale (kn--target-anno-scale-for-viewport doc))
-              (if targetAnnoScale
-                (if (kn--try-set-cannoscale targetAnnoScale)
-                  (prompt (strcat "\nUsing viewport annotative scale: " targetAnnoScale))
-                  (prompt
-                    (strcat
-                      "\nWarning: Could not set CANNOSCALE to "
-                      targetAnnoScale
-                      ". Using current annotation scale."
-                    )
-                  )
-                )
-                (prompt "\nWarning: Could not resolve active viewport scale to an annotation scale. Using current annotation scale.")
-              )
-            )
-            (if (kn--try-set-cannoscale kn:*modelspace-anno-scale*)
-              (prompt (strcat "\nUsing modelspace annotative scale: " kn:*modelspace-anno-scale*))
-              (prompt
-                (strcat
-                  "\nWarning: Could not set CANNOSCALE to "
-                  kn:*modelspace-anno-scale*
-                  ". Using current annotation scale."
-                )
-              )
-            )
-          )
           (setq keyValue (kn--prompt-key-value))
           (if (null keyValue)
             (prompt "\nKN canceled.")
             (progn
-              (setvar "CLAYER" kn:*layer-name*)
-              (setq insertPoint (getpoint "\nSpecify keyed note insertion point: "))
-              (if (null insertPoint)
-                (prompt "\nKN canceled.")
+              (setq targetRatioScale (kn--target-ratio-scale-for-viewport doc))
+              (if (null targetRatioScale)
+                (prompt "\nKN canceled: Could not resolve active viewport scale.")
                 (progn
-                  (setq blockRef (kn--insert-keyed-note doc insertPoint keyValue))
-                  (if blockRef
+                  (if (kn--ensure-ratio-scale-active targetRatioScale)
+                    (progn
+                      (prompt (strcat "\nUsing viewport annotative scale: " targetRatioScale))
+                      (setvar "CLAYER" kn:*layer-name*)
+                      (setq insertPoint (getpoint "\nSpecify keyed note insertion point: "))
+                      (if (null insertPoint)
+                        (prompt "\nKN canceled.")
+                        (progn
+                          (setq blockRef (kn--insert-keyed-note doc insertPoint keyValue))
+                          (if blockRef
+                            (prompt
+                              (strcat
+                                "\nInserted "
+                                kn:*block-name*
+                                " with value "
+                                keyValue
+                                " on layer "
+                                kn:*layer-name*
+                                "."
+                              )
+                            )
+                            (prompt "\nKN failed.")
+                          )
+                        )
+                      )
+                    )
                     (prompt
                       (strcat
-                        "\nInserted "
-                        kn:*block-name*
-                        " with value "
-                        keyValue
-                        " on layer "
-                        kn:*layer-name*
+                        "\nKN canceled: Could not apply viewport annotation scale "
+                        targetRatioScale
                         "."
                       )
                     )
-                    (prompt "\nKN failed.")
                   )
                 )
               )
