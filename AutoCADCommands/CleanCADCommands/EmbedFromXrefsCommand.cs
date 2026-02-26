@@ -85,6 +85,88 @@ namespace AutoCADCleanupTool
         }
 
         /// <summary>
+        /// Utility for the CLEANCAD workflow: explode non-attributed block references in Model Space.
+        /// Attributed blocks are preserved to avoid losing instance attribute values.
+        /// </summary>
+        private static void ExplodeAllBlockReferencesSkippingAttributed()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    var modelSpace = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                    int explodedCount;
+                    int totalExploded = 0;
+                    int totalSkippedAttributed = 0;
+
+                    do
+                    {
+                        explodedCount = 0;
+                        int skippedAttributed = 0;
+                        var blockReferences = new List<BlockReference>();
+
+                        foreach (ObjectId id in modelSpace)
+                        {
+                            if (id.ObjectClass.DxfName.Equals("INSERT", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
+                                if (br != null)
+                                    blockReferences.Add(br);
+                            }
+                        }
+
+                        if (blockReferences.Count > 0)
+                        {
+                            ed.WriteMessage($"\nFound {blockReferences.Count} block references to evaluate for explosion...");
+                            foreach (var br in blockReferences)
+                            {
+                                if (br.AttributeCollection != null && br.AttributeCollection.Count > 0)
+                                {
+                                    skippedAttributed++;
+                                    continue;
+                                }
+
+                                var explodedObjects = new DBObjectCollection();
+                                br.UpgradeOpen();
+                                br.Explode(explodedObjects);
+
+                                foreach (DBObject obj in explodedObjects)
+                                {
+                                    if (obj is Entity ent)
+                                    {
+                                        modelSpace.AppendEntity(ent);
+                                        tr.AddNewlyCreatedDBObject(ent, true);
+                                    }
+                                }
+                                br.Erase();
+                                explodedCount++;
+                            }
+
+                            totalExploded += explodedCount;
+                            totalSkippedAttributed += skippedAttributed;
+                            ed.WriteMessage($"\nExploded {explodedCount} block references; skipped {skippedAttributed} attributed block reference(s).");
+                        }
+
+                    } while (explodedCount > 0);
+
+                    ed.WriteMessage($"\nCLEANCAD pre-explode summary: exploded {totalExploded} block references; skipped {totalSkippedAttributed} attributed block reference(s).");
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nError while exploding block references for CLEANCAD: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// EMBEDIMAGES:
         /// - Collects all raster images (including from XREFs) across layouts.
         /// - Pre-rotates each image to match its orientation.
@@ -144,7 +226,15 @@ namespace AutoCADCleanupTool
                 // 2. EXPLODE BLOCKS FIRST
                 // If the JPG is inside an XREF or Block, the scanner won't find it unless we explode it first.
                 ed.WriteMessage("\nPre-exploding blocks to expose nested images...");
-                ExplodeAllBlockReferences();
+                if (_isCleanSheetWorkflowActive)
+                {
+                    ed.WriteMessage("\nCLEANCAD mode: preserving attributed block references.");
+                    ExplodeAllBlockReferencesSkippingAttributed();
+                }
+                else
+                {
+                    ExplodeAllBlockReferences();
+                }
 
                 // 3. COLLECT IMAGES
                 try
