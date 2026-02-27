@@ -26,9 +26,6 @@ namespace AutoCADCleanupTool
             AbortRemainingXrefDetach = false;
             bool protectedPromotedToAttach = false;
 
-            SimplerCommands.EnsureAllLayersVisibleAndUnlocked(db, ed);
-            SimplerCommands.PrepareXrefLayersForCleanup(db, ed);
-
             _blockIdsBeforeBind.Clear();
             _originalXrefIds.Clear();
             _imageDefsToPurge.Clear();

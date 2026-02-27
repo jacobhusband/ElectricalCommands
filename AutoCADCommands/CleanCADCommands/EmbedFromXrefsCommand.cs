@@ -206,33 +206,42 @@ namespace AutoCADCleanupTool
             {
                 ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
 
-                // 1. THAW LAYER 0
-                using (var tr = db.TransactionManager.StartTransaction())
+                bool preserveLayerStates = CleanupCommands.StrictTitleBlockProtectionActive;
+                if (!preserveLayerStates)
                 {
-                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-                    if (lt.Has("0"))
+                    // Force layer 0 active for legacy standalone EMBEDIMAGES runs.
+                    using (var tr = db.TransactionManager.StartTransaction())
                     {
-                        var zeroId = lt["0"];
-                        var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
-                        if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
-                        if (_savedClayer.IsNull) _savedClayer = originalClayer;
-                        db.Clayer = zeroId;
+                        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                        if (lt.Has("0"))
+                        {
+                            var zeroId = lt["0"];
+                            var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
+                            if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
+                            if (_savedClayer.IsNull) _savedClayer = originalClayer;
+                            db.Clayer = zeroId;
+                        }
+                        tr.Commit();
                     }
-                    tr.Commit();
+                }
+                else
+                {
+                    // CLEANCAD safety mode: do not thaw/retarget layers globally.
+                    if (_savedClayer.IsNull) _savedClayer = originalClayer;
+                    ed.WriteMessage("\nCLEANCAD safety mode: leaving layer states unchanged during image embedding.");
                 }
 
                 RemoveInvalidRasterImages(db, ed);
 
                 // 2. EXPLODE BLOCKS FIRST
                 // If the JPG is inside an XREF or Block, the scanner won't find it unless we explode it first.
-                ed.WriteMessage("\nPre-exploding blocks to expose nested images...");
                 if (_isCleanSheetWorkflowActive)
                 {
-                    ed.WriteMessage("\nCLEANCAD mode: preserving attributed block references.");
-                    ExplodeAllBlockReferencesSkippingAttributed();
+                    ed.WriteMessage("\nCLEANCAD mode: skipping model space block explosion to preserve block references.");
                 }
                 else
                 {
+                    ed.WriteMessage("\nPre-exploding blocks to expose nested images...");
                     ExplodeAllBlockReferences();
                 }
 
@@ -304,85 +313,101 @@ namespace AutoCADCleanupTool
 
                 foreach (ObjectId id in space)
                 {
-                    // Look for raster images
-                    if (!id.ObjectClass.DxfName.Equals("IMAGE", StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    var img = tr.GetObject(id, OpenMode.ForRead) as RasterImage;
-                    if (img == null || img.ImageDefId.IsNull) continue;
-
-                    var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead) as RasterImageDef;
-                    if (def == null) continue;
-
-                    // Mark Owner XREF for detach
-                    if (tr.GetObject(img.OwnerId, OpenMode.ForRead) is BlockTableRecord ownerBtr &&
-                        ownerBtr.IsFromExternalReference)
-                    {
-                        if (!CleanupCommands.IsProtectedTitleBlockXref(ownerBtr.ObjectId))
-                        {
-                            _xrefsToDetach.Add(ownerBtr.ObjectId);
-                        }
-                    }
-
-                    // Resolve Path
-                    string resolved = ResolveImagePath(db, def.SourceFileName);
-                    if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
-                    {
-                        // Try to find it in the same folder as the DWG if path resolution failed
-                        string localAttempt = Path.Combine(Path.GetDirectoryName(doc.Name), Path.GetFileName(def.SourceFileName));
-                        if (File.Exists(localAttempt))
-                        {
-                            resolved = localAttempt;
-                        }
-                        else
-                        {
-                            ed.WriteMessage($"\n[Skipping] Missing image file: {def.SourceFileName}");
-                            continue;
-                        }
-                    }
-
-                    string safePath = resolved;
-                    var cs = img.Orientation;
-                    double rotationDeg = 0.0;
-
-                    // --- CMYK / PREFLIGHT FIX ---
                     try
                     {
-                        // Calculate AutoCAD rotation
-                        rotationDeg = Math.Atan2(cs.Xaxis.Y, cs.Xaxis.X) * (180.0 / Math.PI);
+                        if (!id.IsValid || id.IsErased) continue;
+                        if (!id.ObjectClass.DxfName.Equals("IMAGE", StringComparison.OrdinalIgnoreCase))
+                            continue;
 
-                        // Attempt Preflight (Checks dimensions, rotation, etc.)
-                        // If this is a CMYK JPG, System.Drawing will throw an exception here.
-                        string preflightPath = PreflightRasterForPpt(resolved, -rotationDeg);
+                        var img = tr.GetObject(id, OpenMode.ForRead, false) as RasterImage;
+                        if (img == null || img.IsErased || img.ImageDefId.IsNull || !img.ImageDefId.IsValid || img.ImageDefId.IsErased)
+                            continue;
 
-                        if (!string.IsNullOrEmpty(preflightPath))
+                        var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead, false) as RasterImageDef;
+                        if (def == null || def.IsErased) continue;
+
+                        // Mark Owner XREF for detach
+                        if (!img.OwnerId.IsNull &&
+                            img.OwnerId.IsValid &&
+                            !img.OwnerId.IsErased &&
+                            tr.GetObject(img.OwnerId, OpenMode.ForRead, false) is BlockTableRecord ownerBtr &&
+                            ownerBtr.IsFromExternalReference)
                         {
-                            safePath = preflightPath;
+                            if (!CleanupCommands.IsProtectedTitleBlockXref(ownerBtr.ObjectId))
+                            {
+                                _xrefsToDetach.Add(ownerBtr.ObjectId);
+                            }
                         }
+
+                        // Resolve Path
+                        string resolved = ResolveImagePath(db, def.SourceFileName);
+                        if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
+                        {
+                            // Try to find it in the same folder as the DWG if path resolution failed
+                            string localAttempt = Path.Combine(Path.GetDirectoryName(doc.Name), Path.GetFileName(def.SourceFileName));
+                            if (File.Exists(localAttempt))
+                            {
+                                resolved = localAttempt;
+                            }
+                            else
+                            {
+                                ed.WriteMessage($"\n[Skipping] Missing image file: {def.SourceFileName}");
+                                continue;
+                            }
+                        }
+
+                        string safePath = resolved;
+                        var cs = img.Orientation;
+                        double rotationDeg = 0.0;
+
+                        // --- CMYK / PREFLIGHT FIX ---
+                        try
+                        {
+                            // Calculate AutoCAD rotation
+                            rotationDeg = Math.Atan2(cs.Xaxis.Y, cs.Xaxis.X) * (180.0 / Math.PI);
+
+                            // Attempt Preflight (Checks dimensions, rotation, etc.)
+                            // If this is a CMYK JPG, System.Drawing will throw an exception here.
+                            string preflightPath = PreflightRasterForPpt(resolved, -rotationDeg);
+
+                            if (!string.IsNullOrEmpty(preflightPath))
+                            {
+                                safePath = preflightPath;
+                            }
+                        }
+                        catch (System.Exception pex)
+                        {
+                            // Do NOT skip the image. PowerPoint handles CMYK JPGs better than .NET code.
+                            // We log the warning but proceed with the original resolved path.
+                            ed.WriteMessage($"\n[Warning] Preflight check failed for '{Path.GetFileName(resolved)}' (likely CMYK or locked). Attempting raw embed.");
+                            ed.WriteMessage($"\nDetails: {pex.Message}");
+
+                            // Fallback: Use original file, assume orientation is handled by PPT or post-transform
+                            safePath = resolved;
+                        }
+
+                        var placement = new ImagePlacementXref
+                        {
+                            Path = safePath,
+                            Pos = cs.Origin,
+                            U = cs.Xaxis,
+                            V = cs.Yaxis,
+                            OriginalEntityId = img.ObjectId,
+                            TargetBtrId = spaceId
+                        };
+
+                        _pendingXref.Enqueue(placement);
+                        ed.WriteMessage($"\nQueued: {Path.GetFileName(safePath)}");
                     }
-                    catch (System.Exception pex)
+                    catch (Autodesk.AutoCAD.Runtime.Exception ex) when (ex.ErrorStatus == ErrorStatus.WasErased)
                     {
-                        // Do NOT skip the image. PowerPoint handles CMYK JPGs better than .NET code.
-                        // We log the warning but proceed with the original resolved path.
-                        ed.WriteMessage($"\n[Warning] Preflight check failed for '{Path.GetFileName(resolved)}' (likely CMYK or locked). Attempting raw embed.");
-                        ed.WriteMessage($"\nDetails: {pex.Message}");
-
-                        // Fallback: Use original file, assume orientation is handled by PPT or post-transform
-                        safePath = resolved;
+                        // Entity was erased while scanning; skip and continue processing.
+                        continue;
                     }
-
-                    var placement = new ImagePlacementXref
+                    catch (System.Exception ex)
                     {
-                        Path = safePath,
-                        Pos = cs.Origin,
-                        U = cs.Xaxis,
-                        V = cs.Yaxis,
-                        OriginalEntityId = img.ObjectId,
-                        TargetBtrId = spaceId
-                    };
-
-                    _pendingXref.Enqueue(placement);
-                    ed.WriteMessage($"\nQueued: {Path.GetFileName(safePath)}");
+                        ed.WriteMessage($"\n[Warning] Skipping raster candidate {id}: {ex.Message}");
+                    }
                 }
                 tr.Commit();
             }

@@ -766,15 +766,8 @@ namespace AutoCADCleanupTool
                     using (var tr = db.TransactionManager.StartTransaction())
                     {
                         var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-                        ObjectId zeroId = ObjectId.Null;
-                        LayerTableRecord zeroLtr = null;
-                        if (lt.Has("0"))
-                        {
-                            zeroId = lt["0"];
-                            zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
-                            if (zeroLtr.IsOff) zeroLtr.IsOff = false;
-                            if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
-                        }
+                        ObjectId originalClayer = db.Clayer;
+                        ObjectId fallbackClayer = ObjectId.Null;
 
                         foreach (ObjectId layerId in lt)
                         {
@@ -784,24 +777,32 @@ namespace AutoCADCleanupTool
                             if (ltr == null) continue;
 
                             string lname = (ltr.Name ?? string.Empty).ToLowerInvariant();
-                            bool matchChristian = lname.Contains("christian");
-                            bool matchWlSig = checkWlSig(lname); // Use the new, safer check
-                            bool matchWLstamp = lname.Contains("wlstamp");
-                            bool matchRev = lname.Contains("rev");
+                            bool matchCloud = lname.Contains("cloud");
                             bool matchDelta = lname.Contains("delta");
-                            if ((matchChristian || matchWlSig || matchWLstamp || matchRev || matchDelta) && !ltr.IsFrozen)
+                            if ((matchCloud || matchDelta) && !ltr.IsFrozen)
                             {
                                 try
                                 {
                                     if (db.Clayer == layerId)
                                     {
-                                        if (!zeroId.IsNull && zeroId != layerId)
+                                        if (fallbackClayer.IsNull)
                                         {
-                                            db.Clayer = zeroId;
+                                            foreach (ObjectId candidateId in lt)
+                                            {
+                                                if (candidateId == layerId) continue;
+                                                var candidate = tr.GetObject(candidateId, OpenMode.ForRead, false) as LayerTableRecord;
+                                                if (candidate == null || candidate.IsErased || candidate.IsFrozen || candidate.IsOff) continue;
+                                                fallbackClayer = candidateId;
+                                                break;
+                                            }
+                                        }
+                                        if (!fallbackClayer.IsNull)
+                                        {
+                                            db.Clayer = fallbackClayer;
                                         }
                                         else
                                         {
-                                            // If we cannot change, skip freezing current layer
+                                            ed.WriteMessage($"\nSkipping freeze for current layer '{ltr.Name}' (no safe fallback current layer available).");
                                             continue;
                                         }
                                     }
@@ -814,6 +815,21 @@ namespace AutoCADCleanupTool
                                 }
                             }
                         }
+
+                        try
+                        {
+                            if (!originalClayer.IsNull &&
+                                originalClayer.IsValid &&
+                                !originalClayer.IsErased)
+                            {
+                                var originalLtr = tr.GetObject(originalClayer, OpenMode.ForRead, false) as LayerTableRecord;
+                                if (originalLtr != null && !originalLtr.IsErased && !originalLtr.IsFrozen)
+                                {
+                                    db.Clayer = originalClayer;
+                                }
+                            }
+                        }
+                        catch { }
 
                         tr.Commit();
                     }

@@ -43,25 +43,34 @@ namespace AutoCADCleanupTool
                 ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
                 _savedClayer = originalClayer;
 
-                // Force Layer 0 active and thawed
-                try
+                bool preserveLayerStates = CleanupCommands.StrictTitleBlockProtectionActive;
+                if (!preserveLayerStates)
                 {
-                    using (var tr = db.TransactionManager.StartTransaction())
+                    // Force layer 0 for legacy standalone EMBEDPDFS behavior.
+                    try
                     {
-                        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-                        if (lt.Has("0"))
+                        using (var tr = db.TransactionManager.StartTransaction())
                         {
-                            var zeroId = lt["0"];
-                            var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
-                            if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
-                            if (db.Clayer != zeroId) db.Clayer = zeroId;
+                            var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                            if (lt.Has("0"))
+                            {
+                                var zeroId = lt["0"];
+                                var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
+                                if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
+                                if (db.Clayer != zeroId) db.Clayer = zeroId;
+                            }
+                            tr.Commit();
                         }
-                        tr.Commit();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ed.WriteMessage($"\n[Warning] Could not switch to layer '0': {ex.Message}");
                     }
                 }
-                catch (System.Exception ex)
+                else
                 {
-                    ed.WriteMessage($"\n[Warning] Could not switch to layer '0': {ex.Message}");
+                    // CLEANCAD safety mode: do not thaw/retarget layers globally.
+                    ed.WriteMessage("\nCLEANCAD safety mode: leaving layer states unchanged during PDF embedding.");
                 }
 
                 // 2. Collect items (This now populates _pdfsToDetach)
