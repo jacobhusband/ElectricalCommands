@@ -788,6 +788,13 @@ namespace ElectricalCommands
           SetCellPlainText(table, row, col, text);
         }
       }
+      ApplyUniformDataTextHeight(
+        table,
+        layout,
+        maxDataColumns,
+        templateProfile.UniformDataTextHeight,
+        warnings
+      );
 
       ApplyRowVisualFromTemplate(
         table,
@@ -814,6 +821,13 @@ namespace ElectricalCommands
         warnings
       );
       ApplyUniformDataRowHeight(table, layout, templateProfile.UniformDataRowHeight, warnings);
+      ApplyUniformDataPlacement(
+        table,
+        layout,
+        maxDataColumns,
+        templateProfile.DataPlacementByColumn,
+        warnings
+      );
       ApplyUniformBorderColor(
         table,
         Color.FromColorIndex(ColorMethod.ByAci, 1),
@@ -851,7 +865,14 @@ namespace ElectricalCommands
       {
         runtimeColor = Color.FromColorIndex(ColorMethod.ByAci, 4);
       }
+      Dictionary<int, LightingFixtureScheduleDataPlacementProfile> runtimePlacementByColumn =
+        ResolveRuntimeDataPlacementProfiles(table, layout);
 
+      double runtimeTextHeight = ResolveMinimumPositiveDataTextHeight(
+        table,
+        layout,
+        ResolveRuntimeManufacturerTextHeight(table, layout, 0.09375)
+      );
       int maxDataColumns = Math.Min(8, table.NumColumns);
       for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
       {
@@ -863,6 +884,7 @@ namespace ElectricalCommands
           SetCellPlainText(table, row, col, text);
         }
       }
+      ApplyUniformDataTextHeight(table, layout, maxDataColumns, runtimeTextHeight, warnings);
 
       int[] noteRows = { layout.GeneralNotesRow, layout.NotesRow };
       foreach (int noteRow in noteRows)
@@ -879,6 +901,13 @@ namespace ElectricalCommands
         table,
         layout,
         ResolveMinimumPositiveDataRowHeight(table, layout, ResolveDataRowHeight(table, layout)),
+        warnings
+      );
+      ApplyUniformDataPlacement(
+        table,
+        layout,
+        maxDataColumns,
+        runtimePlacementByColumn,
         warnings
       );
       ApplyUniformBorderColor(
@@ -931,6 +960,11 @@ namespace ElectricalCommands
           {
             profile.DataCellsByColumn[col] = donor;
           }
+          profile.DataPlacementByColumn[col] = ResolveTemplateDataPlacementProfile(
+            donor,
+            warnings,
+            col
+          );
 
           TableAnalyzeCell generalNotesCell;
           if (cellMap.TryGetValue(Tuple.Create(templateLayout.GeneralNotesRow, col), out generalNotesCell))
@@ -961,6 +995,10 @@ namespace ElectricalCommands
           IsByAci = true
         };
         profile.UniformDataRowHeight = ResolveTemplateUniformDataRowHeight(templateLayout, template);
+        profile.UniformDataTextHeight = ResolveTemplateUniformDataTextHeight(
+          manufacturerCell,
+          profile.DataCellsByColumn.Values
+        );
 
         if (string.IsNullOrWhiteSpace(profile.UniformDataTextStyleName))
         {
@@ -1212,6 +1250,80 @@ namespace ElectricalCommands
       return null;
     }
 
+    private static double ResolveTemplateUniformDataTextHeight(
+      TableAnalyzeCell manufacturerCell,
+      IEnumerable<TableAnalyzeCell> dataDonors
+    )
+    {
+      double min = ResolveCellTextHeight(manufacturerCell);
+      foreach (TableAnalyzeCell donor in dataDonors ?? Enumerable.Empty<TableAnalyzeCell>())
+      {
+        double donorHeight = ResolveCellTextHeight(donor);
+        if (donorHeight > 0 && (min <= 0 || donorHeight < min))
+        {
+          min = donorHeight;
+        }
+      }
+
+      return min > 0 ? min : 0.09375;
+    }
+
+    private static LightingFixtureScheduleDataPlacementProfile ResolveTemplateDataPlacementProfile(
+      TableAnalyzeCell donorCell,
+      List<LightingFixtureScheduleWarning> warnings,
+      int col
+    )
+    {
+      LightingFixtureScheduleDataPlacementProfile profile = CreateDefaultDataPlacementProfile(col);
+      if (donorCell == null)
+      {
+        return profile;
+      }
+
+      profile.Alignment = ParseEnum(
+        donorCell.Alignment,
+        profile.Alignment,
+        warnings,
+        "visual.dataPlacement.alignment",
+        null,
+        col
+      );
+      profile.TextRotation = ParseEnum(
+        donorCell.TextRotation,
+        profile.TextRotation,
+        warnings,
+        "visual.dataPlacement.textRotation",
+        null,
+        col
+      );
+      profile.ContentLayout = ParseEnum(
+        donorCell.ContentLayout,
+        profile.ContentLayout,
+        warnings,
+        "visual.dataPlacement.contentLayout",
+        null,
+        col
+      );
+      if (donorCell.TopMargin.HasValue)
+      {
+        profile.TopMargin = donorCell.TopMargin.Value;
+      }
+      if (donorCell.LeftMargin.HasValue)
+      {
+        profile.LeftMargin = donorCell.LeftMargin.Value;
+      }
+      if (donorCell.BottomMargin.HasValue)
+      {
+        profile.BottomMargin = donorCell.BottomMargin.Value;
+      }
+      if (donorCell.RightMargin.HasValue)
+      {
+        profile.RightMargin = donorCell.RightMargin.Value;
+      }
+
+      return profile;
+    }
+
     private static double ResolveTemplateUniformDataRowHeight(
       LightingFixtureScheduleTableLayout templateLayout,
       TableAnalyzeExport template
@@ -1270,6 +1382,35 @@ namespace ElectricalCommands
       }
 
       return cell.ContentColor;
+    }
+
+    private static double ResolveCellTextHeight(TableAnalyzeCell cell)
+    {
+      if (cell == null)
+      {
+        return 0;
+      }
+
+      double min = double.MaxValue;
+      if (cell.TextHeight.HasValue && cell.TextHeight.Value > 0)
+      {
+        min = cell.TextHeight.Value;
+      }
+
+      foreach (TableAnalyzeCellContent content in cell.Contents ?? Enumerable.Empty<TableAnalyzeCellContent>())
+      {
+        if (
+          content != null
+          && content.TextHeight.HasValue
+          && content.TextHeight.Value > 0
+          && content.TextHeight.Value < min
+        )
+        {
+          min = content.TextHeight.Value;
+        }
+      }
+
+      return min < double.MaxValue ? min : 0;
     }
 
     private static void ApplyRowVisualFromTemplate(
@@ -1476,6 +1617,154 @@ namespace ElectricalCommands
       }
     }
 
+    private static void ApplyUniformDataTextHeight(
+      Table table,
+      LightingFixtureScheduleTableLayout layout,
+      int maxDataColumns,
+      double targetTextHeight,
+      List<LightingFixtureScheduleWarning> warnings
+    )
+    {
+      if (
+        table == null
+        || layout == null
+        || maxDataColumns <= 0
+        || targetTextHeight <= 0
+      )
+      {
+        return;
+      }
+
+      for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
+      {
+        for (int col = 0; col < maxDataColumns; col++)
+        {
+          int contentCount = Math.Max(1, EnsureCellHasContent(table, row, col));
+          SafeApply(
+            warnings,
+            "visual.data.textHeight",
+            () => table.SetTextHeight(row, col, targetTextHeight),
+            row,
+            col
+          );
+          for (int i = 0; i < contentCount; i++)
+          {
+            int idx = i;
+            SafeApply(
+              warnings,
+              "visual.data.textHeightByIndex",
+              () => table.SetTextHeight(row, col, idx, targetTextHeight),
+              row,
+              col
+            );
+          }
+        }
+      }
+    }
+
+    private static void ApplyUniformDataPlacement(
+      Table table,
+      LightingFixtureScheduleTableLayout layout,
+      int maxDataColumns,
+      IDictionary<int, LightingFixtureScheduleDataPlacementProfile> placementByColumn,
+      List<LightingFixtureScheduleWarning> warnings
+    )
+    {
+      if (table == null || layout == null || maxDataColumns <= 0)
+      {
+        return;
+      }
+
+      for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
+      {
+        for (int col = 0; col < maxDataColumns; col++)
+        {
+          LightingFixtureScheduleDataPlacementProfile profile;
+          if (
+            placementByColumn == null
+            || !placementByColumn.TryGetValue(col, out profile)
+            || profile == null
+          )
+          {
+            profile = CreateDefaultDataPlacementProfile(col);
+          }
+
+          ApplyDataPlacementProfile(table, row, col, profile, warnings);
+        }
+      }
+    }
+
+    private static void ApplyDataPlacementProfile(
+      Table table,
+      int row,
+      int col,
+      LightingFixtureScheduleDataPlacementProfile profile,
+      List<LightingFixtureScheduleWarning> warnings
+    )
+    {
+      if (
+        table == null
+        || profile == null
+        || row < 0
+        || row >= table.NumRows
+        || col < 0
+        || col >= table.NumColumns
+      )
+      {
+        return;
+      }
+
+      SafeApply(
+        warnings,
+        "visual.data.alignment",
+        () => table.SetAlignment(row, col, profile.Alignment),
+        row,
+        col
+      );
+      SafeApply(
+        warnings,
+        "visual.data.textRotation",
+        () => table.SetTextRotation(row, col, profile.TextRotation),
+        row,
+        col
+      );
+      SafeApply(
+        warnings,
+        "visual.data.contentLayout",
+        () => table.SetContentLayout(row, col, profile.ContentLayout),
+        row,
+        col
+      );
+      SafeApply(
+        warnings,
+        "visual.data.marginTop",
+        () => table.SetMargin(row, col, CellMargins.Top, profile.TopMargin),
+        row,
+        col
+      );
+      SafeApply(
+        warnings,
+        "visual.data.marginLeft",
+        () => table.SetMargin(row, col, CellMargins.Left, profile.LeftMargin),
+        row,
+        col
+      );
+      SafeApply(
+        warnings,
+        "visual.data.marginBottom",
+        () => table.SetMargin(row, col, CellMargins.Bottom, profile.BottomMargin),
+        row,
+        col
+      );
+      SafeApply(
+        warnings,
+        "visual.data.marginRight",
+        () => table.SetMargin(row, col, CellMargins.Right, profile.RightMargin),
+        row,
+        col
+      );
+    }
+
     private static void ApplyUniformNotesTextVisual(
       Table table,
       LightingFixtureScheduleTableLayout layout,
@@ -1601,6 +1890,262 @@ namespace ElectricalCommands
       }
 
       return fallback > 0 ? fallback : 0.35;
+    }
+
+    private static double ResolveMinimumPositiveDataTextHeight(
+      Table table,
+      LightingFixtureScheduleTableLayout layout,
+      double fallback
+    )
+    {
+      if (table == null || layout == null)
+      {
+        return fallback > 0 ? fallback : 0.09375;
+      }
+
+      double min = double.MaxValue;
+      int maxDataColumns = Math.Min(8, table.NumColumns);
+      for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
+      {
+        for (int col = 0; col < maxDataColumns; col++)
+        {
+          double cellTextHeight = ResolveCellTextHeight(table, row, col);
+          if (cellTextHeight > 0 && cellTextHeight < min)
+          {
+            min = cellTextHeight;
+          }
+        }
+      }
+
+      if (min < double.MaxValue)
+      {
+        return min;
+      }
+
+      return fallback > 0 ? fallback : 0.09375;
+    }
+
+    private static Dictionary<int, LightingFixtureScheduleDataPlacementProfile> ResolveRuntimeDataPlacementProfiles(
+      Table table,
+      LightingFixtureScheduleTableLayout layout
+    )
+    {
+      int maxDataColumns = Math.Min(8, table?.NumColumns ?? 8);
+      var profiles = new Dictionary<int, LightingFixtureScheduleDataPlacementProfile>();
+      for (int col = 0; col < maxDataColumns; col++)
+      {
+        LightingFixtureScheduleDataPlacementProfile profile = null;
+        if (table != null && layout != null)
+        {
+          for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
+          {
+            profile = TryCaptureRuntimeDataPlacementProfile(table, row, col);
+            if (profile != null)
+            {
+              break;
+            }
+          }
+        }
+
+        profiles[col] = profile ?? CreateDefaultDataPlacementProfile(col);
+      }
+
+      return profiles;
+    }
+
+    private static LightingFixtureScheduleDataPlacementProfile TryCaptureRuntimeDataPlacementProfile(
+      Table table,
+      int row,
+      int col
+    )
+    {
+      if (
+        table == null
+        || row < 0
+        || row >= table.NumRows
+        || col < 0
+        || col >= table.NumColumns
+      )
+      {
+        return null;
+      }
+
+      LightingFixtureScheduleDataPlacementProfile profile = CreateDefaultDataPlacementProfile(col);
+      bool captured = false;
+
+      try
+      {
+        profile.Alignment = table.Alignment(row, col);
+        captured = true;
+      }
+      catch
+      {
+        // Best-effort scan only.
+      }
+
+      try
+      {
+        profile.TextRotation = table.TextRotation(row, col);
+        captured = true;
+      }
+      catch
+      {
+        // Best-effort scan only.
+      }
+
+      try
+      {
+        profile.ContentLayout = table.GetContentLayout(row, col);
+        captured = true;
+      }
+      catch
+      {
+        // Best-effort scan only.
+      }
+
+      try
+      {
+        profile.TopMargin = table.GetMargin(row, col, CellMargins.Top);
+        captured = true;
+      }
+      catch
+      {
+        // Best-effort scan only.
+      }
+
+      try
+      {
+        profile.LeftMargin = table.GetMargin(row, col, CellMargins.Left);
+        captured = true;
+      }
+      catch
+      {
+        // Best-effort scan only.
+      }
+
+      try
+      {
+        profile.BottomMargin = table.GetMargin(row, col, CellMargins.Bottom);
+        captured = true;
+      }
+      catch
+      {
+        // Best-effort scan only.
+      }
+
+      try
+      {
+        profile.RightMargin = table.GetMargin(row, col, CellMargins.Right);
+        captured = true;
+      }
+      catch
+      {
+        // Best-effort scan only.
+      }
+
+      return captured ? profile : null;
+    }
+
+    private static LightingFixtureScheduleDataPlacementProfile CreateDefaultDataPlacementProfile(int col)
+    {
+      return new LightingFixtureScheduleDataPlacementProfile
+      {
+        Alignment = col == 1 ? CellAlignment.MiddleLeft : CellAlignment.MiddleCenter,
+        ContentLayout = CellContentLayout.Flow,
+        TextRotation = RotationAngle.Degrees000,
+        TopMargin = 0.06,
+        LeftMargin = 0.06,
+        BottomMargin = 0.06,
+        RightMargin = 0.06
+      };
+    }
+
+    private static double ResolveRuntimeManufacturerTextHeight(
+      Table table,
+      LightingFixtureScheduleTableLayout layout,
+      double fallback
+    )
+    {
+      if (table == null || layout == null)
+      {
+        return fallback > 0 ? fallback : 0.09375;
+      }
+
+      int[] preferredColumns = { 2, 0, 1, 3, 4, 5, 6, 7 };
+      for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
+      {
+        foreach (int col in preferredColumns)
+        {
+          if (col < 0 || col >= table.NumColumns)
+          {
+            continue;
+          }
+
+          double textHeight = ResolveCellTextHeight(table, row, col);
+          if (textHeight > 0)
+          {
+            return textHeight;
+          }
+        }
+      }
+
+      return fallback > 0 ? fallback : 0.09375;
+    }
+
+    private static double ResolveCellTextHeight(Table table, int row, int col)
+    {
+      if (
+        table == null
+        || row < 0
+        || row >= table.NumRows
+        || col < 0
+        || col >= table.NumColumns
+      )
+      {
+        return 0;
+      }
+
+      double min = double.MaxValue;
+      try
+      {
+        double textHeight = table.TextHeight(row, col);
+        if (textHeight > 0)
+        {
+          min = textHeight;
+        }
+      }
+      catch
+      {
+        // Best-effort scan only.
+      }
+
+      int contentCount = 0;
+      try
+      {
+        contentCount = table.GetNumberOfContents(row, col);
+      }
+      catch
+      {
+        contentCount = 0;
+      }
+
+      for (int i = 0; i < contentCount; i++)
+      {
+        try
+        {
+          double textHeight = table.GetTextHeight(row, col, i);
+          if (textHeight > 0 && textHeight < min)
+          {
+            min = textHeight;
+          }
+        }
+        catch
+        {
+          // Best-effort scan only.
+        }
+      }
+
+      return min < double.MaxValue ? min : 0;
     }
 
     private static int EnsureCellHasContent(Table table, int row, int col)
@@ -2701,13 +3246,27 @@ namespace ElectricalCommands
   {
     public Dictionary<int, TableAnalyzeCell> DataCellsByColumn { get; } =
       new Dictionary<int, TableAnalyzeCell>();
+    public Dictionary<int, LightingFixtureScheduleDataPlacementProfile> DataPlacementByColumn { get; } =
+      new Dictionary<int, LightingFixtureScheduleDataPlacementProfile>();
     public Dictionary<int, TableAnalyzeCell> GeneralNotesCellsByColumn { get; } =
       new Dictionary<int, TableAnalyzeCell>();
     public Dictionary<int, TableAnalyzeCell> NotesCellsByColumn { get; } =
       new Dictionary<int, TableAnalyzeCell>();
     public string UniformDataTextStyleName { get; set; }
     public TableAnalyzeColor UniformDataColor { get; set; }
+    public double UniformDataTextHeight { get; set; }
     public double UniformDataRowHeight { get; set; }
+  }
+
+  internal sealed class LightingFixtureScheduleDataPlacementProfile
+  {
+    public CellAlignment Alignment { get; set; }
+    public RotationAngle TextRotation { get; set; }
+    public CellContentLayout ContentLayout { get; set; }
+    public double TopMargin { get; set; }
+    public double LeftMargin { get; set; }
+    public double BottomMargin { get; set; }
+    public double RightMargin { get; set; }
   }
 
   internal sealed class LightingFixtureScheduleVisualNormalizationResult
