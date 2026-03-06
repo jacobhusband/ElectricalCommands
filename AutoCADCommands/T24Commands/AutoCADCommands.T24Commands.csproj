@@ -22,6 +22,17 @@
     <Compile Include="*.cs" />
   </ItemGroup>
 
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net8.0-windows' AND '$(AutoCAD2025Installed)' == 'true' ">
+    <Reference Include="AcWindows">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcWindows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AdWindows">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AdWindows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
   <!-- WPF XAML Pages -->
   <ItemGroup>
     <Page Include="SignatureManagerWindow.xaml" />

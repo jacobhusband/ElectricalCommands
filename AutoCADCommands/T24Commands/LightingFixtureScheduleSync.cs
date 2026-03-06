@@ -46,10 +46,20 @@ namespace ElectricalCommands
       try
       {
         string dwgPath = RequireSavedDwgPath(doc, db);
-        string syncPath = ResolveLightingFixtureScheduleSyncPath(doc, db);
+        string projectId = ResolveLightingFixtureScheduleProjectIdForDrawing(doc, db, dwgPath);
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+          projectId = PromptForLightingFixtureScheduleProjectId(ed);
+        }
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+          ed.WriteMessage("\nLFSPULL cancelled. Project ID is required.");
+          return;
+        }
+
         ObjectId tableId = PromptForLightingFixtureScheduleTable(
           ed,
-          "\nSelect lighting fixture schedule table to export to sync file: "
+          "\nSelect lighting fixture schedule table to export to the central store: "
         );
         if (tableId == ObjectId.Null)
         {
@@ -57,9 +67,9 @@ namespace ElectricalCommands
           return;
         }
 
-        LightingFixtureScheduleSyncPayload payload;
         string tableHandle = "UNKNOWN";
         int rowCount = 0;
+        LightingFixtureScheduleStoreRecord record = null;
 
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
@@ -74,20 +84,27 @@ namespace ElectricalCommands
           schedule = NormalizeSyncSchedule(schedule);
           rowCount = schedule.Rows.Count;
           tableHandle = table.Handle.ToString();
-
-          payload = BuildLightingFixtureScheduleSyncPayload(
+          record = SaveLightingFixtureScheduleStoreRecord(
+            projectId,
             schedule,
             dwgPath,
             tableHandle,
-            "autocad"
+            LightingFixtureScheduleStoreUpdatedByAutoCAD,
+            null,
+            0
           );
 
           tr.Commit();
         }
 
-        WriteLightingFixtureScheduleSyncFile(syncPath, payload);
+        SaveLightingFixtureScheduleStoreLink(
+          projectId,
+          dwgPath,
+          tableHandle,
+          record?.Version ?? 0
+        );
         ed.WriteMessage(
-          $"\nLFSPULL complete. Handle: {tableHandle}, Rows: {rowCount}, Output: {syncPath}"
+          $"\nLFSPULL complete. Project: {projectId}, Handle: {tableHandle}, Rows: {rowCount}, Version: {record?.Version ?? 0}, Store: {ResolveLightingFixtureScheduleDatabasePath()}"
         );
       }
       catch (System.Exception ex)
@@ -111,19 +128,35 @@ namespace ElectricalCommands
 
       try
       {
-        RequireSavedDwgPath(doc, db);
-        string syncPath = ResolveLightingFixtureScheduleSyncPath(doc, db);
-        if (!File.Exists(syncPath))
+        string dwgPath = RequireSavedDwgPath(doc, db);
+        string projectId = ResolveLightingFixtureScheduleProjectIdForDrawing(doc, db, dwgPath);
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+          LightingFixtureScheduleStoreLink link = GetLightingFixtureScheduleStoreLinkByDwgPath(dwgPath);
+          projectId = NormalizePlainText(link?.ProjectId);
+        }
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+          projectId = PromptForLightingFixtureScheduleProjectId(ed);
+        }
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+          ed.WriteMessage("\nLFSPUSH cancelled. Project ID is required.");
+          return;
+        }
+
+        LightingFixtureScheduleStoreRecord record = GetLightingFixtureScheduleStoreRecord(projectId);
+        if (record == null)
         {
           ed.WriteMessage(
-            $"\nLFSPUSH cancelled. Sync file was not found: {syncPath}. Run LFSPULL first or push from desktop."
+            $"\nLFSPUSH cancelled. No central store record was found for project {projectId}."
           );
           return;
         }
 
         ObjectId tableId = PromptForLightingFixtureScheduleTable(
           ed,
-          "\nSelect lighting fixture schedule table to update from sync file: "
+          "\nSelect lighting fixture schedule table to update from the central store: "
         );
         if (tableId == ObjectId.Null)
         {
@@ -131,9 +164,7 @@ namespace ElectricalCommands
           return;
         }
 
-        LightingFixtureScheduleSyncPayload payload = ReadLightingFixtureScheduleSyncFile(syncPath);
-        payload = NormalizeSyncPayload(payload);
-        int rowCount = payload.Schedule?.Rows?.Count ?? 0;
+        int rowCount = record.Schedule?.Rows?.Count ?? 0;
         string tableHandle = "UNKNOWN";
         LightingFixtureScheduleVisualNormalizationResult normalizationResult = null;
 
@@ -146,16 +177,17 @@ namespace ElectricalCommands
             return;
           }
 
-          normalizationResult = ApplyLightingScheduleToTable(table, db, tr, payload.Schedule);
+          normalizationResult = ApplyLightingScheduleToTable(table, db, tr, record.Schedule);
           table.GenerateLayout();
           TryRecomputeTableBlock(table);
           tableHandle = table.Handle.ToString();
           tr.Commit();
         }
 
+        SaveLightingFixtureScheduleStoreLink(projectId, dwgPath, tableHandle, record.Version);
         SafeEditorRegen(ed);
         ed.WriteMessage(
-          $"\nLFSPUSH complete. Handle: {tableHandle}, Rows applied: {rowCount}, Input: {syncPath}. Visual normalization: {FormatNormalizationSummary(normalizationResult)}"
+          $"\nLFSPUSH complete. Project: {projectId}, Handle: {tableHandle}, Rows applied: {rowCount}, Version: {record.Version}. Visual normalization: {FormatNormalizationSummary(normalizationResult)}"
         );
       }
       catch (System.Exception ex)
@@ -185,6 +217,36 @@ namespace ElectricalCommands
         }
 
         Document activeDoc = Application.DocumentManager?.MdiActiveDocument;
+        string dwgPath = ResolveBestDwgPath(activeDoc, db);
+        LightingFixtureScheduleStoreRecord record = null;
+        if (!string.IsNullOrWhiteSpace(dwgPath))
+        {
+          LightingFixtureScheduleStoreLink link =
+            GetLightingFixtureScheduleStoreLinkByDwgPath(dwgPath);
+          if (!string.IsNullOrWhiteSpace(link?.ProjectId))
+          {
+            record = GetLightingFixtureScheduleStoreRecord(link.ProjectId);
+          }
+          record = record ?? GetLightingFixtureScheduleStoreRecordForDwg(dwgPath);
+        }
+
+        if (record != null)
+        {
+          Transaction tr = db.TransactionManager.TopTransaction;
+          if (tr == null)
+          {
+            throw new InvalidOperationException(
+              "An active transaction is required to apply lighting fixture schedule sync data."
+            );
+          }
+
+          LightingFixtureScheduleVisualNormalizationResult normalizationResult =
+            ApplyLightingScheduleToTable(table, db, tr, record.Schedule);
+          message =
+            $"Applied central-store data for project {record.ProjectId}. Visual normalization: {FormatNormalizationSummary(normalizationResult)}.";
+          return true;
+        }
+
         string syncPath = ResolveLightingFixtureScheduleSyncPath(activeDoc, db);
         if (!File.Exists(syncPath))
         {
@@ -194,18 +256,18 @@ namespace ElectricalCommands
         LightingFixtureScheduleSyncPayload payload = NormalizeSyncPayload(
           ReadLightingFixtureScheduleSyncFile(syncPath)
         );
-        Transaction tr = db.TransactionManager.TopTransaction;
-        if (tr == null)
+        Transaction fallbackTr = db.TransactionManager.TopTransaction;
+        if (fallbackTr == null)
         {
           throw new InvalidOperationException(
             "An active transaction is required to apply lighting fixture schedule sync data."
           );
         }
 
-        LightingFixtureScheduleVisualNormalizationResult normalizationResult =
-          ApplyLightingScheduleToTable(table, db, tr, payload.Schedule);
+        LightingFixtureScheduleVisualNormalizationResult fallbackNormalization =
+          ApplyLightingScheduleToTable(table, db, fallbackTr, payload.Schedule);
         message =
-          $"Applied sync data from {syncPath}. Visual normalization: {FormatNormalizationSummary(normalizationResult)}.";
+          $"Applied legacy sync-file data from {syncPath}. Visual normalization: {FormatNormalizationSummary(fallbackNormalization)}.";
         return true;
       }
       catch (System.Exception ex)

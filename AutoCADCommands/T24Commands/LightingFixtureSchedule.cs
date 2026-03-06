@@ -92,6 +92,44 @@ namespace ElectricalCommands
           tr.Commit();
         }
 
+        try
+        {
+          string dwgPath = RequireSavedDwgPath(doc, db);
+          string projectId = ResolveLightingFixtureScheduleProjectIdForDrawing(doc, db, dwgPath);
+          if (!string.IsNullOrWhiteSpace(projectId) && !string.IsNullOrWhiteSpace(handle))
+          {
+            LightingFixtureScheduleStoreRecord record =
+              GetLightingFixtureScheduleStoreRecord(projectId);
+            if (record == null)
+            {
+              using (Transaction readTr = db.TransactionManager.StartTransaction())
+              {
+                Table newTable = readTr.GetObject(newTableId, OpenMode.ForRead, false) as Table;
+                if (newTable != null)
+                {
+                  record = SaveLightingFixtureScheduleStoreRecord(
+                    projectId,
+                    ExtractLightingScheduleFromTable(newTable),
+                    dwgPath,
+                    handle,
+                    LightingFixtureScheduleStoreUpdatedByAutoCAD,
+                    null,
+                    0
+                  );
+                }
+                readTr.Commit();
+              }
+            }
+            else
+            {
+              SaveLightingFixtureScheduleStoreLink(projectId, dwgPath, handle, record.Version);
+            }
+          }
+        }
+        catch
+        {
+        }
+
         ed.WriteMessage(
           $"\nLIGHTINGFIXTURESCHEDULE complete. Handle: {handle}, ObjectId: {newTableId}, Rows: {template.Table.NumRows}, Columns: {template.Table.NumColumns}, Warnings: {warnings.Count}, Template: {resourceName}, SyncApplied: {syncApplied}"
         );
