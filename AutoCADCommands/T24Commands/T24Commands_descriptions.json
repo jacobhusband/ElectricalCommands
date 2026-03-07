@@ -2,20 +2,11 @@
     "commands": {
         "T24": "Inserts a T24 PDF form and automatically adds embedded text and images on the final page.",
         "PDFSHEETS": "Inserts all pages of a selected multi-page PDF as underlays in a grid layout.",
-        "PNGSHEETS": "Inserts all PNG pages from a selected folder into paper space in a grid layout.",
-        "TXTSUMEXPORT": "Extracts room types and square footage from selected text objects and exports the combined data to a JSON file.",
-        "TXTSUM": "Sums numerical values from selected text objects, handling various formats including VA ratings.",
-        "AREALABEL": "Calculates areas of selected polylines and adds text labels with the area in square feet at the center of each.",
-        "TABLEANALYZE": "Captures a selected AutoCAD table at full fidelity and exports a reconstruction-ready JSON file.",
-        "LIGHTINGFIXTURESCHEDULE": "Inserts a built-in lighting fixture schedule AutoCAD table template at a picked insertion point and applies local sync data when available.",
-        "LFSPULL": "Exports selected lighting fixture schedule table data to T24LightingFixtureSchedule.sync.json in the active DWG folder.",
-        "LFSPUSH": "Loads T24LightingFixtureSchedule.sync.json from the active DWG folder and applies it to a selected lighting fixture schedule table."
+        "IMGSHEETS": "Inserts all PNG pages from a selected folder into paper space in a grid layout."
     },
     "links": {
         "T24": "https://www.notion.so/T24-2f53fdbb662c808c881ffd0bd69dc5b1",
-        "PDFSHEETS": "https://brainy-seahorse-3c5.notion.site/INSERTPDFSHEETS-2b13fdbb662c80468573df2164539808",
-        "TXTSUMEXPORT": "https://brainy-seahorse-3c5.notion.site/GETSUMFROMTEXTEXPORT-2b13fdbb662c8098967edf32021a5f6c",
-        "TXTSUM": "https://brainy-seahorse-3c5.notion.site/GETSUMFROMTEXT-2b13fdbb662c807aa0d6e00948b128d6",
-        "AREALABEL": "https://brainy-seahorse-3c5.notion.site/CALCULATEAREAS-2b13fdbb662c80dca341f5624feaa488"
+        "PDFSHEETS": "https://brainy-seahorse-3c5.notion.site/PDFSHEETS-2b13fdbb662c80468573df2164539808",
+        "IMGSHEETS": "https://brainy-seahorse-3c5.notion.site/IMGSHEETS-67335a8b3ec741e297b5025dd0c413ee"
     }
 }

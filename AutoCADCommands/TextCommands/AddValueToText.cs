@@ -10,9 +10,9 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("TXTADD", CommandFlags.UsePickSet)]
+    [CommandMethod("TEXTADD", CommandFlags.UsePickSet)]
     [CommandMethod("TA", CommandFlags.UsePickSet)]
-    public void Add2Txt()
+    public void TextAdd()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
       Database db = doc.Database;
@@ -88,7 +88,7 @@ namespace ElectricalCommands
             }
           }
           tr.Commit();
-          ed.WriteMessage($"\nCommand completed successfully. Processed {processedCount} text object(s).");
+          ed.WriteMessage($"\nTEXTADD completed successfully. Processed {processedCount} text object(s).");
         }
 
         // Clear the PickFirst selection set

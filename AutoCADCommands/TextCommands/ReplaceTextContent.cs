@@ -9,9 +9,9 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("TXTNEW", CommandFlags.UsePickSet)]
+    [CommandMethod("TEXTREPLACE", CommandFlags.UsePickSet)]
     [CommandMethod("TN", CommandFlags.UsePickSet)]
-    public void TextNew()
+    public void TextReplace()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
       Database db = doc.Database;
@@ -90,7 +90,7 @@ namespace ElectricalCommands
             }
           }
           tr.Commit();
-          ed.WriteMessage($"\nCommand completed successfully. Modified {processedCount} text object(s).");
+          ed.WriteMessage($"\nTEXTREPLACE completed successfully. Modified {processedCount} text object(s).");
         }
 
         // Clear the PickFirst selection set

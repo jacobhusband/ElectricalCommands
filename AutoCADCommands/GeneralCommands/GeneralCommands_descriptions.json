@@ -3,10 +3,14 @@
         "OBJMASK": "Creates wipeout objects behind selected text, MText, tables, or polylines to mask the background.",
         "VPFROMREG": "Creates a viewport in paperspace from a selected region in modelspace, with automatic scaling options.",
         "LAYRED": "Sets selected layer, region entities, or XREF-related layers to red based on the chosen mode.",
-        "LAYGREEN": "Sets all layers belonging to a selected XREF to green."
+        "LAYGREEN": "Sets all layers belonging to a selected XREF to green.",
+        "AREALABEL": "Calculates the area of selected closed polylines and places square-foot labels at their centers."
     },
     "links": {
-        "OBJMASK": "https://brainy-seahorse-3c5.notion.site/WIPEOUTOBJECTS-2b13fdbb662c802fb082e4095528ec06",
-        "VPFROMREG": "https://brainy-seahorse-3c5.notion.site/CREATEVIEWPORTFROMREGION-2b13fdbb662c805c963acf926dc03684"
+        "OBJMASK": "https://brainy-seahorse-3c5.notion.site/OBJMASK-2b13fdbb662c802fb082e4095528ec06",
+        "VPFROMREG": "https://brainy-seahorse-3c5.notion.site/VPFROMREG-2b13fdbb662c805c963acf926dc03684",
+        "LAYRED": "https://brainy-seahorse-3c5.notion.site/LAYRED-3e8ae8f68ef04512b3c693c8b94d7503",
+        "LAYGREEN": "https://brainy-seahorse-3c5.notion.site/LAYGREEN-0401b0c14e7a4581b27371fdc7c635e7",
+        "AREALABEL": "https://brainy-seahorse-3c5.notion.site/AREALABEL-2b13fdbb662c80dca341f5624feaa488"
     }
 }

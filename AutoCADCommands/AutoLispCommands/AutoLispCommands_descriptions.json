@@ -1,36 +1,12 @@
 {
     "commands": {
-        "C1": "Increments the first numeric attribute value on each selected block by 1.",
-        "D1": "Decrements the first numeric attribute value on each selected block by 1.",
-        "C2": "Prompts for a custom increment value and applies it to the first numeric attribute on selected blocks.",
-        "D2": "Prompts for a custom decrement value and applies it to the first numeric attribute on selected blocks.",
-        "F1": "Sets the first attribute on each selected block to a user-entered string value.",
-        "CHLAY": "Finds the closest matching layer name from a search string, then moves the previous selection or current layer to that match.",
         "CLEANUP": "Runs SETBYLAYER on all objects, PURGE ALL, and AUDIT with fixes to clean the current drawing.",
-        "ETOG": "Freezes or thaws layers matching WL/WL-STAMP style names, following the state of the first match.",
-        "LTOG": "Toggles freeze/thaw for XREF layers containing a user-specified text fragment.",
-        "MTOG": "Toggles freeze/thaw for layers containing \"christian\" or \"CD stamp\".",
         "REV": "Creates a revision cloud and delta tag on new layers with a live preview.",
-        "SUMLENGTHS": "Sums the lengths of selected lines, arcs, polylines, and reports the total.",
-        "SL": "Alias for SUMLENGTHS.",
-        "TEXTCOUNT": "Counts how many times each text/MTEXT value appears and reports totals.",
-        "TSELECT": "Keeps only TEXT and MTEXT from a selection set."
+        "SUMLENGTHS": "Sums the lengths of selected lines, arcs, polylines, and reports the total."
     },
     "links": {
-        "C1": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "D1": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "C2": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "D2": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "F1": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "CHLAY": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
         "CLEANUP": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "ETOG": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "LTOG": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "MTOG": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
         "REV": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "SUMLENGTHS": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "SL": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "TEXTCOUNT": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
-        "TSELECT": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737"
+        "SUMLENGTHS": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737"
     }
 }

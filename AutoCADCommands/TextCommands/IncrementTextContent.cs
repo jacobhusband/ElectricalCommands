@@ -11,9 +11,9 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("TXTINCR", CommandFlags.UsePickSet)]
+    [CommandMethod("TEXTINCREMENT", CommandFlags.UsePickSet)]
     [CommandMethod("TI", CommandFlags.UsePickSet)]
-    public void Incrementer()
+    public void TextIncrement()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
       Database db = doc.Database;
@@ -104,7 +104,7 @@ namespace ElectricalCommands
           tr.Commit();
         }
 
-        ed.WriteMessage($"\nINCREMENTER command completed successfully. Modified {textObjects.Count} text object(s).");
+        ed.WriteMessage($"\nTEXTINCREMENT completed successfully. Modified {textObjects.Count} text object(s).");
 
         // Clear the PickFirst selection set
         ed.SetImpliedSelection(new ObjectId[0]);

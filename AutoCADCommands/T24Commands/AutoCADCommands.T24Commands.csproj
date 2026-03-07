@@ -20,6 +20,16 @@
 
   <ItemGroup>
     <Compile Include="*.cs" />
+    <Compile Remove="CalculateAreas.cs" />
+    <Compile Remove="GetSumFromText.cs" />
+    <Compile Remove="GetSumFromTextExport.cs" />
+    <Compile Remove="LightingFixtureSchedule.cs" />
+    <Compile Remove="LightingFixtureScheduleCentralStore.cs" />
+    <Compile Remove="LightingFixtureScheduleFallbackControl.cs" />
+    <Compile Remove="LightingFixtureSchedulePaletteControl.cs" />
+    <Compile Remove="LightingFixtureSchedulePaletteHost.cs" />
+    <Compile Remove="LightingFixtureScheduleSync.cs" />
+    <Compile Remove="TableAnalyze.cs" />
   </ItemGroup>
 
   <ItemGroup Condition=" '$(TargetFramework)' == 'net8.0-windows' AND '$(AutoCAD2025Installed)' == 'true' ">
@@ -42,6 +52,10 @@
   <ItemGroup>
     <EmbeddedResource Include="Resources\WL_Sig_Blue_Small.gif" />
     <EmbeddedResource Include="Resources\LightingFixtureSchedule.tableanalyze.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Remove="Resources\LightingFixtureSchedule.tableanalyze.json" />
   </ItemGroup>
 
   <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">

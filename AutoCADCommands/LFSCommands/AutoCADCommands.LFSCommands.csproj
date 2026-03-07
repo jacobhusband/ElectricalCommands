@@ -2,32 +2,47 @@
   
   <PropertyGroup>
     <Configuration>Release</Configuration>
-    <!-- TargetFramework REMOVED (Inherited from Directory.Build.props) -->
-    <PackageId>Electrical.AutoCAD.TextCommands</PackageId>
-    <Description>Commands for manipulating text in AutoCAD.</Description>
-    <AssemblyName>AutoCADCommands.TextCommands</AssemblyName>
+    <PackageId>Electrical.AutoCAD.LFSCommands</PackageId>
+    <Description>Commands for lighting fixture schedule workflows.</Description>
+    <AssemblyName>AutoCADCommands.LFSCommands</AssemblyName>
   </PropertyGroup>
 
   <PropertyGroup>
-    <AutoCADBundleName>ElectricalCommands.TextCommands</AutoCADBundleName>
+    <AutoCADBundleName>ElectricalCommands.LFSCommands</AutoCADBundleName>
     <AutoCADBundleVersion>$(Version)</AutoCADBundleVersion>
-    <AutoCADBundleDescription>Commands for manipulating text in AutoCAD.</AutoCADBundleDescription>
+    <AutoCADBundleDescription>Commands for lighting fixture schedule workflows.</AutoCADBundleDescription>
     <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>
-    <AutoCADBundleProductCode>{d595f8f8-1c8c-4036-8a2a-3e8b8a2a3345}</AutoCADBundleProductCode>
+    <AutoCADBundleProductCode>{53aa9646-5037-4de0-a727-785c09b94686}</AutoCADBundleProductCode>
     <AutoCADCompanyUrl>www.acies.engineering</AutoCADCompanyUrl>
     <AutoCADCompanyEmail>jacob.h@acies.engineering</AutoCADCompanyEmail>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="*.cs" />
-    <Compile Include="..\T24Commands\GetSumFromText.cs" Link="GetSumFromText.cs" />
-    <Compile Include="..\T24Commands\GetSumFromTextExport.cs" Link="GetSumFromTextExport.cs" />
+    <Compile Include="..\T24Commands\Globals.cs" Link="Globals.cs" />
+    <Compile Include="..\T24Commands\LightingFixtureSchedule.cs" Link="LightingFixtureSchedule.cs" />
+    <Compile Include="..\T24Commands\LightingFixtureScheduleCentralStore.cs" Link="LightingFixtureScheduleCentralStore.cs" />
+    <Compile Include="..\T24Commands\LightingFixtureScheduleFallbackControl.cs" Link="LightingFixtureScheduleFallbackControl.cs" />
+    <Compile Include="..\T24Commands\LightingFixtureSchedulePaletteControl.cs" Link="LightingFixtureSchedulePaletteControl.cs" />
+    <Compile Include="..\T24Commands\LightingFixtureSchedulePaletteHost.cs" Link="LightingFixtureSchedulePaletteHost.cs" />
+    <Compile Include="..\T24Commands\LightingFixtureScheduleSync.cs" Link="LightingFixtureScheduleSync.cs" />
+    <Compile Include="..\T24Commands\TableAnalyze.cs" Link="TableAnalyze.cs" />
   </ItemGroup>
 
-  <!-- 
-    XML GENERATION TARGET
-    Runs only once (when the net48 build finishes) to avoid writing the file twice.
-  -->
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net8.0-windows' AND '$(AutoCAD2025Installed)' == 'true' ">
+    <Reference Include="AcWindows">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcWindows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AdWindows">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AdWindows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\T24Commands\Resources\LightingFixtureSchedule.tableanalyze.json" Link="Resources\LightingFixtureSchedule.tableanalyze.json" />
+  </ItemGroup>
+
   <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">
     <PropertyGroup>
       <BundleDir>$(AutoCADBundleRoot)\$(AutoCADBundleName).bundle</BundleDir>
@@ -56,7 +71,6 @@
     Url="$(AutoCADCompanyUrl)"
     Email="$(AutoCADCompanyEmail)" />
   
-  <!-- COMPONENT 1: AutoCAD 2025+ (.NET 8) -->
   <Components Description="AutoCAD 2025+">
     <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R25.0" />
     <ComponentEntry
@@ -71,7 +85,6 @@
     </ComponentEntry>
   </Components>
 
-  <!-- COMPONENT 2: AutoCAD 2021-2024 (.NET 4.8) -->
   <Components Description="AutoCAD 2021-2024">
     <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.0" SeriesMax="R24.9" />
     <ComponentEntry
@@ -92,10 +105,6 @@
     <WriteLinesToFile File="$(BundleDir)\PackageContents.xml" Lines="$(PackageContents)" Overwrite="true" Encoding="utf-8" />
   </Target>
 
-  <!-- 
-    FILE COPY TARGET
-    Copies the Main DLL *AND* all dependency DLLs (NuGet packages) to the bundle folder.
-  -->
   <Target Name="CopyDllsToBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
     <PropertyGroup>
       <BundleDir>$(AutoCADBundleRoot)\$(AutoCADBundleName).bundle</BundleDir>
@@ -104,12 +113,8 @@
     
     <MakeDir Directories="$(TargetSubFolder)" />
     
-    <!-- Copy the Main Output DLL -->
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(TargetSubFolder)" />
-
-    <!-- Copy all Dependencies (NuGet DLLs like Newtonsoft.Json, FreeSpire.PDF, etc.) -->
     <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFolder="$(TargetSubFolder)" />
   </Target>
 
 </Project>
-

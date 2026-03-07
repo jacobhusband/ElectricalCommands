@@ -13,9 +13,9 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("TXTSUMEXPORT", CommandFlags.UsePickSet)]
+    [CommandMethod("TEXTSUMEXPORT", CommandFlags.UsePickSet)]
     [CommandMethod("TSE", CommandFlags.UsePickSet)]
-    public void SumTextExport()
+    public void TextSumExport()
     {
       Autodesk.AutoCAD.ApplicationServices.Document doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
       Database db = doc.Database;

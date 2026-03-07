@@ -1,0 +1,14 @@
+{
+    "commands": {
+        "TABLEANALYZE": "Captures a selected AutoCAD table at full fidelity and exports a reconstruction-ready JSON file.",
+        "LFS": "Inserts a built-in lighting fixture schedule AutoCAD table template at a picked insertion point and applies local sync data when available.",
+        "LFSPULL": "Exports selected lighting fixture schedule table data to T24LightingFixtureSchedule.sync.json in the active DWG folder.",
+        "LFSPUSH": "Loads T24LightingFixtureSchedule.sync.json from the active DWG folder and applies it to a selected lighting fixture schedule table."
+    },
+    "links": {
+        "TABLEANALYZE": "https://brainy-seahorse-3c5.notion.site/TABLEANALYZE-5450f3570a694cc48844e5250b29679a",
+        "LFS": "https://brainy-seahorse-3c5.notion.site/LFS-0f3bd29ae7034574b8458136be3e598f",
+        "LFSPULL": "https://brainy-seahorse-3c5.notion.site/LFSPULL-a0aeb6ea06014611bce6265b926ec160",
+        "LFSPUSH": "https://brainy-seahorse-3c5.notion.site/LFSPUSH-cce3b9fe840349b7823c80c879794feb"
+    }
+}

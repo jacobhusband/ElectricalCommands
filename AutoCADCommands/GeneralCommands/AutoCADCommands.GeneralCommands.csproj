@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="*.cs" />
+    <Compile Include="..\T24Commands\CalculateAreas.cs" Link="CalculateAreas.cs" />
   </ItemGroup>
 
   <!-- WPF XAML Pages -->

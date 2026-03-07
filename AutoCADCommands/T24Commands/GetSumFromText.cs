@@ -8,9 +8,9 @@ namespace ElectricalCommands
 {
   public static class GetSumFromTextCommand
   {
-    [CommandMethod("TXTSUM", CommandFlags.UsePickSet)]
+    [CommandMethod("TEXTSUM", CommandFlags.UsePickSet)]
     [CommandMethod("TS", CommandFlags.UsePickSet)]
-    public static void SUMTEXT()
+    public static void TextSum()
     {
       var (doc, db, ed) = Globals.GetGlobals();
       if (doc == null || db == null || ed == null)

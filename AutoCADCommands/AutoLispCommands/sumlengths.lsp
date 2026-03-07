@@ -24,6 +24,3 @@
   )
   (princ)
 )
-
-;; A shorter alias for the command
-(defun c:SL () (c:SumLengths))

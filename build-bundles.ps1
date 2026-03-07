@@ -149,6 +149,7 @@ $bundles = @(
     @{ Folder = "ElectricalCommands.CleanCADCommands.bundle"; Prefix = "ElectricalCommands.CleanCADCommands" },
     @{ Folder = "ElectricalCommands.GeneralCommands.bundle"; Prefix = "ElectricalCommands.GeneralCommands" },
     @{ Folder = "ElectricalCommands.GetAttributesCommands.bundle"; Prefix = "ElectricalCommands.GetAttributesCommands" },
+    @{ Folder = "ElectricalCommands.LFSCommands.bundle"; Prefix = "ElectricalCommands.LFSCommands" },
     @{ Folder = "ElectricalCommands.PlotCommands.bundle"; Prefix = "ElectricalCommands.PlotCommands" },
     @{ Folder = "ElectricalCommands.T24Commands.bundle"; Prefix = "ElectricalCommands.T24Commands" },
     @{ Folder = "ElectricalCommands.TextCommands.bundle"; Prefix = "ElectricalCommands.TextCommands" }

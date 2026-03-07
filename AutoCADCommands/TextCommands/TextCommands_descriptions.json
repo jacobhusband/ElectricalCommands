@@ -1,12 +1,20 @@
 {
     "commands": {
-        "TXTREPLACE": "Replaces the text content of selected TEXT and MTEXT objects with new user-specified text.",
-        "TXTINCR": "Increments text content with a prefix, start/end numbers, and odd/even filtering, sorted by distance from a reference point.",
-        "TXTADD": "Adds a specified integer value to numbers found in selected text objects, handling various formats like ranges and separators."
+        "TEXTCOUNT": "Counts selected TEXT, MTEXT, and ATTRIB values, groups identical strings, reports totals, and exports a timestamped text report.",
+        "TEXTSELECT": "Filters a mixed selection so only TEXT and MTEXT objects remain selected.",
+        "TEXTSUM": "Sums numeric values parsed from selected TEXT and MTEXT objects.",
+        "TEXTSUMEXPORT": "Finds room-type text near square-footage text and exports grouped totals to T24Output.json.",
+        "TEXTREPLACE": "Replaces the content of selected TEXT and MTEXT objects with a new user-specified value.",
+        "TEXTINCREMENT": "Renumbers selected TEXT and MTEXT objects using a prefix, start/end range, and odd/even filtering.",
+        "TEXTADD": "Adds a specified integer value to numbers found inside selected TEXT and MTEXT objects."
     },
     "links": {
-        "TXTREPLACE": "https://brainy-seahorse-3c5.notion.site/REPLACETEXTCONTENT-2b13fdbb662c80f19897c73b90801e7e",
-        "TXTINCR": "https://brainy-seahorse-3c5.notion.site/INCREMENTTEXTCONTENT-2b13fdbb662c80d8b2f6ef30877488ca",
-        "TXTADD": "https://brainy-seahorse-3c5.notion.site/ADDVALUETOTEXT-2b13fdbb662c808c9016dc9a230f7403"
+        "TEXTCOUNT": "https://brainy-seahorse-3c5.notion.site/TEXTCOUNT-fe72b9787d2d4740a82e881a79cb785a",
+        "TEXTSELECT": "https://brainy-seahorse-3c5.notion.site/TEXTSELECT-5ed6ba4a1b2f4c2090673c79785b77aa",
+        "TEXTSUM": "https://brainy-seahorse-3c5.notion.site/TEXTSUM-2b13fdbb662c807aa0d6e00948b128d6",
+        "TEXTSUMEXPORT": "https://brainy-seahorse-3c5.notion.site/TEXTSUMEXPORT-2b13fdbb662c8098967edf32021a5f6c",
+        "TEXTREPLACE": "https://brainy-seahorse-3c5.notion.site/TEXTREPLACE-2b13fdbb662c80f19897c73b90801e7e",
+        "TEXTINCREMENT": "https://brainy-seahorse-3c5.notion.site/TEXTINCREMENT-2b13fdbb662c80d8b2f6ef30877488ca",
+        "TEXTADD": "https://brainy-seahorse-3c5.notion.site/TEXTADD-2b13fdbb662c808c9016dc9a230f7403"
     }
 }

@@ -16,7 +16,6 @@ namespace ElectricalCommands
   {
     private const string LightingFixtureScheduleTemplateResourceSuffix = "Resources.LightingFixtureSchedule.tableanalyze.json";
 
-    [CommandMethod("LIGHTINGFIXTURESCHEDULE", CommandFlags.Modal)]
     [CommandMethod("LFS", CommandFlags.Modal)]
     public void LightingFixtureSchedule()
     {
@@ -131,7 +130,7 @@ namespace ElectricalCommands
         }
 
         ed.WriteMessage(
-          $"\nLIGHTINGFIXTURESCHEDULE complete. Handle: {handle}, ObjectId: {newTableId}, Rows: {template.Table.NumRows}, Columns: {template.Table.NumColumns}, Warnings: {warnings.Count}, Template: {resourceName}, SyncApplied: {syncApplied}"
+          $"\nLFS complete. Handle: {handle}, ObjectId: {newTableId}, Rows: {template.Table.NumRows}, Columns: {template.Table.NumColumns}, Warnings: {warnings.Count}, Template: {resourceName}, SyncApplied: {syncApplied}"
         );
         if (syncApplied && !string.IsNullOrWhiteSpace(syncMessage))
         {
@@ -156,7 +155,7 @@ namespace ElectricalCommands
       }
       catch (System.Exception ex)
       {
-        ed.WriteMessage($"\nLIGHTINGFIXTURESCHEDULE error: {ex.Message}");
+        ed.WriteMessage($"\nLFS error: {ex.Message}");
       }
       finally
       {
