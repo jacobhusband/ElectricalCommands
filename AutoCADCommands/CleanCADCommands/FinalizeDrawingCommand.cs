@@ -21,6 +21,8 @@ namespace AutoCADCleanupTool
             Database db = doc.Database;
             Editor ed = doc.Editor;
             bool strictProtection = StrictTitleBlockProtectionActive;
+            bool useClassicBind = UseClassicBindDuringFinalize;
+            bool insertBind = !useClassicBind;
             ObjectId protectedXrefId = ProtectedTitleBlockXrefId;
             StrictTitleBlockBindFailed = false;
             AbortRemainingXrefDetach = false;
@@ -33,6 +35,10 @@ namespace AutoCADCleanupTool
             SimplerCommands.DetachSpecialXrefs();
 
             ed.WriteMessage("\n--- Stage 1: Analyzing and Binding... ---");
+            if (useClassicBind)
+            {
+                ed.WriteMessage("\nCLEANCAD color-preserve mode: using classic bind so bound layers keep XREF prefixes such as 'xref$0$Layer'.");
+            }
 
             try
             {
@@ -207,8 +213,16 @@ namespace AutoCADCleanupTool
                     var idsToBind = new ObjectIdCollection(_originalXrefIds.ToArray());
                     if (!SkipBindDuringFinalize)
                     {
-                        ed.WriteMessage($"\nBinding {idsToBind.Count} DWG reference(s)...");
-                        db.BindXrefs(idsToBind, true);
+                        if (useClassicBind)
+                        {
+                            ed.WriteMessage($"\nBinding {idsToBind.Count} DWG reference(s) using classic bind to preserve XREF layer colors...");
+                        }
+                        else
+                        {
+                            ed.WriteMessage($"\nBinding {idsToBind.Count} DWG reference(s)...");
+                        }
+
+                        db.BindXrefs(idsToBind, insertBind);
                         bindCount = idsToBind.Count;
                     }
                     else
@@ -245,8 +259,16 @@ namespace AutoCADCleanupTool
 
                                 _originalXrefIds.Add(protectedXrefId);
                                 var retryIds = new ObjectIdCollection(new[] { protectedXrefId });
-                                ed.WriteMessage("\nBinding promoted protected titleblock XREF...");
-                                db.BindXrefs(retryIds, true);
+                                if (useClassicBind)
+                                {
+                                    ed.WriteMessage("\nBinding promoted protected titleblock XREF using classic bind...");
+                                }
+                                else
+                                {
+                                    ed.WriteMessage("\nBinding promoted protected titleblock XREF...");
+                                }
+
+                                db.BindXrefs(retryIds, insertBind);
                             }
                             else
                             {
@@ -306,6 +328,7 @@ namespace AutoCADCleanupTool
             finally
             {
                 SkipBindDuringFinalize = false;
+                UseClassicBindDuringFinalize = false;
             }
         }
 

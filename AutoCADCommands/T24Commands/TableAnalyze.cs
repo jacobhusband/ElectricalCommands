@@ -15,8 +15,6 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    [CommandMethod("TABLEANALYZE", CommandFlags.UsePickSet)]
-    [CommandMethod("TBA", CommandFlags.UsePickSet)]
     public void TableAnalyze()
     {
       var (doc, db, ed) = Globals.GetGlobals();

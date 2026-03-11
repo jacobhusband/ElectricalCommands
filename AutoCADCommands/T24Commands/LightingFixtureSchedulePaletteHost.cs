@@ -82,7 +82,6 @@ namespace ElectricalCommands
       s_lightingFixtureSchedulePaletteContext = null;
     }
 
-    [CommandMethod("LFSOPEN", CommandFlags.Modal)]
     public void LightingFixtureScheduleOpenPalette()
     {
       var (doc, db, ed) = Globals.GetGlobals();
@@ -134,13 +133,13 @@ namespace ElectricalCommands
         stage = "host show";
         s_lightingFixtureScheduleHost.Show();
         ed.WriteMessage(
-          $"\nLFSOPEN: opened lighting schedule using {s_lightingFixtureScheduleHost.HostKind}."
+          $"\nLFS: opened lighting schedule using {s_lightingFixtureScheduleHost.HostKind}."
         );
       }
       catch (System.Exception ex)
       {
         ed.WriteMessage(
-          $"\nLFSOPEN error during {stage}: {FormatLightingFixtureScheduleException(ex)}"
+          $"\nLFS error during {stage}: {FormatLightingFixtureScheduleException(ex)}"
         );
       }
     }
@@ -175,14 +174,14 @@ namespace ElectricalCommands
           s_lightingFixtureScheduleEditorControl.HostControl,
           LightingFixtureSchedulePaletteGuid
         );
-        ed?.WriteMessage("\nLFSOPEN: using AutoCAD palette host.");
+        ed?.WriteMessage("\nLFS: using AutoCAD palette host.");
         return;
       }
       catch (System.Exception ex)
       {
         paletteFailure = ex;
         ed?.WriteMessage(
-          $"\nLFSOPEN: palette host unavailable. {FormatLightingFixtureScheduleException(ex)}"
+          $"\nLFS: palette host unavailable. {FormatLightingFixtureScheduleException(ex)}"
         );
         ReleaseLightingFixtureScheduleHost(keepControl: true);
         EnsureLightingFixtureScheduleEditorControl(ed);
@@ -195,7 +194,7 @@ namespace ElectricalCommands
         s_lightingFixtureScheduleHost = new LightingFixtureScheduleModelessFormHost(
           s_lightingFixtureScheduleEditorControl.HostControl
         );
-        ed?.WriteMessage("\nLFSOPEN: using modeless WinForms fallback host.");
+        ed?.WriteMessage("\nLFS: using modeless WinForms fallback host.");
         return;
       }
       catch (System.Exception ex)
@@ -224,14 +223,14 @@ namespace ElectricalCommands
       try
       {
         AttachLightingFixtureScheduleEditorControl(new LightingFixtureSchedulePaletteControl());
-        ed?.WriteMessage("\nLFSOPEN: using primary schedule editor.");
+        ed?.WriteMessage("\nLFS: using primary schedule editor.");
         return;
       }
       catch (System.Exception ex)
       {
         richFailure = ex;
         ed?.WriteMessage(
-          $"\nLFSOPEN: primary editor unavailable. {FormatLightingFixtureScheduleException(ex)}"
+          $"\nLFS: primary editor unavailable. {FormatLightingFixtureScheduleException(ex)}"
         );
         ReleaseLightingFixtureScheduleEditorControl();
       }
@@ -240,7 +239,7 @@ namespace ElectricalCommands
       try
       {
         AttachLightingFixtureScheduleEditorControl(new LightingFixtureScheduleFallbackControl());
-        ed?.WriteMessage("\nLFSOPEN: using simplified schedule editor.");
+        ed?.WriteMessage("\nLFS: using simplified schedule editor.");
         return;
       }
       catch (System.Exception ex)
@@ -269,6 +268,8 @@ namespace ElectricalCommands
       s_lightingFixtureScheduleEditorControl.SaveRequested += LightingFixtureSchedulePaletteSaveRequested;
       s_lightingFixtureScheduleEditorControl.ReloadRequested += LightingFixtureSchedulePaletteReloadRequested;
       s_lightingFixtureScheduleEditorControl.LinkTableRequested += LightingFixtureSchedulePaletteLinkTableRequested;
+      s_lightingFixtureScheduleEditorControl.CopyFromTableRequested += LightingFixtureSchedulePaletteCopyFromTableRequested;
+      s_lightingFixtureScheduleEditorControl.PlaceTableRequested += LightingFixtureSchedulePalettePlaceTableRequested;
     }
 
     private static bool IsLightingFixtureScheduleEditorControlReady()
@@ -348,6 +349,14 @@ namespace ElectricalCommands
         message += $" | Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}";
       }
       return message;
+    }
+
+    private static void SetLightingFixtureScheduleEditorStatus(string message)
+    {
+      if (IsLightingFixtureScheduleEditorControlReady())
+      {
+        s_lightingFixtureScheduleEditorControl.SetStatus(message);
+      }
     }
 
     private static LightingFixtureScheduleBindingContext ResolveLightingFixtureScheduleBindingContext(
@@ -503,10 +512,7 @@ namespace ElectricalCommands
       }
       catch (System.Exception ex)
       {
-        if (IsLightingFixtureScheduleEditorControlReady())
-        {
-          s_lightingFixtureScheduleEditorControl.SetStatus($"Save failed: {ex.Message}");
-        }
+        SetLightingFixtureScheduleEditorStatus($"Save failed: {ex.Message}");
       }
     }
 
@@ -524,10 +530,7 @@ namespace ElectricalCommands
           GetLightingFixtureScheduleStoreRecord(context.ProjectId);
         if (record == null)
         {
-          if (IsLightingFixtureScheduleEditorControlReady())
-          {
-            s_lightingFixtureScheduleEditorControl.SetStatus("No central schedule record was found.");
-          }
+          SetLightingFixtureScheduleEditorStatus("No central schedule record was found.");
           return;
         }
 
@@ -546,10 +549,7 @@ namespace ElectricalCommands
       }
       catch (System.Exception ex)
       {
-        if (IsLightingFixtureScheduleEditorControlReady())
-        {
-          s_lightingFixtureScheduleEditorControl.SetStatus($"Reload failed: {ex.Message}");
-        }
+        SetLightingFixtureScheduleEditorStatus($"Reload failed: {ex.Message}");
       }
     }
 
@@ -569,10 +569,7 @@ namespace ElectricalCommands
         );
         if (tableId == ObjectId.Null)
         {
-          if (IsLightingFixtureScheduleEditorControlReady())
-          {
-            s_lightingFixtureScheduleEditorControl.SetStatus("Link cancelled.");
-          }
+          SetLightingFixtureScheduleEditorStatus("Link cancelled.");
           return;
         }
 
@@ -603,11 +600,270 @@ namespace ElectricalCommands
       }
       catch (System.Exception ex)
       {
+        SetLightingFixtureScheduleEditorStatus($"Link failed: {ex.Message}");
+      }
+    }
+
+    private static void LightingFixtureSchedulePaletteCopyFromTableRequested(
+      object sender,
+      EventArgs e
+    )
+    {
+      LightingFixtureScheduleBindingContext context = s_lightingFixtureSchedulePaletteContext;
+      if (context == null || context.Editor == null)
+      {
+        return;
+      }
+
+      try
+      {
+        ObjectId tableId = PromptForLightingFixtureScheduleTable(
+          context.Editor,
+          "\nSelect lighting fixture schedule table to copy into the editor: "
+        );
+        if (tableId == ObjectId.Null)
+        {
+          SetLightingFixtureScheduleEditorStatus("Copy cancelled.");
+          return;
+        }
+
+        LightingFixtureScheduleStoreRecord record =
+          CopyLightingFixtureScheduleFromTable(context, tableId);
         if (IsLightingFixtureScheduleEditorControlReady())
         {
-          s_lightingFixtureScheduleEditorControl.SetStatus($"Link failed: {ex.Message}");
+          s_lightingFixtureScheduleEditorControl.LoadRecord(
+            context,
+            record,
+            $"Copied and linked table {context.TableHandle}. Version {record?.Version ?? 0}."
+          );
         }
       }
+      catch (System.Exception ex)
+      {
+        SetLightingFixtureScheduleEditorStatus($"Copy failed: {ex.Message}");
+      }
+    }
+
+    private static void LightingFixtureSchedulePalettePlaceTableRequested(
+      object sender,
+      LightingFixtureScheduleSaveRequestedEventArgs e
+    )
+    {
+      LightingFixtureScheduleBindingContext context = s_lightingFixtureSchedulePaletteContext;
+      if (context == null || context.Editor == null)
+      {
+        return;
+      }
+
+      try
+      {
+        string statusMessage;
+        LightingFixtureScheduleStoreRecord record = PlaceLightingFixtureScheduleTable(
+          context,
+          e?.Schedule,
+          e?.LoadedVersion ?? 0,
+          out statusMessage
+        );
+
+        if (record == null)
+        {
+          SetLightingFixtureScheduleEditorStatus(statusMessage);
+          return;
+        }
+
+        if (IsLightingFixtureScheduleEditorControlReady())
+        {
+          s_lightingFixtureScheduleEditorControl.LoadRecord(
+            context,
+            record,
+            statusMessage
+          );
+        }
+      }
+      catch (System.Exception ex)
+      {
+        SetLightingFixtureScheduleEditorStatus($"Place failed: {ex.Message}");
+      }
+    }
+
+    private static LightingFixtureScheduleStoreRecord CopyLightingFixtureScheduleFromTable(
+      LightingFixtureScheduleBindingContext context,
+      ObjectId tableId
+    )
+    {
+      if (context == null || context.Database == null)
+      {
+        throw new InvalidOperationException("Lighting schedule context is unavailable.");
+      }
+
+      string tableHandle = string.Empty;
+      LightingFixtureScheduleSyncSchedule schedule = null;
+      using (Transaction tr = context.Database.TransactionManager.StartTransaction())
+      {
+        Table table = tr.GetObject(tableId, OpenMode.ForRead, false) as Table;
+        if (table == null)
+        {
+          throw new InvalidOperationException("Selected object is not an AutoCAD table.");
+        }
+
+        schedule = NormalizeSyncSchedule(ExtractLightingScheduleFromTable(table));
+        tableHandle = table.Handle.ToString();
+        tr.Commit();
+      }
+
+      LightingFixtureScheduleStoreRecord record = SaveLightingFixtureScheduleStoreRecord(
+        context.ProjectId,
+        schedule,
+        context.DwgPath,
+        tableHandle,
+        LightingFixtureScheduleStoreUpdatedByAutoCAD,
+        null,
+        0
+      );
+
+      context.TableId = tableId;
+      context.TableHandle = tableHandle;
+      SaveLightingFixtureScheduleStoreLink(
+        context.ProjectId,
+        context.DwgPath,
+        tableHandle,
+        record?.Version ?? 0
+      );
+
+      return record;
+    }
+
+    private static LightingFixtureScheduleStoreRecord PlaceLightingFixtureScheduleTable(
+      LightingFixtureScheduleBindingContext context,
+      LightingFixtureScheduleSyncSchedule schedule,
+      long loadedVersion,
+      out string statusMessage
+    )
+    {
+      if (context == null || context.Database == null || context.Editor == null)
+      {
+        throw new InvalidOperationException("Lighting schedule context is unavailable.");
+      }
+
+      string resourceName = string.Empty;
+      var warnings = new List<LightingFixtureScheduleWarning>();
+      TableAnalyzeExport template = LoadTemplateFromEmbeddedResource(out resourceName);
+      ValidateTemplate(template, warnings);
+
+      PromptPointResult pointResult = context.Editor.GetPoint(
+        "\nSelect insertion point for lighting fixture schedule: "
+      );
+      if (pointResult.Status != PromptStatus.OK)
+      {
+        statusMessage = "Placement cancelled.";
+        return null;
+      }
+
+      LightingFixtureScheduleSyncSchedule normalizedSchedule =
+        NormalizeLightingFixtureScheduleForExternalUse(schedule);
+      ObjectId newTableId = ObjectId.Null;
+      string handle = "UNKNOWN";
+      LightingFixtureScheduleVisualNormalizationResult normalizationResult = null;
+      DocumentLock docLock = null;
+
+      try
+      {
+        if (context.Document != null)
+        {
+          docLock = context.Document.LockDocument();
+        }
+
+        using (Transaction tr = context.Database.TransactionManager.StartTransaction())
+        {
+          Table table = RecreateTable(
+            template,
+            context.Database,
+            tr,
+            pointResult.Value,
+            warnings
+          );
+
+          BlockTableRecord currentSpace =
+            tr.GetObject(context.Database.CurrentSpaceId, OpenMode.ForWrite) as BlockTableRecord;
+          if (currentSpace == null)
+          {
+            throw new InvalidOperationException(
+              "Unable to open current space for table insertion."
+            );
+          }
+
+          newTableId = currentSpace.AppendEntity(table);
+          tr.AddNewlyCreatedDBObject(table, true);
+
+          normalizationResult = ApplyLightingScheduleToTable(
+            table,
+            context.Database,
+            tr,
+            normalizedSchedule
+          );
+          SafeApply(
+            warnings,
+            "table.generateLayout",
+            () => table.GenerateLayout()
+          );
+          SafeApply(
+            warnings,
+            "table.recomputeTableBlock",
+            () => TryRecomputeTableBlock(table)
+          );
+
+          handle = SafeGet(
+            warnings,
+            "table.handle",
+            () => table.Handle.ToString(),
+            null,
+            null,
+            "UNKNOWN"
+          );
+
+          tr.Commit();
+        }
+      }
+      finally
+      {
+        docLock?.Dispose();
+      }
+
+      LightingFixtureScheduleStoreRecord record = SaveLightingFixtureScheduleStoreRecord(
+        context.ProjectId,
+        normalizedSchedule,
+        context.DwgPath,
+        handle,
+        LightingFixtureScheduleStoreUpdatedByAutoCAD,
+        loadedVersion > 0 ? (long?)loadedVersion : null,
+        loadedVersion > 0 ? (long?)loadedVersion : null
+      );
+
+      context.TableId = newTableId;
+      context.TableHandle = handle;
+      SaveLightingFixtureScheduleStoreLink(
+        context.ProjectId,
+        context.DwgPath,
+        handle,
+        record?.Version ?? 0
+      );
+      SafeEditorRegen(context.Editor);
+
+      string versionMessage = record == null
+        ? "Store update unavailable."
+        : record.HadConflict
+          ? $"Saved version {record.Version}; a newer central version was overwritten."
+          : $"Saved version {record.Version}.";
+      string normalizationMessage = normalizationResult == null
+        ? "Visual normalization unavailable."
+        : $"Visual normalization: {FormatNormalizationSummary(normalizationResult)}.";
+      statusMessage = $"Placed and linked table {handle}. {versionMessage} {normalizationMessage}";
+      if (warnings.Count > 0)
+      {
+        statusMessage += $" Warnings: {warnings.Count}.";
+      }
+
+      return record;
     }
 
     private static void LightingFixtureScheduleAutoSyncOnIdle(object sender, EventArgs e)

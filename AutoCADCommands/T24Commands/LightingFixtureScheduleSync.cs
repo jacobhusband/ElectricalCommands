@@ -34,7 +34,6 @@ namespace ElectricalCommands
     private static readonly Regex LightingProjectSegmentRegex =
       new Regex(@"^(\d{5,})\s*(?:[-_]\s*)?(.+)$", RegexOptions.Compiled);
 
-    [CommandMethod("LFSPULL", CommandFlags.Modal)]
     public void LightingFixtureSchedulePull()
     {
       var (doc, db, ed) = Globals.GetGlobals();
@@ -117,7 +116,6 @@ namespace ElectricalCommands
       }
     }
 
-    [CommandMethod("LFSPUSH", CommandFlags.Modal)]
     public void LightingFixtureSchedulePush()
     {
       var (doc, db, ed) = Globals.GetGlobals();

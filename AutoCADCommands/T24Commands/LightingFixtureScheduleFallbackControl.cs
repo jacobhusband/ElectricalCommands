@@ -46,6 +46,8 @@ namespace ElectricalCommands
     public event EventHandler<LightingFixtureScheduleSaveRequestedEventArgs> SaveRequested;
     public event EventHandler ReloadRequested;
     public event EventHandler LinkTableRequested;
+    public event EventHandler CopyFromTableRequested;
+    public event EventHandler<LightingFixtureScheduleSaveRequestedEventArgs> PlaceTableRequested;
 
     public bool HasPendingLocalEdits { get; private set; }
     public long LoadedVersion { get; private set; }
@@ -195,10 +197,12 @@ namespace ElectricalCommands
       var footer = new TableLayoutPanel
       {
         Dock = DockStyle.Top,
-        ColumnCount = 4,
+        ColumnCount = 6,
         AutoSize = true,
       };
       footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+      footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+      footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
       footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
       footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
       footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -210,6 +214,26 @@ namespace ElectricalCommands
         ForeColor = System.Drawing.SystemColors.GrayText,
         Text = "Ready.",
         Margin = new Padding(0, 8, 8, 0),
+      };
+
+      var copyFromTableButton = new Button
+      {
+        AutoSize = true,
+        Text = "Copy From Table",
+        Margin = new Padding(4, 0, 0, 0),
+      };
+      copyFromTableButton.Click += (_, __) => CopyFromTableRequested?.Invoke(this, EventArgs.Empty);
+
+      var placeTableButton = new Button
+      {
+        AutoSize = true,
+        Text = "Place New Table",
+        Margin = new Padding(4, 0, 0, 0),
+      };
+      placeTableButton.Click += (_, __) =>
+      {
+        _saveTimer.Stop();
+        RaisePlaceTableRequested();
       };
 
       var linkTableButton = new Button
@@ -241,9 +265,11 @@ namespace ElectricalCommands
       };
 
       footer.Controls.Add(_statusValue, 0, 0);
-      footer.Controls.Add(linkTableButton, 1, 0);
-      footer.Controls.Add(reloadButton, 2, 0);
-      footer.Controls.Add(saveButton, 3, 0);
+      footer.Controls.Add(copyFromTableButton, 1, 0);
+      footer.Controls.Add(placeTableButton, 2, 0);
+      footer.Controls.Add(linkTableButton, 3, 0);
+      footer.Controls.Add(reloadButton, 4, 0);
+      footer.Controls.Add(saveButton, 5, 0);
       layout.Controls.Add(footer, 0, 5);
 
       layout.Controls.Add(
@@ -291,6 +317,23 @@ namespace ElectricalCommands
       }
 
       SaveRequested?.Invoke(
+        this,
+        new LightingFixtureScheduleSaveRequestedEventArgs
+        {
+          Schedule = BuildSchedule(),
+          LoadedVersion = LoadedVersion,
+        }
+      );
+    }
+
+    private void RaisePlaceTableRequested()
+    {
+      if (_suppressEvents)
+      {
+        return;
+      }
+
+      PlaceTableRequested?.Invoke(
         this,
         new LightingFixtureScheduleSaveRequestedEventArgs
         {

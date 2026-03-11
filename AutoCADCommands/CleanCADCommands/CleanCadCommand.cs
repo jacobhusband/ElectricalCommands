@@ -62,6 +62,7 @@ namespace AutoCADCleanupTool
                 _chainFinalizeAfterEmbed = false;
                 CleanupCommands.RunKeepOnlyAfterFinalize = false;
                 CleanupCommands.SkipBindDuringFinalize = false;
+                CleanupCommands.UseClassicBindDuringFinalize = false;
                 CleanupCommands.ForceDetachOriginalXrefs = false;
                 CleanupCommands.RunRemoveRemainingAfterFinalize = false;
                 _skipLayerFreezing = false;
@@ -103,23 +104,21 @@ namespace AutoCADCleanupTool
             {
                 // Set necessary flags for the entire workflow before starting.
                 CleanupCommands.SkipBindDuringFinalize = false;
+                CleanupCommands.UseClassicBindDuringFinalize = true;
                 CleanupCommands.ForceDetachOriginalXrefs = false;
                 CleanupCommands.RunKeepOnlyAfterFinalize = false;
                 _chainFinalizeAfterEmbed = false;
                 _skipLayerFreezing = false; // Ensure freezing is NOT skipped for this workflow
 
-                // *** MODIFICATION START ***
-                // Set the workflow flag to true
                 _isCleanSheetWorkflowActive = true;
-                ed.WriteMessage("\nCLEANSHEET: Starting EMBEDIMAGES...");
+                ed.WriteMessage("\nCLEANCAD: Starting EMBEDIMAGES...");
 
                 // Queue ONLY the FIRST command. The rest will be chained.
                 doc.SendStringToExecute("_.EMBEDIMAGES ", true, false, false);
-                // *** MODIFICATION END ***
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage($"\nCLEANSHEET failed to queue commands: {ex.Message}");
+                ed.WriteMessage($"\nCLEANCAD failed to queue commands: {ex.Message}");
                 _isCleanSheetWorkflowActive = false; // Reset flag on failure
                 CleanupCommands.ResetStrictTitleBlockProtection();
             }

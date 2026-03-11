@@ -18,6 +18,7 @@ namespace AutoCADCleanupTool
         private static HashSet<ObjectId> _imageDefsToPurge = new HashSet<ObjectId>(); // Our definitive "kill list"
         internal static bool RunKeepOnlyAfterFinalize = false;
         internal static bool SkipBindDuringFinalize = false;
+        internal static bool UseClassicBindDuringFinalize = false;
         internal static bool ForceDetachOriginalXrefs = false;
         internal static bool RunRemoveRemainingAfterFinalize = false;
         internal static bool StrictTitleBlockProtectionActive = false;
@@ -53,6 +54,7 @@ namespace AutoCADCleanupTool
             StrictTitleBlockProtectionActive = false;
             StrictTitleBlockBindFailed = false;
             AbortRemainingXrefDetach = false;
+            UseClassicBindDuringFinalize = false;
             ProtectedTitleBlockXrefId = ObjectId.Null;
             ProtectedTitleBlockName = string.Empty;
             ProtectedTitleBlockPath = string.Empty;
