@@ -73,6 +73,7 @@ namespace AutoCADCleanupTool
         internal static readonly HashSet<ObjectId> _pdfDefinitionsToDetach = new HashSet<ObjectId>();
         private static readonly HashSet<ObjectId> _xrefsToDetach = new HashSet<ObjectId>();
         private static HashSet<ObjectId> _pdfsToDetach = new HashSet<ObjectId>();
+        internal static readonly HashSet<ObjectId> _protectedEmbeddedOleIds = new HashSet<ObjectId>();
 
         private static bool _chainFinalizeAfterEmbed = false;
         private static bool _isEmbeddingProcessActive = false;
@@ -84,6 +85,23 @@ namespace AutoCADCleanupTool
         private static bool _waitingForPasteStart = false;
         private static bool _pastePointHandlerAttached = false;
         private static ObjectId _finalPastedOleForZoom = ObjectId.Null;
+
+        internal static void ResetProtectedEmbeddedOles()
+        {
+            _protectedEmbeddedOleIds.Clear();
+        }
+
+        internal static void ProtectEmbeddedOle(ObjectId id)
+        {
+            if (id.IsNull || !id.IsValid || id.IsErased) return;
+            _protectedEmbeddedOleIds.Add(id);
+        }
+
+        internal static bool IsProtectedEmbeddedOle(ObjectId id)
+        {
+            if (id.IsNull || !id.IsValid || id.IsErased) return false;
+            return _protectedEmbeddedOleIds.Contains(id);
+        }
 
         // ------------------------------------------------------------------------------------
         // Layer utility (shared)
@@ -478,6 +496,11 @@ namespace AutoCADCleanupTool
                     {
                         ed.WriteMessage($"\nFailed to transform pasted OLE (PDF): {ex.Message}");
                     }
+                }
+
+                if (ole != null)
+                {
+                    ProtectEmbeddedOle(ole.ObjectId);
                 }
 
                 try

@@ -44,34 +44,7 @@ namespace AutoCADCleanupTool
                 _savedClayer = originalClayer;
 
                 bool preserveLayerStates = CleanupCommands.StrictTitleBlockProtectionActive;
-                if (!preserveLayerStates)
-                {
-                    // Force layer 0 for legacy standalone EMBEDPDFS behavior.
-                    try
-                    {
-                        using (var tr = db.TransactionManager.StartTransaction())
-                        {
-                            var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-                            if (lt.Has("0"))
-                            {
-                                var zeroId = lt["0"];
-                                var zeroLtr = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
-                                if (zeroLtr.IsFrozen) zeroLtr.IsFrozen = false;
-                                if (db.Clayer != zeroId) db.Clayer = zeroId;
-                            }
-                            tr.Commit();
-                        }
-                    }
-                    catch (System.Exception ex)
-                    {
-                        ed.WriteMessage($"\n[Warning] Could not switch to layer '0': {ex.Message}");
-                    }
-                }
-                else
-                {
-                    // CLEANCAD safety mode: do not thaw/retarget layers globally.
-                    ed.WriteMessage("\nCLEANCAD safety mode: leaving layer states unchanged during PDF embedding.");
-                }
+                EnsureSafeCurrentLayerForEmbedding(db, ed, preserveLayerStates);
 
                 // 2. Collect items (This now populates _pdfsToDetach)
                 int queuedCount = CollectAndQueuePdfUnderlays(doc);
@@ -628,6 +601,69 @@ namespace AutoCADCleanupTool
                 {
                     AutoCADApp.DocumentManager.MdiActiveDocument.Editor.WriteMessage($"\nCould not restore original layer: {ex.Message}");
                 }
+            }
+        }
+
+        private static void EnsureSafeCurrentLayerForEmbedding(Database db, Editor ed, bool preserveLayerStates)
+        {
+            if (db == null) return;
+
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                    ObjectId targetLayerId = ObjectId.Null;
+                    string targetLayerName = string.Empty;
+
+                    if (lt.Has("0"))
+                    {
+                        targetLayerId = lt["0"];
+                        var zero = (LayerTableRecord)tr.GetObject(targetLayerId, OpenMode.ForWrite);
+                        if (zero.IsFrozen) zero.IsFrozen = false;
+                        if (zero.IsOff) zero.IsOff = false;
+                        if (zero.IsLocked) zero.IsLocked = false;
+                        targetLayerName = zero.Name ?? "0";
+                    }
+                    else
+                    {
+                        foreach (ObjectId layerId in lt)
+                        {
+                            var candidate = tr.GetObject(layerId, OpenMode.ForRead, false) as LayerTableRecord;
+                            if (candidate == null || candidate.IsErased || candidate.IsFrozen || candidate.IsOff || candidate.IsLocked)
+                            {
+                                continue;
+                            }
+
+                            targetLayerId = layerId;
+                            targetLayerName = candidate.Name ?? string.Empty;
+                            break;
+                        }
+                    }
+
+                    if (!targetLayerId.IsNull && db.Clayer != targetLayerId)
+                    {
+                        db.Clayer = targetLayerId;
+                    }
+
+                    tr.Commit();
+
+                    if (!targetLayerId.IsNull)
+                    {
+                        if (preserveLayerStates)
+                        {
+                            ed?.WriteMessage($"\nCLEANCAD safety mode: switched current layer to '{targetLayerName}' for embedding while leaving other layer states unchanged.");
+                        }
+                    }
+                    else
+                    {
+                        ed?.WriteMessage("\n[Warning] Could not find a safe writable layer for embedding.");
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed?.WriteMessage($"\n[Warning] Could not switch to a safe current layer for embedding: {ex.Message}");
             }
         }
     }

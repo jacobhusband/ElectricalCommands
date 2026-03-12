@@ -173,7 +173,7 @@ namespace AutoCADCleanupTool
                 // First pass: identify what to erase and what layers to unlock
                 foreach (ObjectId id in btr)
                 {
-                    if (!id.IsValid || keep.Contains(id)) continue;
+                    if (!id.IsValid || keep.Contains(id) || SimplerCommands.IsProtectedEmbeddedOle(id)) continue;
 
                     var ent = tr.GetObject(id, OpenMode.ForRead, false) as Entity;
                     if (ent == null) continue;

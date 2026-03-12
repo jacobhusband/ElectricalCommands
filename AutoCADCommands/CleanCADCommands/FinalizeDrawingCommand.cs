@@ -26,7 +26,8 @@ namespace AutoCADCleanupTool
             ObjectId protectedXrefId = ProtectedTitleBlockXrefId;
             StrictTitleBlockBindFailed = false;
             AbortRemainingXrefDetach = false;
-            bool protectedPromotedToAttach = false;
+            string protectedNameAtScan = ProtectedTitleBlockName;
+            string protectedPathAtScan = ProtectedTitleBlockPath;
 
             _blockIdsBeforeBind.Clear();
             _originalXrefIds.Clear();
@@ -55,11 +56,97 @@ namespace AutoCADCleanupTool
                 }
 
                 int bindCount = 0;
-                bool protectedFound = false;
-                bool protectedResolved = false;
-                bool protectedIsDwg = false;
-                string protectedNameAtScan = ProtectedTitleBlockName;
-                string protectedPathAtScan = ProtectedTitleBlockPath;
+                bool protectedDwgRefreshActive = false;
+
+                if (strictProtection)
+                {
+                    if (!TryGetXrefState(db, protectedXrefId, out XrefState stateBeforeRefresh) ||
+                        !stateBeforeRefresh.Exists ||
+                        !stateBeforeRefresh.IsExternal)
+                    {
+                        string statusDetail = stateBeforeRefresh.Exists
+                            ? stateBeforeRefresh.StatusText
+                            : "Missing";
+                        string rawPathDetail = stateBeforeRefresh.Exists
+                            ? stateBeforeRefresh.PathName
+                            : protectedPathAtScan;
+                        MarkStrictBindFailureAndAbortDetach(
+                            ed,
+                            db,
+                            "protected titleblock is not a DWG XREF",
+                            protectedNameAtScan,
+                            rawPathDetail,
+                            statusDetail);
+                        return;
+                    }
+
+                    protectedNameAtScan = stateBeforeRefresh.Name ?? protectedNameAtScan;
+                    protectedPathAtScan = stateBeforeRefresh.PathName ?? protectedPathAtScan;
+
+                    if (!stateBeforeRefresh.IsDwg)
+                    {
+                        ed.WriteMessage(
+                            $"\nCLEANCAD strict mode: protected titleblock '{protectedNameAtScan}' is not a DWG XREF. Skipping the pre-bind refresh/rebind path for this reference.");
+                    }
+                    else
+                    {
+                        protectedDwgRefreshActive = true;
+
+                        if (!stateBeforeRefresh.IsResolved)
+                        {
+                            ed.WriteMessage(
+                                $"\nProtected titleblock '{protectedNameAtScan}' is unresolved. Attempting one XREF reload...");
+                            TryReloadXrefDefinition(db, ed, protectedXrefId);
+                        }
+
+                        string refreshFailure;
+                        if (!TryRefreshProtectedTitleBlockForBind(
+                            db,
+                            ed,
+                            ref protectedXrefId,
+                            ref protectedNameAtScan,
+                            ref protectedPathAtScan,
+                            ProtectedTitleBlockLayoutName,
+                            out refreshFailure))
+                        {
+                            MarkStrictBindFailureAndAbortDetach(
+                                ed,
+                                db,
+                                $"failed to refresh protected titleblock before bind ({refreshFailure})",
+                                protectedNameAtScan,
+                                protectedPathAtScan,
+                                "RefreshFailed");
+                            return;
+                        }
+
+                        if (!TryGetXrefState(db, protectedXrefId, out XrefState refreshedState) ||
+                            !refreshedState.Exists ||
+                            !refreshedState.IsExternal ||
+                            !refreshedState.IsResolved ||
+                            !refreshedState.IsDwg ||
+                            refreshedState.IsOverlay)
+                        {
+                            MarkStrictBindFailureAndAbortDetach(
+                                ed,
+                                db,
+                                "protected titleblock did not become an attached, bindable DWG XREF after refresh",
+                                protectedNameAtScan,
+                                protectedPathAtScan,
+                                refreshedState.StatusText);
+                            return;
+                        }
+
+                        protectedNameAtScan = refreshedState.Name;
+                        protectedPathAtScan = refreshedState.PathName;
+                        EnableStrictTitleBlockProtection(
+                            protectedXrefId,
+                            refreshedState.Name,
+                            refreshedState.PathName,
+                            ProtectedTitleBlockLayoutName);
+                        ed.WriteMessage(
+                            $"\nCLEANCAD strict mode: titleblock '{refreshedState.Name}' was refreshed and queued for bind.");
+                    }
+                }
 
                 using (Transaction trans = db.TransactionManager.StartTransaction())
                 {
@@ -71,15 +158,6 @@ namespace AutoCADCleanupTool
                         if (btr == null)
                         {
                             continue;
-                        }
-
-                        if (strictProtection && btrId == protectedXrefId)
-                        {
-                            protectedFound = true;
-                            protectedResolved = btr.IsResolved;
-                            protectedIsDwg = IsDwgXrefDefinition(btr);
-                            protectedNameAtScan = btr.Name ?? protectedNameAtScan;
-                            protectedPathAtScan = btr.PathName ?? protectedPathAtScan;
                         }
 
                         if (!btr.IsFromExternalReference || !btr.IsResolved)
@@ -94,116 +172,6 @@ namespace AutoCADCleanupTool
                     }
 
                     trans.Commit();
-                }
-
-                if (strictProtection)
-                {
-                    if (!protectedFound)
-                    {
-                        MarkStrictBindFailureAndAbortDetach(
-                            ed,
-                            db,
-                            "the protected titleblock XREF no longer exists in this drawing",
-                            protectedNameAtScan,
-                            protectedPathAtScan,
-                            "Missing");
-                        return;
-                    }
-
-                    if (!protectedIsDwg)
-                    {
-                        MarkStrictBindFailureAndAbortDetach(
-                            ed,
-                            db,
-                            "protected titleblock is not a DWG XREF",
-                            protectedNameAtScan,
-                            protectedPathAtScan,
-                            "NotDwg");
-                        return;
-                    }
-
-                    if (!protectedResolved)
-                    {
-                        ed.WriteMessage(
-                            $"\nProtected titleblock '{protectedNameAtScan}' is unresolved. Attempting one XREF reload...");
-                        TryReloadXrefDefinition(db, ed, protectedXrefId);
-                    }
-
-                    if (!TryGetXrefState(db, protectedXrefId, out XrefState stateAfterReload) ||
-                        !stateAfterReload.Exists ||
-                        !stateAfterReload.IsExternal ||
-                        !stateAfterReload.IsResolved ||
-                        !stateAfterReload.IsDwg)
-                    {
-                        string statusDetail = stateAfterReload.Exists
-                            ? stateAfterReload.StatusText
-                            : "Missing";
-                        string rawPathDetail = stateAfterReload.Exists
-                            ? stateAfterReload.PathName
-                            : protectedPathAtScan;
-                        MarkStrictBindFailureAndAbortDetach(
-                            ed,
-                            db,
-                            "titleblock is not bindable",
-                            protectedNameAtScan,
-                            rawPathDetail,
-                            statusDetail);
-                        return;
-                    }
-
-                    if (stateAfterReload.IsOverlay)
-                    {
-                        ed.WriteMessage(
-                            $"\nProtected titleblock '{stateAfterReload.Name}' is an overlay XREF. Promoting to attached before bind...");
-
-                        string promoteFailure;
-                        if (!TryPromoteProtectedTitleBlockToAttach(
-                            db,
-                            ed,
-                            ref protectedXrefId,
-                            ref protectedNameAtScan,
-                            ref protectedPathAtScan,
-                            ProtectedTitleBlockLayoutName,
-                            out promoteFailure))
-                        {
-                            MarkStrictBindFailureAndAbortDetach(
-                                ed,
-                                db,
-                                $"failed to promote protected titleblock to attached ({promoteFailure})",
-                                protectedNameAtScan,
-                                protectedPathAtScan,
-                                "PromotionFailed");
-                            return;
-                        }
-
-                        protectedPromotedToAttach = true;
-
-                        if (!TryGetXrefState(db, protectedXrefId, out stateAfterReload) ||
-                            !stateAfterReload.Exists ||
-                            !stateAfterReload.IsExternal ||
-                            !stateAfterReload.IsResolved ||
-                            !stateAfterReload.IsDwg ||
-                            stateAfterReload.IsOverlay)
-                        {
-                            MarkStrictBindFailureAndAbortDetach(
-                                ed,
-                                db,
-                                "protected titleblock did not become an attached, bindable DWG XREF after promotion",
-                                protectedNameAtScan,
-                                protectedPathAtScan,
-                                stateAfterReload.StatusText);
-                            return;
-                        }
-                    }
-
-                    _originalXrefIds.Add(protectedXrefId);
-                    EnableStrictTitleBlockProtection(
-                        protectedXrefId,
-                        stateAfterReload.Name,
-                        stateAfterReload.PathName,
-                        ProtectedTitleBlockLayoutName);
-                    ed.WriteMessage(
-                        $"\nCLEANCAD strict mode: titleblock '{stateAfterReload.Name}' is resolved and queued for bind.");
                 }
 
                 ed.WriteMessage($"\nFound {_blockIdsBeforeBind.Count} total blocks and {_originalXrefIds.Count} DWG XREFs to bind.");
@@ -231,71 +199,20 @@ namespace AutoCADCleanupTool
                     }
                 }
 
-                if (strictProtection && !SkipBindDuringFinalize)
+                if (protectedDwgRefreshActive && !SkipBindDuringFinalize)
                 {
                     if (TryGetXrefState(db, protectedXrefId, out XrefState postBindState) &&
                         postBindState.Exists &&
                         postBindState.IsExternal)
                     {
-                        if (!protectedPromotedToAttach)
-                        {
-                            ed.WriteMessage(
-                                $"\nProtected titleblock '{postBindState.Name}' remained external after bind. Retrying via attached promotion...");
-
-                            string promoteFailure;
-                            string postBindName = postBindState.Name;
-                            string postBindPath = postBindState.PathName;
-
-                            if (TryPromoteProtectedTitleBlockToAttach(
-                                db,
-                                ed,
-                                ref protectedXrefId,
-                                ref postBindName,
-                                ref postBindPath,
-                                ProtectedTitleBlockLayoutName,
-                                out promoteFailure))
-                            {
-                                protectedPromotedToAttach = true;
-
-                                _originalXrefIds.Add(protectedXrefId);
-                                var retryIds = new ObjectIdCollection(new[] { protectedXrefId });
-                                if (useClassicBind)
-                                {
-                                    ed.WriteMessage("\nBinding promoted protected titleblock XREF using classic bind...");
-                                }
-                                else
-                                {
-                                    ed.WriteMessage("\nBinding promoted protected titleblock XREF...");
-                                }
-
-                                db.BindXrefs(retryIds, insertBind);
-                            }
-                            else
-                            {
-                                MarkStrictBindFailureAndAbortDetach(
-                                    ed,
-                                    db,
-                                    $"titleblock remained external after bind and promotion failed ({promoteFailure})",
-                                    postBindState.Name,
-                                    postBindState.PathName,
-                                    postBindState.StatusText);
-                                return;
-                            }
-                        }
-
-                        if (TryGetXrefState(db, protectedXrefId, out XrefState postRetryState) &&
-                            postRetryState.Exists &&
-                            postRetryState.IsExternal)
-                        {
-                            MarkStrictBindFailureAndAbortDetach(
-                                ed,
-                                db,
-                                "titleblock XREF remained external after bind",
-                                postRetryState.Name,
-                                postRetryState.PathName,
-                                postRetryState.StatusText);
-                            return;
-                        }
+                        MarkStrictBindFailureAndAbortDetach(
+                            ed,
+                            db,
+                            "titleblock XREF remained external after bind",
+                            postBindState.Name,
+                            postBindState.PathName,
+                            postBindState.StatusText);
+                        return;
                     }
 
                     ed.WriteMessage("\nCLEANCAD strict mode: titleblock bind verification passed.");
@@ -353,7 +270,7 @@ namespace AutoCADCleanupTool
             ed.WriteMessage("\nCLEANCAD strict mode: downstream XREF detachment is now aborted for this run.");
         }
 
-        private static bool TryPromoteProtectedTitleBlockToAttach(
+        private static bool TryRefreshProtectedTitleBlockForBind(
             Database db,
             Editor ed,
             ref ObjectId protectedXrefId,
@@ -375,6 +292,7 @@ namespace AutoCADCleanupTool
 
             try
             {
+                ObjectIdCollection refIds = null;
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var oldBtr = tr.GetObject(protectedXrefId, OpenMode.ForRead, false, true) as BlockTableRecord;
@@ -385,8 +303,29 @@ namespace AutoCADCleanupTool
                         return false;
                     }
 
+                    if (!oldBtr.IsFromExternalReference && !oldBtr.IsFromOverlayReference)
+                    {
+                        failureReason = "protected xref is no longer external";
+                        tr.Commit();
+                        return false;
+                    }
+
+                    if (!IsDwgXrefDefinition(oldBtr))
+                    {
+                        failureReason = "protected xref is not a DWG reference";
+                        tr.Commit();
+                        return false;
+                    }
+
                     sourceName = oldBtr.Name ?? sourceName;
                     sourcePath = oldBtr.PathName ?? sourcePath;
+                    refIds = oldBtr.GetBlockReferenceIds(true, true);
+                    if (refIds == null || refIds.Count == 0)
+                    {
+                        failureReason = "protected xref has no block references to preserve";
+                        tr.Commit();
+                        return false;
+                    }
                     tr.Commit();
                 }
 
@@ -411,19 +350,9 @@ namespace AutoCADCleanupTool
                 }
 
                 int retargetedRefs = 0;
-                var unlockedLayers = new HashSet<ObjectId>();
 
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
-                    var oldBtr = tr.GetObject(protectedXrefId, OpenMode.ForRead, false, true) as BlockTableRecord;
-                    if (oldBtr == null || oldBtr.IsErased)
-                    {
-                        failureReason = "original xref disappeared during promotion";
-                        tr.Commit();
-                        return false;
-                    }
-
-                    ObjectIdCollection refIds = oldBtr.GetBlockReferenceIds(true, true);
                     foreach (ObjectId refId in refIds)
                     {
                         var br = tr.GetObject(refId, OpenMode.ForWrite, false, true) as BlockReference;
@@ -436,7 +365,6 @@ namespace AutoCADCleanupTool
                             layer.UpgradeOpen();
                             layer.IsLocked = false;
                             relock = true;
-                            unlockedLayers.Add(br.LayerId);
                         }
 
                         br.BlockTableRecord = newXrefId;
@@ -457,7 +385,8 @@ namespace AutoCADCleanupTool
                 }
                 catch (System.Exception detachEx)
                 {
-                    ed.WriteMessage($"\nWarning: promoted titleblock old definition could not be detached: {detachEx.Message}");
+                    failureReason = $"failed to detach original titleblock xref ({detachEx.Message})";
+                    return false;
                 }
 
                 if (!TryGetXrefState(db, newXrefId, out XrefState promotedState) ||
@@ -481,7 +410,7 @@ namespace AutoCADCleanupTool
                     protectedLayoutName);
 
                 ed.WriteMessage(
-                    $"\nPromoted protected titleblock XREF to attached definition '{protectedName}' using '{protectedPath}'. Repointed {retargetedRefs} reference(s).");
+                    $"\nRefreshed protected titleblock XREF '{sourceName}' with a fresh attached definition '{protectedName}' using '{protectedPath}'. Repointed {retargetedRefs} reference(s).");
 
                 return true;
             }

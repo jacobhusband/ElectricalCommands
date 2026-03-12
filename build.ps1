@@ -1,12 +1,13 @@
 [CmdletBinding()]
 param(
     [string]$Configuration = "Release",
-    [string]$SolutionPath = (Join-Path $PSScriptRoot "ElectricalCommands.sln"),
+    [string]$SolutionPath = "ElectricalCommands.sln",
     [string]$SourceRoot = "$env:APPDATA\Autodesk\ApplicationPlugins",
     [string]$DotnetPath = ""
 )
 
 $ErrorActionPreference = "Stop"
+$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 
 function Resolve-DotnetPath {
     param([string]$PathOverride)
@@ -27,7 +28,7 @@ function Resolve-DotnetPath {
 }
 
 if (-not ([System.IO.Path]::IsPathRooted($SolutionPath))) {
-    $SolutionPath = Join-Path $PSScriptRoot $SolutionPath
+    $SolutionPath = Join-Path $scriptRoot $SolutionPath
 }
 $SolutionPath = [System.IO.Path]::GetFullPath($SolutionPath)
 if (-not (Test-Path -LiteralPath $SolutionPath)) {
@@ -35,7 +36,7 @@ if (-not (Test-Path -LiteralPath $SolutionPath)) {
 }
 
 if (-not ([System.IO.Path]::IsPathRooted($SourceRoot))) {
-    $SourceRoot = Join-Path $PSScriptRoot $SourceRoot
+    $SourceRoot = Join-Path $scriptRoot $SourceRoot
 }
 $SourceRoot = [System.IO.Path]::GetFullPath($SourceRoot)
 New-Item -ItemType Directory -Force -Path $SourceRoot | Out-Null
@@ -55,7 +56,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Build the AutoLISP bundle so build-bundles.ps1 can zip it with the others.
-$autoLispScript = Join-Path $PSScriptRoot "AutoCADCommands\AutoLispCommands\build-autolisp-bundle.ps1"
+$autoLispScript = Join-Path $scriptRoot "AutoCADCommands\AutoLispCommands\build-autolisp-bundle.ps1"
 if (Test-Path -LiteralPath $autoLispScript) {
     & $autoLispScript -TargetRoot $SourceRoot
     if ($LASTEXITCODE -ne 0) {

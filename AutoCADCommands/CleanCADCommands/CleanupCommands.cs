@@ -267,6 +267,11 @@ namespace AutoCADCleanupTool
 
                     foreach (ObjectId id in space)
                     {
+                        if (SimplerCommands.IsProtectedEmbeddedOle(id))
+                        {
+                            continue;
+                        }
+
                         if (idsToKeep != null && idsToKeep.Contains(id))
                         {
                             continue;
