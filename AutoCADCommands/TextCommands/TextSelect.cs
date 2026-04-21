@@ -8,7 +8,7 @@ namespace ElectricalCommands
 {
   public static class TextSelectCommand
   {
-    [CommandMethod("TEXTSELECT", CommandFlags.UsePickSet)]
+    [CommandMethod("TEXTSELECT", CommandFlags.UsePickSet | CommandFlags.Redraw)]
     public static void TextSelect()
     {
       var (doc, db, ed) = Globals.GetGlobals();

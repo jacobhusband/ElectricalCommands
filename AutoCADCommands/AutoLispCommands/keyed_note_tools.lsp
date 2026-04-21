@@ -793,7 +793,7 @@
   )
 )
 
-(defun c:KN (/ *error* doc oldCmdecho oldLayer targetRatioScale keyValue insertPoint blockRef)
+(defun c:KN-LSP (/ *error* doc oldCmdecho oldLayer targetRatioScale keyValue insertPoint blockRef)
   (vl-load-com)
   (setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))
   (setq oldCmdecho (getvar "CMDECHO"))
@@ -875,5 +875,5 @@
   (princ)
 )
 
-(prompt "\nLoaded keyed_note_tools.lsp. Commands: KN.")
+(prompt "\nLoaded keyed_note_tools.lsp. Commands: KN-LSP (legacy Lisp fallback; KN is provided by C#).")
 (princ)
