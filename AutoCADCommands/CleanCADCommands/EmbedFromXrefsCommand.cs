@@ -978,9 +978,9 @@ namespace AutoCADCleanupTool
                     return new Point2d(widthInches, heightInches);
                 }
             }
-            catch (System.Exception)
+            catch (System.Exception ex)
             {
-                // Log exception here if needed
+                System.Diagnostics.Debug.WriteLine($"[GetPdfPageSizeInches] {pdfFilePath} page {pageNumber}: {ex.GetType().Name}: {ex.Message}");
                 return null;
             }
         }

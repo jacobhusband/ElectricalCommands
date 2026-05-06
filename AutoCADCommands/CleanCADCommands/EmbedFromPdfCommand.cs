@@ -115,10 +115,6 @@ namespace AutoCADCleanupTool
                         var pdfDef = tr.GetObject(pdfRef.DefinitionId, OpenMode.ForRead) as UnderlayDefinition;
                         if (pdfDef == null) continue;
 
-                        // --- CRITICAL FIX: Track this Definition for later detachment ---
-                        _pdfsToDetach.Add(pdfDef.ObjectId);
-                        // ---------------------------------------------------------------
-
                         string resolvedPdfPath = ResolveImagePath(db, pdfDef.SourceFileName);
                         if (string.IsNullOrEmpty(resolvedPdfPath) || !File.Exists(resolvedPdfPath))
                         {
@@ -144,6 +140,9 @@ namespace AutoCADCleanupTool
                         placement.TargetBtrId = btrId;
                         placement.Source = PlacementSource.Pdf;
                         _pending.Enqueue(placement);
+
+                        // Only mark for detachment once placement is valid; otherwise a skipped underlay would be deleted with no replacement.
+                        _pdfsToDetach.Add(pdfDef.ObjectId);
                         queued++;
                     }
                 }
@@ -196,7 +195,7 @@ namespace AutoCADCleanupTool
 
                     if (boundaryPoints != null && boundaryPoints.Length >= 2)
                     {
-                        Point2d? sheetSize = GetPdfPageSizeInches(resolvedPdfPath, pageNumber);
+                        Point2d? sheetSize = ResolvePdfPageSize(resolvedPdfPath, pngPath, pageNumber, ed);
                         if (sheetSize.HasValue)
                         {
                             double minClipX = double.PositiveInfinity, minClipY = double.PositiveInfinity;
@@ -272,7 +271,7 @@ namespace AutoCADCleanupTool
                         placementV = worldTopLeft - worldBottomLeft;
 
                         var clipResult = ComputeClipPercentages(
-                            resolvedPdfPath, pageNumber,
+                            resolvedPdfPath, pngPath, pageNumber,
                             minX, minY, maxX, maxY,
                             transform, origin, uVec, vVec, ed);
 
@@ -305,7 +304,7 @@ namespace AutoCADCleanupTool
             {
                 try
                 {
-                    Point2d? sheetSize = GetPdfPageSizeInches(resolvedPdfPath, pageNumber);
+                    Point2d? sheetSize = ResolvePdfPageSize(resolvedPdfPath, pngPath, pageNumber, ed);
                     if (sheetSize.HasValue)
                     {
                         double sheetWidth = sheetSize.Value.X;
@@ -325,12 +324,14 @@ namespace AutoCADCleanupTool
                     }
                     else
                     {
-                        ed.WriteMessage($"\nWarning: Could not determine original sheet size for '{Path.GetFileName(resolvedPdfPath)}'. Placement may be incorrect.");
+                        ed.WriteMessage($"\nSkipping PDF '{Path.GetFileName(resolvedPdfPath)}': could not determine original sheet size from PDF or rendered PNG. Underlay will be left in place.");
+                        return null;
                     }
                 }
                 catch (System.Exception ex)
                 {
                     ed.WriteMessage($"\nWarning: Failed to calculate placement for unclipped PDF: {ex.Message}");
+                    return null;
                 }
             }
 
@@ -482,6 +483,7 @@ namespace AutoCADCleanupTool
 
         private static (Point2d[] clip, double left, double bottom, double right, double top) ComputeClipPercentages(
             string resolvedPdfPath,
+            string pngPath,
             int pageNumber,
             double minX,
             double minY,
@@ -499,7 +501,7 @@ namespace AutoCADCleanupTool
             double rightPercent = double.NaN;
             double topPercent = double.NaN;
 
-            Point2d? sheetSize = GetPdfPageSizeInches(resolvedPdfPath, pageNumber);
+            Point2d? sheetSize = ResolvePdfPageSize(resolvedPdfPath, pngPath, pageNumber, ed);
             if (sheetSize.HasValue && sheetSize.Value.X > 1e-6 && sheetSize.Value.Y > 1e-6)
             {
                 double sheetWidth = sheetSize.Value.X;
@@ -561,6 +563,41 @@ namespace AutoCADCleanupTool
             if (value < 0.0) return 0.0;
             if (value > 1.0) return 1.0;
             return value;
+        }
+
+        // Magick.NET applies the PDF's /Rotate metadata when rasterizing, so PNG dimensions
+        // reflect the visible orientation that AutoCAD's underlay transform expects. Spire.Pdf
+        // returns the un-rotated MediaBox, which can disagree on rotated pages.
+        private static Point2d? GetPdfPageSizeFromPng(string pngPath, int dpi)
+        {
+            if (string.IsNullOrEmpty(pngPath) || !File.Exists(pngPath) || dpi <= 0)
+                return null;
+
+            try
+            {
+                using (var image = new MagickImage(pngPath))
+                {
+                    if (image.Width <= 0 || image.Height <= 0) return null;
+                    return new Point2d(image.Width / (double)dpi, image.Height / (double)dpi);
+                }
+            }
+            catch (System.Exception)
+            {
+                return null;
+            }
+        }
+
+        private static Point2d? ResolvePdfPageSize(string pdfPath, string pngPath, int pageNumber, Editor ed)
+        {
+            var size = GetPdfPageSizeInches(pdfPath, pageNumber);
+            if (size.HasValue) return size;
+
+            size = GetPdfPageSizeFromPng(pngPath, 300);
+            if (size.HasValue && ed != null)
+            {
+                ed.WriteMessage($"\n[INFO] Used PNG fallback for page size of '{Path.GetFileName(pdfPath)}'.");
+            }
+            return size;
         }
 
         // Reuse from SimplerCommands
