@@ -23,11 +23,14 @@ namespace AutoCADCleanupTool
             {
                 using (doc.LockDocument())
                 {
-                    var modelPolys = new List<List<Point3d>>();
+                    var regions = new List<ViewportRegion>();
+                    var msId = SymbolUtilityServices.GetBlockModelSpaceId(db);
 
-                    // ---- Enumerate ALL paper-space layouts via Layout Dictionary ----
                     using (var tr = db.TransactionManager.StartTransaction())
                     {
+                        ObjectId debugLayerId = EnsureDebugLayer(db, tr);
+                        var msBtr = (BlockTableRecord)tr.GetObject(msId, OpenMode.ForWrite);
+
                         var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
 
                         foreach (DBDictionaryEntry kv in layoutDict)
@@ -37,8 +40,6 @@ namespace AutoCADCleanupTool
                             if (string.Equals(layout.LayoutName, "Model", StringComparison.OrdinalIgnoreCase)) continue;
 
                             var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-
-                            var tbUnion = GetTitleBlockUnionExtentsInPaper_Robust(btr, tr);
 
                             var vpIds = new List<ObjectId>();
                             foreach (ObjectId id in btr)
@@ -51,105 +52,103 @@ namespace AutoCADCleanupTool
                             }
                             if (vpIds.Count == 0) continue;
 
-                            int added = 0;
-                            bool haveTb = tbUnion.HasValue;
-
                             foreach (var vpId in vpIds)
                             {
                                 var vp = (Viewport)tr.GetObject(vpId, OpenMode.ForRead);
+                                if (!vp.On) continue;
+                                if (vp.Width <= 0 || vp.Height <= 0) continue;
 
-                                bool include = true;
-                                if (haveTb)
+                                var psPoints = GetViewportBoundaryPointsInPaper(vp, tr);
+                                if (psPoints == null || psPoints.Count < 3) continue;
+
+                                // Build the PS->MS transform using the Arbitrary Axis Algorithm
+                                // (AAA) — the same algorithm AutoCAD uses internally for
+                                // CHSPACE and view transformations. The original
+                                // PaperPolygonToModel_Correct used a different threshold and
+                                // GetPerpendicularVector(), which produced wrong polygons for
+                                // viewports whose ViewDirection wasn't exactly (0,0,1).
+                                Matrix3d msFromPs;
+                                try
                                 {
-                                    var vpEx = GetViewportRectExtentsInPaper(vp);
-                                    include = ExtentsOverlap2d(
-                                        ExpandExtents2(tbUnion.Value, margin: 2.0),
-                                        ExpandExtents2(vpEx, margin: 0.0)
-                                    );
+                                    msFromPs = ComputeMsFromPsMatrixAaa(vp);
                                 }
-                                if (!include) continue;
-
-                                var ps2d = GetViewportBoundaryPointsInPaper(vp, tr);
-                                if (ps2d == null || ps2d.Count < 3) continue;
-
-                                var ms3d = PaperPolygonToModel_Correct(vp, ps2d);
-                                if (ms3d != null && ms3d.Count >= 3)
+                                catch (System.Exception mex)
                                 {
-                                    modelPolys.Add(ms3d);
-                                    added++;
+                                    ed.WriteMessage($"\nVP2PL: PS->MS matrix build failed for viewport on '{layout.LayoutName}': {mex.Message}");
+                                    continue;
                                 }
-                            }
 
-                            if (added == 0)
-                            {
-                                foreach (var vpId in vpIds)
+                                // Apply the transform to every PS boundary point.
+                                var msVerts = new List<Point3d>();
+                                Point3d? lastPt = null;
+                                foreach (var ps in psPoints)
                                 {
-                                    var vp = (Viewport)tr.GetObject(vpId, OpenMode.ForRead);
-                                    var ps2d = GetViewportBoundaryPointsInPaper(vp, tr);
-                                    if (ps2d == null || ps2d.Count < 3) continue;
-
-                                    var ms3d = PaperPolygonToModel_Correct(vp, ps2d);
-                                    if (ms3d != null && ms3d.Count >= 3)
-                                        modelPolys.Add(ms3d);
+                                    var msPt = new Point3d(ps.X, ps.Y, 0).TransformBy(msFromPs);
+                                    if (lastPt.HasValue && lastPt.Value.DistanceTo(msPt) < 1e-9) continue;
+                                    msVerts.Add(msPt);
+                                    lastPt = msPt;
                                 }
+                                if (msVerts.Count < 3) continue;
+
+                                var msVertsArr = msVerts.ToArray();
+
+                                // Drop a temporary Polyline in modelspace so the selection
+                                // region participates in extents before the screen-bound CP select.
+                                ObjectId plId = CreatePolylineInModelspace(tr, msBtr, msVertsArr, debugLayerId);
+                                if (plId.IsNull) continue;
+
+                                // Also build the Point3dCollection used by SelectCrossingPolygon.
+                                var coll = new Point3dCollection();
+                                foreach (var p in msVertsArr) coll.Add(p);
+
+                                regions.Add(new ViewportRegion(layout.LayoutName, vp.ObjectId, coll, plId));
+                                ed.WriteMessage($"\nVP2PL: Created modelspace region for layout '{layout.LayoutName}' viewport {vp.Number} with {msVerts.Count} vertices.");
                             }
                         }
 
                         tr.Commit();
                     }
 
-                    SwitchToModelSpaceViewSafe(db, ed);
-                    var msId = SymbolUtilityServices.GetBlockModelSpaceId(db);
-
-                    if (modelPolys.Count == 0)
+                    if (regions.Count == 0)
                     {
-                        ed.WriteMessage("\nNo eligible viewport regions found on any paper space layout. Erasing all objects in Model Space.");
-                        // Erase everything by providing an empty "keep" set
-                        int erased = EraseEntitiesExcept(db, msId, new HashSet<ObjectId>());
-                        if (erased > 0)
-                        {
-                            ed.WriteMessage($"\nErased all {erased} object(s) from Model Space.");
-                        }
+                        ed.WriteMessage("\nVP2PL: No eligible viewport regions found on any paper space layout. Erasing all objects in Model Space.");
+                        int erasedAll = EraseEntitiesExcept(db, msId, new HashSet<ObjectId>());
+                        if (erasedAll > 0)
+                            ed.WriteMessage($"\nVP2PL: Erased all {erasedAll} object(s) from Model Space.");
                         else
-                        {
-                            ed.WriteMessage("\nModel Space was already empty.");
-                        }
+                            ed.WriteMessage("\nVP2PL: Model Space was already empty.");
                         return;
                     }
 
-                    // ---- Select + Keep in Model space, erase everything else ----
+                    if (!SwitchToTrueModelSpaceView(db, ed))
+                    {
+                        ed.WriteMessage("\nVP2PL: Could not activate the Model tab. Aborting before modelspace cleanup.");
+                        EraseViewportRegionHelpers(db, regions);
+                        return;
+                    }
+
+                    // SelectCrossingPolygon is screen-bound, so make all modelspace geometry
+                    // visible after switching out of any paper-space/floating viewport context.
+                    ZoomToModelExtents(db, ed);
+
+                    ed.WriteMessage($"\nVP2PL: Selecting modelspace entities visible in {regions.Count} viewport region(s)...");
+
                     var keepIds = new HashSet<ObjectId>();
-                    var originalUcs = ed.CurrentUserCoordinateSystem;
-                    try
-                    {
-                        ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
+                    var helperPolyIds = new HashSet<ObjectId>(regions.Select(r => r.HelperPolylineId));
+                    int selectedEntityCount = SelectViewportRegionContents(ed, regions, helperPolyIds, keepIds);
 
-                        foreach (var poly in modelPolys)
-                        {
-                            var coll = new Point3dCollection(poly.ToArray());
-                            var res = ed.SelectCrossingPolygon(coll);
-                            if (res.Status == PromptStatus.OK)
-                            {
-                                foreach (var oid in res.Value.GetObjectIds())
-                                    keepIds.Add(oid);
-                            }
-                        }
-                    }
-                    finally
+                    if (selectedEntityCount == 0)
                     {
-                        ed.CurrentUserCoordinateSystem = originalUcs;
-                    }
-
-                    if (keepIds.Count == 0)
-                    {
-                        ed.WriteMessage("\nNothing found inside any viewport regions. Erasing all objects in Model Space.");
-                        int erased = EraseEntitiesExcept(db, msId, new HashSet<ObjectId>());
-                        ed.WriteMessage($"\nErased all {erased} object(s) from Model Space.");
+                        ed.WriteMessage("\nVP2PL: Nothing crossed any viewport polygon. Erasing all objects in Model Space.");
+                        int erasedAll = EraseEntitiesExcept(db, msId, new HashSet<ObjectId>());
+                        ed.WriteMessage($"\nVP2PL: Erased all {erasedAll} object(s) from Model Space.");
                         return;
                     }
+
+                    AddProtectedModelSpaceEntities(db, msId, keepIds);
 
                     int erasedCount = EraseEntitiesExcept(db, msId, keepIds);
-                    ed.WriteMessage($"\nVP2PL: Kept {keepIds.Count} object(s) inside/crossing all viewport regions; erased {erasedCount} others.");
+                    ed.WriteMessage($"\nVP2PL: Used and removed {helperPolyIds.Count} temporary viewport helper polyline(s); kept {selectedEntityCount} entit(ies) inside any viewport region; erased {erasedCount} others.");
                 }
             }
             catch (System.Exception ex)
@@ -159,6 +158,22 @@ namespace AutoCADCleanupTool
         }
 
         // -------------------- Updated / New Helpers --------------------
+
+        private sealed class ViewportRegion
+        {
+            internal ViewportRegion(string layoutName, ObjectId viewportId, Point3dCollection polygon, ObjectId helperPolylineId)
+            {
+                LayoutName = layoutName ?? string.Empty;
+                ViewportId = viewportId;
+                Polygon = polygon;
+                HelperPolylineId = helperPolylineId;
+            }
+
+            internal string LayoutName { get; }
+            internal ObjectId ViewportId { get; }
+            internal Point3dCollection Polygon { get; }
+            internal ObjectId HelperPolylineId { get; }
+        }
 
         // Erase all entities in a space except those in keep-set. Returns count erased.
         private static int EraseEntitiesExcept(Database db, ObjectId spaceId, HashSet<ObjectId> keep)
@@ -224,18 +239,308 @@ namespace AutoCADCleanupTool
             return erased;
         }
 
-        private static void SwitchToModelSpaceViewSafe(Database db, Editor ed)
+        private static bool SwitchToTrueModelSpaceView(Database db, Editor ed)
         {
             try
             {
                 var modelId = SymbolUtilityServices.GetBlockModelSpaceId(db);
+
+                try
+                {
+                    if (Convert.ToInt16(Application.GetSystemVariable("TILEMODE")) == 0 &&
+                        Convert.ToInt16(Application.GetSystemVariable("CVPORT")) != 1)
+                    {
+                        ed.SwitchToPaperSpace();
+                    }
+                }
+                catch { }
+
+                try
+                {
+                    if (Convert.ToInt16(Application.GetSystemVariable("TILEMODE")) == 0)
+                        Application.SetSystemVariable("TILEMODE", 1);
+                }
+                catch { }
+
                 if (db.CurrentSpaceId != modelId)
                 {
-                    try { ed.SwitchToModelSpace(); }
-                    catch { try { Application.SetSystemVariable("TILEMODE", 1); } catch { } }
+                    try { ed.SwitchToModelSpace(); } catch { }
+                }
+
+                try { ed.Regen(); } catch { }
+
+                bool inModelTab = true;
+                try { inModelTab = Convert.ToInt16(Application.GetSystemVariable("TILEMODE")) == 1; } catch { }
+
+                return inModelTab && db.CurrentSpaceId == modelId;
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nVP2PL: Modelspace activation failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static void SwitchToModelSpaceViewSafe(Database db, Editor ed)
+        {
+            SwitchToTrueModelSpaceView(db, ed);
+        }
+
+        private static int SelectViewportRegionContents(
+            Editor ed,
+            IEnumerable<ViewportRegion> regions,
+            HashSet<ObjectId> helperPolylineIds,
+            HashSet<ObjectId> keepIds)
+        {
+            int selectedEntityCount = 0;
+            var originalUcs = ed.CurrentUserCoordinateSystem;
+
+            try
+            {
+                ed.CurrentUserCoordinateSystem = Matrix3d.Identity;
+
+                int regionNumber = 0;
+                foreach (var region in regions)
+                {
+                    regionNumber++;
+                    PromptSelectionResult selRes;
+                    try
+                    {
+                        selRes = ed.SelectCrossingPolygon(region.Polygon);
+                    }
+                    catch (System.Exception exSel)
+                    {
+                        ed.WriteMessage($"\nVP2PL: SelectCrossingPolygon failed for layout '{region.LayoutName}' region {regionNumber}: {exSel.Message}");
+                        continue;
+                    }
+
+                    if (selRes.Status != PromptStatus.OK || selRes.Value == null)
+                    {
+                        ed.WriteMessage($"\nVP2PL: Layout '{region.LayoutName}' region {regionNumber} returned no entities (status={selRes.Status}).");
+                        continue;
+                    }
+
+                    var ids = selRes.Value.GetObjectIds();
+                    int added = 0;
+                    foreach (var id in ids)
+                    {
+                        if (!id.IsValid || id.IsErased) continue;
+                        if (helperPolylineIds != null && helperPolylineIds.Contains(id)) continue;
+
+                        if (keepIds.Add(id))
+                        {
+                            added++;
+                            selectedEntityCount++;
+                        }
+                    }
+                    ed.WriteMessage($"\nVP2PL: Layout '{region.LayoutName}' region {regionNumber} selected {ids.Length} entit(ies), kept {added} new non-helper entit(ies).");
                 }
             }
-            catch { }
+            finally
+            {
+                ed.CurrentUserCoordinateSystem = originalUcs;
+            }
+
+            return selectedEntityCount;
+        }
+
+        private static void AddProtectedModelSpaceEntities(Database db, ObjectId msId, HashSet<ObjectId> keepIds)
+        {
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var ms = (BlockTableRecord)tr.GetObject(msId, OpenMode.ForRead);
+                foreach (ObjectId entId in ms)
+                {
+                    if (!entId.IsValid) continue;
+                    if (SimplerCommands.IsProtectedEmbeddedOle(entId))
+                        keepIds.Add(entId);
+                }
+                tr.Commit();
+            }
+        }
+
+        private static int EraseViewportRegionHelpers(Database db, IEnumerable<ViewportRegion> regions)
+        {
+            var helperIds = regions?
+                .Select(r => r.HelperPolylineId)
+                .Where(id => id.IsValid && !id.IsErased)
+                .ToList();
+
+            if (helperIds == null || helperIds.Count == 0)
+                return 0;
+
+            int erased = 0;
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layersToRelock = new HashSet<ObjectId>();
+
+                foreach (var id in helperIds)
+                {
+                    var ent = tr.GetObject(id, OpenMode.ForRead, false) as Entity;
+                    if (ent == null || ent.IsErased) continue;
+
+                    var layer = tr.GetObject(ent.LayerId, OpenMode.ForRead, false) as LayerTableRecord;
+                    if (layer != null && layer.IsLocked)
+                    {
+                        layer.UpgradeOpen();
+                        layer.IsLocked = false;
+                        layersToRelock.Add(layer.ObjectId);
+                    }
+
+                    ent.UpgradeOpen();
+                    ent.Erase();
+                    erased++;
+                }
+
+                foreach (var layerId in layersToRelock)
+                {
+                    var layer = tr.GetObject(layerId, OpenMode.ForWrite, false) as LayerTableRecord;
+                    if (layer != null)
+                        layer.IsLocked = true;
+                }
+
+                tr.Commit();
+            }
+
+            return erased;
+        }
+
+        // Build the paper-space -> world-space transformation matrix for a viewport using
+        // AutoCAD's Arbitrary Axis Algorithm (AAA) for the view basis. This is the same
+        // algorithm AutoCAD's CHSPACE command uses internally.
+        //
+        // The transformation chain is:
+        //   1. Translate PS coords by -CenterPoint  (origin at viewport center, in PS units)
+        //   2. Scale by ViewHeight/Height          (PS units -> DCS units)
+        //   3. Translate by +ViewCenter            (DCS origin at view-center)
+        //   4. Rotate by -TwistAngle around the view's Z axis (apply view twist)
+        //   5. Rotate (u,v,0) into the world's view basis (DCS -> WCS rotation)
+        //   6. Translate by +ViewTarget            (WCS position of the view target)
+        //
+        // The AAA picks the view's X axis stably regardless of how close ViewDirection
+        // is to ±Z, avoiding the GetPerpendicularVector() ambiguity that produced wrong
+        // polygons for the E02.00 viewport in earlier iterations.
+        private static Matrix3d ComputeMsFromPsMatrixAaa(Viewport vp)
+        {
+            const double aaaTol = 1.0 / 64.0;
+
+            Vector3d az = vp.ViewDirection.GetNormal();
+
+            // AAA: pick the view X axis based on whether ViewDirection is "near vertical".
+            Vector3d ax = (Math.Abs(az.X) < aaaTol && Math.Abs(az.Y) < aaaTol)
+                ? Vector3d.YAxis.CrossProduct(az).GetNormal()
+                : Vector3d.ZAxis.CrossProduct(az).GetNormal();
+            Vector3d ay = az.CrossProduct(ax).GetNormal();
+
+            // Apply twist rotation around az.
+            double t = vp.TwistAngle;
+            double c = Math.Cos(t), s = Math.Sin(t);
+            Vector3d xView = ax * c + ay * s;
+            Vector3d yView = ay * c - ax * s;
+
+            double muPerPu = vp.ViewHeight / vp.Height;
+
+            Point3d target = vp.ViewTarget;
+            Point2d vc = vp.ViewCenter;
+            Point3d cp = vp.CenterPoint;
+
+            // Compose the matrices in order. Note Matrix3d.Multiply applies right-to-left:
+            // result * point applies T1 first, then T2, etc. So the composition is
+            // T_target * R_dcs_to_wcs * T_vc * S * T_minus_cp.
+            Matrix3d t1 = Matrix3d.Displacement(new Vector3d(-cp.X, -cp.Y, -cp.Z));
+            Matrix3d sc = Matrix3d.Scaling(muPerPu, Point3d.Origin);
+            Matrix3d t2 = Matrix3d.Displacement(new Vector3d(vc.X, vc.Y, 0));
+
+            // Build the DCS -> WCS rotation. It maps (1,0,0) -> xView, (0,1,0) -> yView,
+            // (0,0,1) -> az. AlignCoordinateSystem does exactly this.
+            Matrix3d rot = Matrix3d.AlignCoordinateSystem(
+                Point3d.Origin, Vector3d.XAxis, Vector3d.YAxis, Vector3d.ZAxis,
+                Point3d.Origin, xView, yView, az);
+
+            Matrix3d t3 = Matrix3d.Displacement(target.GetAsVector());
+
+            return t3 * rot * t2 * sc * t1;
+        }
+
+        // Ensure a 'VP2PL-DEBUG' layer exists. Creates it with ACI cyan (4) if missing.
+        // Returns the layer's ObjectId so polylines can be assigned LayerId directly.
+        private static ObjectId EnsureDebugLayer(Database db, Transaction tr)
+        {
+            const string layerName = "VP2PL-DEBUG";
+            var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+            if (lt.Has(layerName))
+                return lt[layerName];
+
+            lt.UpgradeOpen();
+            var ltr = new LayerTableRecord
+            {
+                Name = layerName,
+                Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
+                    Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 4)
+            };
+            var id = lt.Add(ltr);
+            tr.AddNewlyCreatedDBObject(ltr, true);
+            return id;
+        }
+
+        // Build a closed Polyline from the given vertices and append it to the given
+        // BlockTableRecord (typically modelspace) on the given layer. Z values on the
+        // vertices are dropped — Polyline is 2D at elevation 0.
+        private static ObjectId CreatePolylineInModelspace(
+            Transaction tr,
+            BlockTableRecord msBtr,
+            Point3d[] verts,
+            ObjectId layerId)
+        {
+            if (verts == null || verts.Length < 3) return ObjectId.Null;
+
+            var pl = new Polyline(verts.Length);
+            for (int i = 0; i < verts.Length; i++)
+            {
+                pl.AddVertexAt(i, new Point2d(verts[i].X, verts[i].Y), 0, 0, 0);
+            }
+            pl.Closed = true;
+            if (!layerId.IsNull) pl.LayerId = layerId;
+
+            var id = msBtr.AppendEntity(pl);
+            tr.AddNewlyCreatedDBObject(pl, true);
+            return id;
+        }
+
+        // Zoom the active view to db.Extmin/Extmax + 5% margin and regen so the change
+        // takes effect immediately. This is necessary because Editor.SelectCrossingPolygon
+        // only returns entities whose display geometry lies within the active view's
+        // screen extents (acedSSGet with CP mode is screen-bound).
+        private static void ZoomToModelExtents(Database db, Editor ed)
+        {
+            try
+            {
+                // Make sure the cached extents reflect the helper polylines we just added.
+                try { ed.Regen(); } catch { }
+
+                var dbMin = db.Extmin;
+                var dbMax = db.Extmax;
+                double width = dbMax.X - dbMin.X;
+                double height = dbMax.Y - dbMin.Y;
+                if (width <= 1e-9 || height <= 1e-9) return;
+
+                double mx = width * 0.05;
+                double my = height * 0.05;
+                var center = new Point2d((dbMin.X + dbMax.X) * 0.5, (dbMin.Y + dbMax.Y) * 0.5);
+
+                using (var view = ed.GetCurrentView())
+                {
+                    view.CenterPoint = center;
+                    view.Width = width + 2.0 * mx;
+                    view.Height = height + 2.0 * my;
+                    ed.SetCurrentView(view);
+                }
+                try { ed.Regen(); } catch { }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nVP2PL: Zoom to extents failed: {ex.Message}");
+            }
         }
 
         // More robust TB extents finder: named block refs OR largest closed polyline. Returns null if nothing plausible.

@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -66,7 +66,7 @@ namespace AutoCADCleanupTool
                     foreach (ObjectId btrId in blockTable)
                     {
                         var btr = trans.GetObject(btrId, OpenMode.ForRead, false, true) as BlockTableRecord;
-                        if (btr == null || btr.IsErased || !btr.IsFromExternalReference) continue;
+                        if (btr == null || btr.IsErased || (!btr.IsFromExternalReference && !btr.IsFromOverlayReference)) continue;
 
                         if (IsProtectedTitleBlockXref(btrId))
                         {

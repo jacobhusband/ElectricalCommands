@@ -43,10 +43,15 @@ namespace AutoCADCleanupTool
 
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
 
         private const uint BM_CLICK = 0x00F5;
         private const uint WM_COMMAND = 0x0111;
+        private const uint WM_KEYDOWN = 0x0100;
+        private const uint WM_KEYUP = 0x0101;
         private const int IDOK = 1;
+        private const int VK_RETURN = 0x0D;
 
         // Shared embedding state
         private class ImagePlacement
@@ -101,6 +106,61 @@ namespace AutoCADCleanupTool
         {
             if (id.IsNull || !id.IsValid || id.IsErased) return false;
             return _protectedEmbeddedOleIds.Contains(id);
+        }
+
+        // Best-effort check that a freshly-pasted Ole2Frame actually carries an OLE
+        // payload. AutoCAD will accept and persist a structurally-valid Ole2Frame
+        // wrapper whose internal OLE storage stream is empty; on reopen the entity
+        // exists but cannot render or be copied. We catch the most common signals:
+        // degenerate world-space extents, zero/NaN intrinsic OLE dimensions, and an
+        // empty user-type string.
+        private static bool IsOleStoragePopulated(Ole2Frame ole)
+        {
+            if (ole == null) return false;
+            try { if (ole.IsErased) return false; } catch { return false; }
+
+            try
+            {
+                var ext = ole.GeometricExtents;
+                double dx = ext.MaxPoint.X - ext.MinPoint.X;
+                double dy = ext.MaxPoint.Y - ext.MinPoint.Y;
+                if (double.IsNaN(dx) || double.IsNaN(dy)) return false;
+                if (dx < 1e-6 || dy < 1e-6) return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            // The .NET wrapper has historically not exposed every Ole2Frame property
+            // consistently across AutoCAD versions, so reach for these via reflection
+            // to avoid tying the build to a specific Acdbmgd surface.
+            try
+            {
+                var t = ole.GetType();
+
+                var widthProp = t.GetProperty("WcsWidth");
+                var heightProp = t.GetProperty("WcsHeight");
+                if (widthProp != null && heightProp != null)
+                {
+                    double w = Convert.ToDouble(widthProp.GetValue(ole, null));
+                    double h = Convert.ToDouble(heightProp.GetValue(ole, null));
+                    if (double.IsNaN(w) || double.IsNaN(h) || w < 1e-6 || h < 1e-6) return false;
+                }
+
+                var userTypeMethod = t.GetMethod("GetUserType", System.Type.EmptyTypes);
+                if (userTypeMethod != null)
+                {
+                    var userType = userTypeMethod.Invoke(ole, null) as string;
+                    if (string.IsNullOrWhiteSpace(userType)) return false;
+                }
+            }
+            catch
+            {
+                // Reflection shouldn't be load-bearing; if it fails, defer to the extent check above.
+            }
+
+            return true;
         }
 
         // ------------------------------------------------------------------------------------
@@ -175,8 +235,14 @@ namespace AutoCADCleanupTool
                             else
                             {
                                 SendMessage(dlg, WM_COMMAND, (IntPtr)IDOK, IntPtr.Zero);
-                                SetForegroundWindow(dlg);
-                                System.Windows.Forms.SendKeys.SendWait("{ENTER}");
+                                // Keystroke fallback addressed directly to the dialog HWND so a
+                                // late-firing ENTER cannot land in AutoCAD's command line and
+                                // commit an in-flight PASTECLIP with empty OLE storage.
+                                if (IsWindow(dlg))
+                                {
+                                    PostMessage(dlg, WM_KEYDOWN, (IntPtr)VK_RETURN, IntPtr.Zero);
+                                    PostMessage(dlg, WM_KEYUP, (IntPtr)VK_RETURN, IntPtr.Zero);
+                                }
                             }
                             return;
                         }
@@ -302,6 +368,18 @@ namespace AutoCADCleanupTool
 
                 pic = shapes.AddPicture(placement.Path, MsoTriState.msoFalse, MsoTriState.msoTrue, 10, 10);
                 pic.Copy();
+
+                if (!ClipboardHasOleData())
+                {
+                    Thread.Sleep(150);
+                    pic.Copy();
+                    if (!ClipboardHasOleData())
+                    {
+                        ed.WriteMessage($"\n[ERROR] Clipboard not populated for '{Path.GetFileName(placement.Path)}' after PowerPoint copy. Skipping; underlay preserved.");
+                        return false;
+                    }
+                }
+
                 return true;
             }
             catch (System.Exception ex)
@@ -314,6 +392,37 @@ namespace AutoCADCleanupTool
                 if (pic != null) Marshal.ReleaseComObject(pic);
                 if (shapes != null) Marshal.ReleaseComObject(shapes);
                 if (slide != null) Marshal.ReleaseComObject(slide);
+            }
+        }
+
+        // Verifies the clipboard exposes an OLE-compatible format that PASTECLIP can
+        // consume. PowerPoint's Copy() can return S_OK while leaving the clipboard
+        // empty (clipboard locked, OLE registration glitch); without this check the
+        // next PASTECLIP creates an Ole2Frame wrapper with no payload.
+        private static bool ClipboardHasOleData()
+        {
+            try
+            {
+                var data = System.Windows.Forms.Clipboard.GetDataObject();
+                if (data == null) return false;
+                var formats = data.GetFormats();
+                if (formats == null || formats.Length == 0) return false;
+                foreach (var fmt in formats)
+                {
+                    if (string.Equals(fmt, "Embed Source", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(fmt, "Embedded Object", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(fmt, "MetaFilePict", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(fmt, "EnhancedMetafile", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(fmt, "Bitmap", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -498,30 +607,42 @@ namespace AutoCADCleanupTool
                     }
                 }
 
-                if (ole != null)
+                bool oleHasPayload = ole != null && !ole.IsErased && IsOleStoragePopulated(ole);
+
+                if (ole != null && !oleHasPayload)
+                {
+                    string label = "<unknown>";
+                    try { label = !target.OriginalEntityId.IsNull ? target.OriginalEntityId.Handle.ToString() : "<unknown>"; } catch { }
+                    ed.WriteMessage($"\n[WARN] Pasted Ole2Frame for source {label} has empty OLE storage; erasing the empty wrapper and leaving the original underlay in place. Re-run CLEANCAD to retry.");
+                    try { if (!ole.IsErased) ole.Erase(); } catch { }
+                }
+                else if (ole != null)
                 {
                     ProtectEmbeddedOle(ole.ObjectId);
-                }
 
-                try
-                {
-                    var originalEnt = tr.GetObject(target.OriginalEntityId, OpenMode.ForWrite, false) as Entity;
-                    if (originalEnt != null)
+                    try
                     {
-                        if (originalEnt is RasterImage imgEnt && !imgEnt.ImageDefId.IsNull)
-                            _imageDefsToPurge.Add(imgEnt.ImageDefId);
+                        var originalEnt = tr.GetObject(target.OriginalEntityId, OpenMode.ForWrite, false) as Entity;
+                        if (originalEnt != null)
+                        {
+                            if (originalEnt is RasterImage imgEnt && !imgEnt.ImageDefId.IsNull)
+                                _imageDefsToPurge.Add(imgEnt.ImageDefId);
 
-                        originalEnt.Erase();
+                            originalEnt.Erase();
+                        }
                     }
+                    catch { }
                 }
-                catch { }
 
                 tr.Commit();
             }
 
             GC.Collect();
             GC.WaitForPendingFinalizers();
-            Thread.Sleep(50);
+            // Give the just-finalized OLE storage and PowerPoint COM release time to
+            // settle before the next paste overwrites the clipboard. 50 ms was not
+            // always enough — empty Ole2Frame storage was observed on save/reopen.
+            Thread.Sleep(250);
 
             if (_pending.Count > 0)
             {
@@ -739,7 +860,7 @@ namespace AutoCADCleanupTool
                     {
                         _isCleanSheetWorkflowActive = false;
                         ed.WriteMessage("\nEMBEDIMAGES complete. Chaining next commands...");
-                        doc.SendStringToExecute("_.EMBEDPDFS _.CLEANPS _.VP2PL _.FINALIZE _.DETACHREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
+                        doc.SendStringToExecute("_.EMBEDPDFS _.FINALIZE _.CLEANPS _.VP2PL _.DETACHREMAININGXREFS _.ZOOMTOLASTTB ", true, false, false);
                     }
                 }
                 catch (System.Exception ex)
@@ -932,11 +1053,11 @@ namespace AutoCADCleanupTool
                         try
                         {
                             var btr = (BlockTableRecord)tr.GetObject(xrefId, OpenMode.ForRead);
-                            if (!btr.IsFromExternalReference)
-                            {
-                                ed.WriteMessage("\nSkipping detach: Object is not an external reference.");
-                                continue;
-                            }
+                             if (!btr.IsFromExternalReference && !btr.IsFromOverlayReference)
+                             {
+                                 ed.WriteMessage("\nSkipping detach: Object is not an external reference.");
+                                 continue;
+                             }
                             xrefName = btr.Name;
                         }
                         catch

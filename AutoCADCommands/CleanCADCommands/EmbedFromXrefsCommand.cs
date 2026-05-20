@@ -18,7 +18,8 @@ namespace AutoCADCleanupTool
     public partial class SimplerCommands
     {
         /// <summary>
-        /// Utility: explode all block references in Model Space (unchanged).
+        /// Utility: explode local block references in Model Space. XREF/dependent
+        /// block references are preserved so their contents are only handled by bind.
         /// </summary>
         public static void ExplodeAllBlockReferences()
         {
@@ -35,46 +36,70 @@ namespace AutoCADCleanupTool
                     var modelSpace = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
 
                     int explodedCount;
+                    int totalExploded = 0;
+                    int totalSkippedExternalOrDependent = 0;
+                    int totalLayerFallbacks = 0;
+
                     do
                     {
                         explodedCount = 0;
-                        var blockReferences = new List<BlockReference>();
+                        int skippedExternalOrDependent = 0;
+                        int layerFallbacks = 0;
+                        var blockReferenceIds = new List<ObjectId>();
 
                         foreach (ObjectId id in modelSpace)
                         {
                             if (id.ObjectClass.DxfName.Equals("INSERT", StringComparison.OrdinalIgnoreCase))
                             {
-                                var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
-                                if (br != null)
-                                    blockReferences.Add(br);
+                                blockReferenceIds.Add(id);
                             }
                         }
 
-                        if (blockReferences.Count > 0)
+                        if (blockReferenceIds.Count > 0)
                         {
-                            ed.WriteMessage($"\nFound {blockReferences.Count} block references to explode...");
-                            foreach (var br in blockReferences)
+                            ed.WriteMessage($"\nFound {blockReferenceIds.Count} block references to evaluate for explosion...");
+                            foreach (var id in blockReferenceIds)
                             {
-                                var explodedObjects = new DBObjectCollection();
-                                br.UpgradeOpen();
-                                br.Explode(explodedObjects);
+                                var br = tr.GetObject(id, OpenMode.ForRead, false) as BlockReference;
+                                if (br == null || br.IsErased) continue;
 
-                                foreach (DBObject obj in explodedObjects)
+                                if (!CanExplodeBlockReference(
+                                    tr,
+                                    br,
+                                    skipAttributedBlocks: false,
+                                    out bool skippedAttributed,
+                                    out bool skippedXrefOrDependent))
                                 {
-                                    if (obj is Entity ent)
-                                    {
-                                        modelSpace.AppendEntity(ent);
-                                        tr.AddNewlyCreatedDBObject(ent, true);
-                                    }
+                                    if (skippedXrefOrDependent) skippedExternalOrDependent++;
+                                    continue;
                                 }
-                                br.Erase();
-                                explodedCount++;
+
+                                if (TryExplodeBlockReference(
+                                    tr,
+                                    db,
+                                    modelSpace,
+                                    br,
+                                    out int repairedLayers,
+                                    out string failureReason))
+                                {
+                                    layerFallbacks += repairedLayers;
+                                    explodedCount++;
+                                }
+                                else if (!string.IsNullOrWhiteSpace(failureReason))
+                                {
+                                    ed.WriteMessage($"\nSkipped block reference {id}: {failureReason}");
+                                }
                             }
-                            ed.WriteMessage($"\nExploded {explodedCount} block references.");
+
+                            totalExploded += explodedCount;
+                            totalSkippedExternalOrDependent += skippedExternalOrDependent;
+                            totalLayerFallbacks += layerFallbacks;
+                            ed.WriteMessage($"\nExploded {explodedCount} local block reference(s); skipped {skippedExternalOrDependent} XREF/dependent block reference(s).");
                         }
 
                     } while (explodedCount > 0);
 
+                    ed.WriteMessage($"\nFull pre-explode summary: exploded {totalExploded} local block reference(s); skipped {totalSkippedExternalOrDependent} XREF/dependent block reference(s); repaired {totalLayerFallbacks} invalid layer assignment(s).");
                     tr.Commit();
                 }
             }
@@ -105,64 +130,264 @@ namespace AutoCADCleanupTool
                     int explodedCount;
                     int totalExploded = 0;
                     int totalSkippedAttributed = 0;
+                    int totalSkippedExternalOrDependent = 0;
+                    int totalLayerFallbacks = 0;
 
                     do
                     {
                         explodedCount = 0;
                         int skippedAttributed = 0;
-                        var blockReferences = new List<BlockReference>();
+                        int skippedExternalOrDependent = 0;
+                        int layerFallbacks = 0;
+                        var blockReferenceIds = new List<ObjectId>();
 
                         foreach (ObjectId id in modelSpace)
                         {
                             if (id.ObjectClass.DxfName.Equals("INSERT", StringComparison.OrdinalIgnoreCase))
                             {
-                                var br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
-                                if (br != null)
-                                    blockReferences.Add(br);
+                                blockReferenceIds.Add(id);
                             }
                         }
 
-                        if (blockReferences.Count > 0)
+                        if (blockReferenceIds.Count > 0)
                         {
-                            ed.WriteMessage($"\nFound {blockReferences.Count} block references to evaluate for explosion...");
-                            foreach (var br in blockReferences)
+                            ed.WriteMessage($"\nFound {blockReferenceIds.Count} block references to evaluate for explosion...");
+                            foreach (var id in blockReferenceIds)
                             {
-                                if (br.AttributeCollection != null && br.AttributeCollection.Count > 0)
+                                var br = tr.GetObject(id, OpenMode.ForRead, false) as BlockReference;
+                                if (br == null || br.IsErased) continue;
+
+                                if (!CanExplodeBlockReference(
+                                    tr,
+                                    br,
+                                    skipAttributedBlocks: true,
+                                    out bool skippedByAttribute,
+                                    out bool skippedXrefOrDependent))
                                 {
-                                    skippedAttributed++;
+                                    if (skippedByAttribute) skippedAttributed++;
+                                    if (skippedXrefOrDependent) skippedExternalOrDependent++;
                                     continue;
                                 }
 
-                                var explodedObjects = new DBObjectCollection();
-                                br.UpgradeOpen();
-                                br.Explode(explodedObjects);
-
-                                foreach (DBObject obj in explodedObjects)
+                                if (TryExplodeBlockReference(
+                                    tr,
+                                    db,
+                                    modelSpace,
+                                    br,
+                                    out int repairedLayers,
+                                    out string failureReason))
                                 {
-                                    if (obj is Entity ent)
-                                    {
-                                        modelSpace.AppendEntity(ent);
-                                        tr.AddNewlyCreatedDBObject(ent, true);
-                                    }
+                                    layerFallbacks += repairedLayers;
+                                    explodedCount++;
                                 }
-                                br.Erase();
-                                explodedCount++;
+                                else if (!string.IsNullOrWhiteSpace(failureReason))
+                                {
+                                    ed.WriteMessage($"\nSkipped block reference {id}: {failureReason}");
+                                }
                             }
 
                             totalExploded += explodedCount;
                             totalSkippedAttributed += skippedAttributed;
-                            ed.WriteMessage($"\nExploded {explodedCount} block references; skipped {skippedAttributed} attributed block reference(s).");
+                            totalSkippedExternalOrDependent += skippedExternalOrDependent;
+                            totalLayerFallbacks += layerFallbacks;
+                            ed.WriteMessage($"\nExploded {explodedCount} local block reference(s); skipped {skippedAttributed} attributed and {skippedExternalOrDependent} XREF/dependent block reference(s).");
                         }
 
                     } while (explodedCount > 0);
 
-                    ed.WriteMessage($"\nCLEANCAD pre-explode summary: exploded {totalExploded} block references; skipped {totalSkippedAttributed} attributed block reference(s).");
+                    ed.WriteMessage($"\nCLEANCAD pre-explode summary: exploded {totalExploded} local block reference(s); skipped {totalSkippedAttributed} attributed block reference(s), {totalSkippedExternalOrDependent} XREF/dependent block reference(s); repaired {totalLayerFallbacks} invalid layer assignment(s).");
                     tr.Commit();
                 }
             }
             catch (System.Exception ex)
             {
                 ed.WriteMessage($"\nError while exploding block references for CLEANCAD: {ex.Message}");
+            }
+        }
+
+        private static bool CanExplodeBlockReference(
+            Transaction tr,
+            BlockReference br,
+            bool skipAttributedBlocks,
+            out bool skippedAttributed,
+            out bool skippedXrefOrDependent)
+        {
+            skippedAttributed = false;
+            skippedXrefOrDependent = false;
+
+            if (br == null || br.IsErased) return false;
+
+            BlockTableRecord definition = null;
+            try
+            {
+                definition = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead, false) as BlockTableRecord;
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (definition == null || definition.IsErased) return false;
+
+            if (definition.IsFromExternalReference ||
+                definition.IsFromOverlayReference ||
+                definition.IsDependent)
+            {
+                skippedXrefOrDependent = true;
+                return false;
+            }
+
+            if (skipAttributedBlocks &&
+                br.AttributeCollection != null &&
+                br.AttributeCollection.Count > 0)
+            {
+                skippedAttributed = true;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryExplodeBlockReference(
+            Transaction tr,
+            Database db,
+            BlockTableRecord targetSpace,
+            BlockReference br,
+            out int repairedLayerCount,
+            out string failureReason)
+        {
+            repairedLayerCount = 0;
+            failureReason = string.Empty;
+            var explodedObjects = new DBObjectCollection();
+
+            try
+            {
+                br.UpgradeOpen();
+                br.Explode(explodedObjects);
+
+                foreach (DBObject obj in explodedObjects)
+                {
+                    if (obj is Entity ent)
+                    {
+                        if (!EnsureEntityHasHostLayer(db, tr, ent, out bool repairedLayer))
+                        {
+                            failureReason = "exploded entity did not have a valid host layer and no fallback layer was available";
+                            DisposeUnappendedObjects(explodedObjects);
+                            return false;
+                        }
+
+                        if (repairedLayer) repairedLayerCount++;
+                    }
+                    else
+                    {
+                        obj.Dispose();
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                failureReason = ex.Message;
+                DisposeUnappendedObjects(explodedObjects);
+                return false;
+            }
+
+            foreach (DBObject obj in explodedObjects)
+            {
+                if (obj is Entity ent)
+                {
+                    targetSpace.AppendEntity(ent);
+                    tr.AddNewlyCreatedDBObject(ent, true);
+                }
+            }
+
+            br.Erase();
+            return true;
+        }
+
+        private static bool EnsureEntityHasHostLayer(
+            Database db,
+            Transaction tr,
+            Entity ent,
+            out bool repairedLayer)
+        {
+            repairedLayer = false;
+            if (ent == null) return false;
+
+            if (IsValidLayerId(tr, ent.LayerId)) return true;
+
+            try
+            {
+                ent.SetDatabaseDefaults(db);
+            }
+            catch { }
+
+            if (IsValidLayerId(tr, ent.LayerId))
+            {
+                repairedLayer = true;
+                return true;
+            }
+
+            ObjectId fallbackLayerId = GetFallbackLayerId(db, tr);
+            if (fallbackLayerId.IsNull) return false;
+
+            ent.LayerId = fallbackLayerId;
+            repairedLayer = true;
+            return true;
+        }
+
+        private static bool IsValidLayerId(Transaction tr, ObjectId layerId)
+        {
+            if (layerId.IsNull || !layerId.IsValid || layerId.IsErased) return false;
+
+            try
+            {
+                var layer = tr.GetObject(layerId, OpenMode.ForRead, false) as LayerTableRecord;
+                return layer != null && !layer.IsErased;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static ObjectId GetFallbackLayerId(Database db, Transaction tr)
+        {
+            try
+            {
+                var layerTable = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                if (layerTable.Has("0") && IsValidLayerId(tr, layerTable["0"]))
+                {
+                    return layerTable["0"];
+                }
+
+                if (IsValidLayerId(tr, db.Clayer))
+                {
+                    return db.Clayer;
+                }
+
+                foreach (ObjectId layerId in layerTable)
+                {
+                    if (IsValidLayerId(tr, layerId))
+                    {
+                        return layerId;
+                    }
+                }
+            }
+            catch { }
+
+            return ObjectId.Null;
+        }
+
+        private static void DisposeUnappendedObjects(DBObjectCollection objects)
+        {
+            if (objects == null) return;
+
+            foreach (DBObject obj in objects)
+            {
+                if (obj != null && obj.ObjectId.IsNull)
+                {
+                    obj.Dispose();
+                }
             }
         }
 
@@ -213,9 +438,10 @@ namespace AutoCADCleanupTool
 
                 RemoveInvalidRasterImages(db, ed);
 
-                // 2. EXPLODE BLOCKS FIRST
-                // If the JPG is inside an XREF or Block, the scanner won't find it unless we explode it first.
-                ed.WriteMessage("\nPre-exploding blocks to expose nested images...");
+                // 2. PRE-SCAN STRATEGY
+                // CLEANCAD continues to pre-explode (skipping attributed blocks) to expose nested images.
+                // Standalone EMBEDIMAGES preserves every block reference and discovers images by recursing
+                // into XREF definitions during the collection phase below.
                 if (_isCleanSheetWorkflowActive)
                 {
                     ed.WriteMessage("\nCLEANCAD mode: preserving attributed block references.");
@@ -223,7 +449,7 @@ namespace AutoCADCleanupTool
                 }
                 else
                 {
-                    ExplodeAllBlockReferences();
+                    ed.WriteMessage("\nStandalone mode: preserving all block references; images will be discovered by recursing into XREF definitions.");
                 }
 
                 // 3. COLLECT IMAGES
@@ -281,6 +507,10 @@ namespace AutoCADCleanupTool
 
         /// <summary>
         /// Collect and preflight RasterImage entities for the XREF pipeline.
+        /// Top-level images in the given space are queued directly. Block references whose
+        /// BTR is an XREF are recursed into so nested images can be queued with a world
+        /// transform (and the XREF marked for detach). Regular (non-XREF) block references
+        /// that contain images are reported and left alone — the block stays intact.
         /// Uses XREF-specific ImagePlacementXref and queues into _pendingXref.
         /// </summary>
         private static void CollectAndPreflightImagesInLayoutForXrefs(Document doc, ObjectId spaceId)
@@ -297,75 +527,55 @@ namespace AutoCADCleanupTool
                     try
                     {
                         if (!id.IsValid || id.IsErased) continue;
-                        if (!id.ObjectClass.DxfName.Equals("IMAGE", StringComparison.OrdinalIgnoreCase))
+
+                        var dxf = id.ObjectClass.DxfName;
+                        if (dxf.Equals("IMAGE", StringComparison.OrdinalIgnoreCase))
+                        {
+                            TryQueueRasterImage(
+                                tr, db, doc, ed,
+                                id, spaceId,
+                                extraTransform: null,
+                                skipOriginalErase: false);
+                            continue;
+                        }
+
+                        if (!dxf.Equals("INSERT", StringComparison.OrdinalIgnoreCase))
                             continue;
 
-                        var img = tr.GetObject(id, OpenMode.ForRead, false) as RasterImage;
-                        if (img == null || img.IsErased || img.ImageDefId.IsNull || !img.ImageDefId.IsValid || img.ImageDefId.IsErased)
-                            continue;
+                        var br = tr.GetObject(id, OpenMode.ForRead, false) as BlockReference;
+                        if (br == null) continue;
 
-                        var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead, false) as RasterImageDef;
-                        if (def == null || def.IsErased) continue;
+                        var btr = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead, false) as BlockTableRecord;
+                        if (btr == null) continue;
 
-                        // Resolve Path
-                        string resolved = ResolveImagePath(db, def.SourceFileName);
-                        if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
+                        if (btr.IsFromExternalReference || btr.IsFromOverlayReference)
                         {
-                            // Try to find it in the same folder as the DWG if path resolution failed
-                            string localAttempt = Path.Combine(Path.GetDirectoryName(doc.Name), Path.GetFileName(def.SourceFileName));
-                            if (File.Exists(localAttempt))
+                            // XREF — recurse into its definition and queue any images we find,
+                            // using the BlockReference transform to project them into the outer space.
+                            var visited = new HashSet<ObjectId>();
+                            int countBefore = _pendingXref.Count;
+                            CollectImagesFromBlockDefForXrefs(
+                                tr, db, doc, ed,
+                                br.BlockTableRecord, br.BlockTransform,
+                                spaceId, visited);
+                            int countAfter = _pendingXref.Count;
+                            if (countAfter > countBefore)
                             {
-                                resolved = localAttempt;
-                            }
-                            else
-                            {
-                                ed.WriteMessage($"\n[Skipping] Missing image file: {def.SourceFileName}");
-                                continue;
-                            }
-                        }
-
-                        string safePath = resolved;
-                        var cs = img.Orientation;
-                        double rotationDeg = 0.0;
-
-                        // --- CMYK / PREFLIGHT FIX ---
-                        try
-                        {
-                            // Calculate AutoCAD rotation
-                            rotationDeg = Math.Atan2(cs.Xaxis.Y, cs.Xaxis.X) * (180.0 / Math.PI);
-
-                            // Attempt Preflight (Checks dimensions, rotation, etc.)
-                            // If this is a CMYK JPG, System.Drawing will throw an exception here.
-                            string preflightPath = PreflightRasterForPpt(resolved, -rotationDeg);
-
-                            if (!string.IsNullOrEmpty(preflightPath))
-                            {
-                                safePath = preflightPath;
+                                // Mark this XREF for detach now that we've harvested its images.
+                                _xrefsToDetach.Add(br.BlockTableRecord);
                             }
                         }
-                        catch (System.Exception pex)
+                        else
                         {
-                            // Do NOT skip the image. PowerPoint handles CMYK JPGs better than .NET code.
-                            // We log the warning but proceed with the original resolved path.
-                            ed.WriteMessage($"\n[Warning] Preflight check failed for '{Path.GetFileName(resolved)}' (likely CMYK or locked). Attempting raw embed.");
-                            ed.WriteMessage($"\nDetails: {pex.Message}");
-
-                            // Fallback: Use original file, assume orientation is handled by PPT or post-transform
-                            safePath = resolved;
+                            // Regular block — preserve it. Just log if it contains an image so the user knows.
+                            var visited = new HashSet<ObjectId>();
+                            if (BlockDefContainsRasterImage(tr, br.BlockTableRecord, visited))
+                            {
+                                string btrName = string.Empty;
+                                try { btrName = btr.Name ?? string.Empty; } catch { }
+                                ed.WriteMessage($"\n[Skipped] Image inside block '{btrName}' — block preserved; embed images manually if needed.");
+                            }
                         }
-
-                        var placement = new ImagePlacementXref
-                        {
-                            Path = safePath,
-                            Pos = cs.Origin,
-                            U = cs.Xaxis,
-                            V = cs.Yaxis,
-                            OriginalEntityId = img.ObjectId,
-                            TargetBtrId = spaceId
-                        };
-
-                        _pendingXref.Enqueue(placement);
-                        ed.WriteMessage($"\nQueued: {Path.GetFileName(safePath)}");
                     }
                     catch (Autodesk.AutoCAD.Runtime.Exception ex) when (ex.ErrorStatus == ErrorStatus.WasErased)
                     {
@@ -374,11 +584,202 @@ namespace AutoCADCleanupTool
                     }
                     catch (System.Exception ex)
                     {
-                        ed.WriteMessage($"\n[Warning] Skipping raster candidate {id}: {ex.Message}");
+                        ed.WriteMessage($"\n[Warning] Skipping candidate {id}: {ex.Message}");
                     }
                 }
                 tr.Commit();
             }
+        }
+
+        /// <summary>
+        /// Preflight a single RasterImage and enqueue it as an ImagePlacementXref.
+        /// If extraTransform is provided (image lives inside a block/XREF), the image's
+        /// orientation is projected into world space via that transform.
+        /// </summary>
+        private static void TryQueueRasterImage(
+            Transaction tr,
+            Database db,
+            Document doc,
+            Editor ed,
+            ObjectId imageId,
+            ObjectId outerSpaceId,
+            Matrix3d? extraTransform,
+            bool skipOriginalErase)
+        {
+            var img = tr.GetObject(imageId, OpenMode.ForRead, false) as RasterImage;
+            if (img == null || img.IsErased || img.ImageDefId.IsNull || !img.ImageDefId.IsValid || img.ImageDefId.IsErased)
+                return;
+
+            var def = tr.GetObject(img.ImageDefId, OpenMode.ForRead, false) as RasterImageDef;
+            if (def == null || def.IsErased) return;
+
+            string resolved = ResolveImagePath(db, def.SourceFileName);
+            if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
+            {
+                string localAttempt = Path.Combine(Path.GetDirectoryName(doc.Name), Path.GetFileName(def.SourceFileName));
+                if (File.Exists(localAttempt))
+                {
+                    resolved = localAttempt;
+                }
+                else
+                {
+                    ed.WriteMessage($"\n[Skipping] Missing image file: {def.SourceFileName}");
+                    return;
+                }
+            }
+
+            var cs = img.Orientation;
+            Point3d worldOrigin = cs.Origin;
+            Vector3d worldU = cs.Xaxis;
+            Vector3d worldV = cs.Yaxis;
+
+            if (extraTransform.HasValue)
+            {
+                var xform = extraTransform.Value;
+                worldOrigin = worldOrigin.TransformBy(xform);
+                worldU = worldU.TransformBy(xform);
+                worldV = worldV.TransformBy(xform);
+            }
+
+            string safePath = resolved;
+            try
+            {
+                double rotationDeg = Math.Atan2(worldU.Y, worldU.X) * (180.0 / Math.PI);
+                string preflightPath = PreflightRasterForPpt(resolved, -rotationDeg);
+                if (!string.IsNullOrEmpty(preflightPath))
+                    safePath = preflightPath;
+            }
+            catch (System.Exception pex)
+            {
+                ed.WriteMessage($"\n[Warning] Preflight check failed for '{Path.GetFileName(resolved)}' (likely CMYK or locked). Attempting raw embed.");
+                ed.WriteMessage($"\nDetails: {pex.Message}");
+                safePath = resolved;
+            }
+
+            var placement = new ImagePlacementXref
+            {
+                Path = safePath,
+                Pos = worldOrigin,
+                U = worldU,
+                V = worldV,
+                OriginalEntityId = img.ObjectId,
+                TargetBtrId = outerSpaceId,
+                SkipOriginalErase = skipOriginalErase,
+            };
+
+            _pendingXref.Enqueue(placement);
+            ed.WriteMessage($"\nQueued: {Path.GetFileName(safePath)}");
+        }
+
+        /// <summary>
+        /// Walk a BlockTableRecord (usually an XREF definition) and queue any RasterImage
+        /// entities found, accumulating BlockReference transforms so the image's orientation
+        /// is expressed in the outer space's coordinate system. Visited BTRs are tracked to
+        /// avoid infinite loops on self-referencing nests.
+        /// </summary>
+        private static void CollectImagesFromBlockDefForXrefs(
+            Transaction tr,
+            Database db,
+            Document doc,
+            Editor ed,
+            ObjectId btrId,
+            Matrix3d accumulatedTransform,
+            ObjectId outerSpaceId,
+            HashSet<ObjectId> visited)
+        {
+            if (btrId.IsNull || !btrId.IsValid || btrId.IsErased) return;
+            if (!visited.Add(btrId)) return;
+
+            BlockTableRecord btr;
+            try
+            {
+                btr = tr.GetObject(btrId, OpenMode.ForRead, false) as BlockTableRecord;
+            }
+            catch
+            {
+                return;
+            }
+            if (btr == null) return;
+
+            foreach (ObjectId childId in btr)
+            {
+                try
+                {
+                    if (!childId.IsValid || childId.IsErased) continue;
+
+                    var dxf = childId.ObjectClass.DxfName;
+                    if (dxf.Equals("IMAGE", StringComparison.OrdinalIgnoreCase))
+                    {
+                        TryQueueRasterImage(
+                            tr, db, doc, ed,
+                            childId, outerSpaceId,
+                            extraTransform: accumulatedTransform,
+                            skipOriginalErase: true);
+                    }
+                    else if (dxf.Equals("INSERT", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var nestedRef = tr.GetObject(childId, OpenMode.ForRead, false) as BlockReference;
+                        if (nestedRef == null) continue;
+                        var nextTransform = accumulatedTransform * nestedRef.BlockTransform;
+                        CollectImagesFromBlockDefForXrefs(
+                            tr, db, doc, ed,
+                            nestedRef.BlockTableRecord, nextTransform,
+                            outerSpaceId, visited);
+                    }
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception ex) when (ex.ErrorStatus == ErrorStatus.WasErased)
+                {
+                    continue;
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\n[Warning] Skipping nested candidate {childId}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Recursively check whether a BlockTableRecord (or any nested block reference within it)
+        /// contains a RasterImage entity. Used to decide whether to log "image inside block".
+        /// </summary>
+        private static bool BlockDefContainsRasterImage(Transaction tr, ObjectId btrId, HashSet<ObjectId> visited)
+        {
+            if (btrId.IsNull || !btrId.IsValid || btrId.IsErased) return false;
+            if (!visited.Add(btrId)) return false;
+
+            BlockTableRecord btr;
+            try
+            {
+                btr = tr.GetObject(btrId, OpenMode.ForRead, false) as BlockTableRecord;
+            }
+            catch
+            {
+                return false;
+            }
+            if (btr == null) return false;
+
+            foreach (ObjectId childId in btr)
+            {
+                try
+                {
+                    if (!childId.IsValid || childId.IsErased) continue;
+                    var dxf = childId.ObjectClass.DxfName;
+                    if (dxf.Equals("IMAGE", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                    if (dxf.Equals("INSERT", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var nestedRef = tr.GetObject(childId, OpenMode.ForRead, false) as BlockReference;
+                        if (nestedRef == null) continue;
+                        if (BlockDefContainsRasterImage(tr, nestedRef.BlockTableRecord, visited))
+                            return true;
+                    }
+                }
+                catch
+                {
+                    continue;
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -502,6 +903,7 @@ namespace AutoCADCleanupTool
             public Vector3d V;
             public ObjectId OriginalEntityId;
             public ObjectId TargetBtrId;
+            public bool SkipOriginalErase = false;
         }
 
         private static readonly Queue<ImagePlacementXref> _pendingXref = new Queue<ImagePlacementXref>();
@@ -632,19 +1034,25 @@ namespace AutoCADCleanupTool
                     }
                 }
 
-                // Erase original raster and mark its def for purge
-                try
+                // Erase original raster and mark its def for purge — except when the
+                // image was sourced from inside an XREF. In that case the original entity
+                // lives in the XREF's BTR; we must not modify it (and the XREF will be
+                // detached after embedding, taking the image with it).
+                if (!target.SkipOriginalErase)
                 {
-                    var originalEnt = tr.GetObject(target.OriginalEntityId, OpenMode.ForWrite, false) as Entity;
-                    if (originalEnt != null)
+                    try
                     {
-                        if (originalEnt is RasterImage imgEnt && !imgEnt.ImageDefId.IsNull)
-                            _imageDefsToPurge.Add(imgEnt.ImageDefId);
+                        var originalEnt = tr.GetObject(target.OriginalEntityId, OpenMode.ForWrite, false) as Entity;
+                        if (originalEnt != null)
+                        {
+                            if (originalEnt is RasterImage imgEnt && !imgEnt.ImageDefId.IsNull)
+                                _imageDefsToPurge.Add(imgEnt.ImageDefId);
 
-                        originalEnt.Erase();
+                            originalEnt.Erase();
+                        }
                     }
+                    catch { }
                 }
-                catch { }
 
                 tr.Commit();
             }

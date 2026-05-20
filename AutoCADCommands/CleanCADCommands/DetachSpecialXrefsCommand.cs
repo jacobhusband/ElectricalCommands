@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -72,7 +72,7 @@ namespace AutoCADCleanupTool
                     foreach (ObjectId btrId in bt)
                     {
                         var btr = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
-                        if (btr != null && btr.IsFromExternalReference)
+                        if (btr != null && (btr.IsFromExternalReference || btr.IsFromOverlayReference))
                         {
                             if (protectedReasons.TryGetValue(btrId, out var reasons))
                             {
@@ -396,7 +396,7 @@ namespace AutoCADCleanupTool
             foreach (ObjectId btrId in bt)
             {
                 var btr = tr.GetObject(btrId, OpenMode.ForRead, false) as BlockTableRecord;
-                if (btr == null || !btr.IsFromExternalReference) continue;
+                if (btr == null || (!btr.IsFromExternalReference && !btr.IsFromOverlayReference)) continue;
 
                 bool inPaperSpace = paperSpaceLayoutsByXref.TryGetValue(btrId, out var layouts) && layouts.Count > 0;
                 bool inProtectedLayout = inPaperSpace &&
@@ -433,6 +433,122 @@ namespace AutoCADCleanupTool
             reasons.Add(reason);
         }
 
+        // Moves any XREF block references, PDF/DWF/DGN underlays, or raster IMAGEs that are
+        // currently on the given layer onto layer "0", so freezing the layer afterwards does
+        // not hide compliance form sheets that were placed on a delta/cloud layer by mistake.
+        // Returns the number of entities moved, or -1 if layer "0" is unavailable (caller
+        // should then skip freezing the layer to avoid hiding unrelated content).
+        private static int RescueComplianceEntitiesFromLayer(
+            Database db, Editor ed, ObjectId layerId, string layerName)
+        {
+            int moved = 0;
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                    if (!lt.Has("0"))
+                    {
+                        ed.WriteMessage($"\nLayer '0' not found; cannot rescue compliance entities from '{layerName}'.");
+                        tr.Commit();
+                        return -1;
+                    }
+
+                    var zeroId = lt["0"];
+                    var zeroLayer = (LayerTableRecord)tr.GetObject(zeroId, OpenMode.ForWrite);
+                    bool zeroWasLocked = zeroLayer.IsLocked;
+                    bool zeroWasFrozen = zeroLayer.IsFrozen;
+                    bool zeroWasOff = zeroLayer.IsOff;
+                    if (zeroLayer.IsFrozen) zeroLayer.IsFrozen = false;
+                    if (zeroLayer.IsOff) zeroLayer.IsOff = false;
+                    if (zeroWasLocked) zeroLayer.IsLocked = false;
+
+                    var sourceLayer = tr.GetObject(layerId, OpenMode.ForWrite) as LayerTableRecord;
+                    bool sourceWasLocked = sourceLayer != null && sourceLayer.IsLocked;
+                    if (sourceWasLocked) sourceLayer.IsLocked = false;
+
+                    try
+                    {
+                        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                        var entsToMove = new List<ObjectId>();
+
+                        foreach (ObjectId recordId in bt)
+                        {
+                            var space = tr.GetObject(recordId, OpenMode.ForRead) as BlockTableRecord;
+                            if (space == null) continue;
+
+                            foreach (ObjectId entId in space)
+                            {
+                                if (entId.ObjectClass == null) continue;
+                                string dxf = entId.ObjectClass.DxfName ?? string.Empty;
+
+                                if (dxf.Equals("INSERT", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var br = tr.GetObject(entId, OpenMode.ForRead) as BlockReference;
+                                    if (br == null || br.LayerId != layerId) continue;
+                                    BlockTableRecord def = null;
+                                    try { def = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord; }
+                                    catch { }
+                                    if (def != null && (def.IsFromExternalReference || def.IsFromOverlayReference))
+                                    {
+                                        entsToMove.Add(entId);
+                                    }
+                                }
+                                else if (dxf.Equals("PDFUNDERLAY", StringComparison.OrdinalIgnoreCase) ||
+                                         dxf.Equals("DWFUNDERLAY", StringComparison.OrdinalIgnoreCase) ||
+                                         dxf.Equals("DGNUNDERLAY", StringComparison.OrdinalIgnoreCase) ||
+                                         dxf.Equals("IMAGE", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var ent = tr.GetObject(entId, OpenMode.ForRead) as Entity;
+                                    if (ent == null || ent.LayerId != layerId) continue;
+                                    entsToMove.Add(entId);
+                                }
+                            }
+                        }
+
+                        foreach (ObjectId entId in entsToMove)
+                        {
+                            try
+                            {
+                                var ent = tr.GetObject(entId, OpenMode.ForWrite, false) as Entity;
+                                if (ent == null || ent.IsErased) continue;
+                                ent.LayerId = zeroId;
+                                moved++;
+                            }
+                            catch (System.Exception exMove)
+                            {
+                                ed.WriteMessage($"\nFailed moving compliance entity {entId} from '{layerName}' to '0': {exMove.Message}");
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            if (sourceWasLocked && sourceLayer != null && !sourceLayer.IsErased)
+                                sourceLayer.IsLocked = true;
+                        }
+                        catch { }
+                        try
+                        {
+                            if (zeroWasLocked) zeroLayer.IsLocked = true;
+                            if (zeroWasFrozen) zeroLayer.IsFrozen = true;
+                            if (zeroWasOff) zeroLayer.IsOff = true;
+                        }
+                        catch { }
+                    }
+
+                    tr.Commit();
+                }
+                return moved;
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nRescue scan for layer '{layerName}' failed: {ex.Message}");
+                return moved;
+            }
+        }
+
         public static void DetachSpecialXrefs()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -450,6 +566,8 @@ namespace AutoCADCleanupTool
             int blockRefsErased = 0;
             int blockDefsErased = 0;
             int layersFrozen = 0;
+            int complianceRescued = 0;
+            var rescuedByLayer = new List<(string Name, int Count)>();
 
             try
             {
@@ -465,7 +583,7 @@ namespace AutoCADCleanupTool
                     foreach (ObjectId btrId in bt)
                     {
                         var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
-                        if (btr == null || !btr.IsFromExternalReference) continue;
+                        if (btr == null || (!btr.IsFromExternalReference && !btr.IsFromOverlayReference)) continue;
 
                         string name = (btr.Name ?? string.Empty).ToLowerInvariant();
                         string path = (btr.PathName ?? string.Empty);
@@ -804,6 +922,22 @@ namespace AutoCADCleanupTool
                                             continue;
                                         }
                                     }
+
+                                    int rescued = RescueComplianceEntitiesFromLayer(db, ed, layerId, ltr.Name);
+                                    if (rescued < 0)
+                                    {
+                                        ed.WriteMessage($"\nSkipping freeze for layer '{ltr.Name}' because layer '0' is unavailable for compliance rescue.");
+                                        continue;
+                                    }
+                                    if (rescued > 0)
+                                    {
+                                        complianceRescued += rescued;
+                                        rescuedByLayer.Add((ltr.Name, rescued));
+                                        ed.WriteMessage($"\nRescued {rescued} compliance entit" +
+                                            (rescued == 1 ? "y" : "ies") +
+                                            $" from layer '{ltr.Name}' to layer '0'.");
+                                    }
+
                                     ltr.IsFrozen = true;
                                     layersFrozen++;
                                 }
@@ -837,7 +971,14 @@ namespace AutoCADCleanupTool
                     ed.WriteMessage("\nSkipping layer freezing as requested by the current workflow.");
                 }
 
-                ed.WriteMessage($"\nDetached {dwgDetached} DWG XREF(s). Erased {imagesErased} image ref(s) and detached {imageDefsDetached} image def(s). Erased {blockRefsErased} block ref(s) and deleted {blockDefsErased} block def(s). Froze {layersFrozen} layer(s).");
+                if (rescuedByLayer.Count > 0)
+                {
+                    foreach (var entry in rescuedByLayer)
+                    {
+                        ed.WriteMessage($"\n  - Rescued {entry.Count} from '{entry.Name}'");
+                    }
+                }
+                ed.WriteMessage($"\nDetached {dwgDetached} DWG XREF(s). Erased {imagesErased} image ref(s) and detached {imageDefsDetached} image def(s). Erased {blockRefsErased} block ref(s) and deleted {blockDefsErased} block def(s). Froze {layersFrozen} layer(s). Rescued {complianceRescued} compliance entity reference(s) to layer '0'.");
             }
             catch (System.Exception ex)
             {

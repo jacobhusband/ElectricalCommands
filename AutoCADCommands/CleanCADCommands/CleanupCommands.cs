@@ -24,6 +24,7 @@ namespace AutoCADCleanupTool
         internal static bool StrictTitleBlockProtectionActive = false;
         internal static bool StrictTitleBlockBindFailed = false;
         internal static bool AbortRemainingXrefDetach = false;
+        internal static bool EnableModelspaceXrefCopyFallback = false;
         internal static ObjectId ProtectedTitleBlockXrefId = ObjectId.Null;
         internal static string ProtectedTitleBlockName = string.Empty;
         internal static string ProtectedTitleBlockPath = string.Empty;
@@ -217,6 +218,29 @@ namespace AutoCADCleanupTool
         internal static bool IsProtectedTitleBlockFingerprintMatch(string blockName, string pathName)
         {
             return IsProtectedTitleBlockFingerprintMatch(null, blockName, pathName);
+        }
+
+        internal static bool IsMatchingTitleBlockAfterBind(string name)
+        {
+            if (!StrictTitleBlockProtectionActive) return false;
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            string nameLower = name.ToLowerInvariant();
+            string protectedLower = ProtectedTitleBlockCanonicalName.ToLowerInvariant();
+
+            // Check if name contains protected canonical name or vice versa
+            if (nameLower.Contains(protectedLower) || protectedLower.Contains(nameLower))
+                return true;
+
+            // Check filename matches
+            string protectedFileLower = ProtectedTitleBlockFileName.ToLowerInvariant();
+            if (!string.IsNullOrEmpty(protectedFileLower))
+            {
+                if (nameLower.Contains(protectedFileLower) || protectedFileLower.Contains(nameLower))
+                    return true;
+            }
+
+            return false;
         }
 
         private static Extents3d? TryGetExtents(Entity ent)

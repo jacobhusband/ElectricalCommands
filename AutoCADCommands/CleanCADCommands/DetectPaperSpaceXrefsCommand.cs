@@ -68,13 +68,26 @@ namespace AutoCADCleanupTool
                             catch { }
                             if (def == null) continue;
 
-                            if (!def.IsFromExternalReference && !def.IsFromOverlayReference) continue;
+                            bool isTitleBlock = false;
+                            if (def.IsFromExternalReference || def.IsFromOverlayReference)
+                            {
+                                isTitleBlock = true;
+                            }
+                            else if (StrictTitleBlockProtectionActive)
+                            {
+                                if (IsMatchingTitleBlockAfterBind(def.Name))
+                                {
+                                    isTitleBlock = true;
+                                }
+                            }
+
+                            if (!isTitleBlock) continue;
 
                             string blockName = def.Name;
                             string layer = br.Layer;
-                            string status = def.XrefStatus.ToString();
+                            string status = def.IsFromExternalReference ? def.XrefStatus.ToString() : "Bound";
                             string rawPath = def.PathName ?? string.Empty;
-                            string absolutePath = ResolveXrefPath(db, rawPath, drawingDirectory);
+                            string absolutePath = def.IsFromExternalReference ? ResolveXrefPath(db, rawPath, drawingDirectory) : string.Empty;
 
                             // Robust extents/footprint derivation — tolerant of UNDO wiping BR.GeometricExtents cache
                             Point3d[] footprint = null;

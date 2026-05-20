@@ -11,7 +11,8 @@
       "Bash(\"C:\\\\Users\\\\JacobH\\\\OneDrive - ACIES Engineering\\\\Documents\\\\dotnet-sdk\\\\dotnet.exe\" build \"c:\\\\Users\\\\JacobH\\\\Documents\\\\dev\\\\ElectricalCommands\\\\AutoCADCommands\\\\GeneralCommands\\\\AutoCADCommands.GeneralCommands.csproj\")",
       "Read(//c/Program Files \\(x86\\)/**)",
       "Read(//c/Program Files/**)",
-      "Read(//c/Windows/Microsoft.NET/Framework64/**)"
+      "Read(//c/Windows/Microsoft.NET/Framework64/**)",
+      "PowerShell(.\\\\build.ps1 -DotnetPath \"C:\\\\Users\\\\JacobH\\\\OneDrive - ACIES Engineering\\\\Documents\\\\dotnet-sdk\\\\dotnet.exe\")"
     ]
   }
 }

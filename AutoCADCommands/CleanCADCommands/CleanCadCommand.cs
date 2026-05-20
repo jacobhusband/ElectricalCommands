@@ -28,12 +28,6 @@ namespace AutoCADCleanupTool
 
                 EnsureAllLayersVisibleAndUnlocked(db, ed);
 
-                DetachSpecialXrefs();
-
-                _skipLayerFreezing = true;
-
-                PreExplosionCleaner.CleanBeforeExplode();
-
                 ExplodeAllBlockReferences();
 
                 PrepareXrefLayersForCleanup(db, ed);
@@ -51,7 +45,6 @@ namespace AutoCADCleanupTool
                     CleanupCommands.ZoomToTitleBlock(ed, _lastFoundTitleBlockPoly);
                 }
 
-                DetachSpecialXrefs();
                 _chainFinalizeAfterEmbed = true;
                 doc.SendStringToExecute("_.EMBEDIMAGES ", true, false, false);
             }
@@ -65,7 +58,6 @@ namespace AutoCADCleanupTool
                 CleanupCommands.UseClassicBindDuringFinalize = false;
                 CleanupCommands.ForceDetachOriginalXrefs = false;
                 CleanupCommands.RunRemoveRemainingAfterFinalize = false;
-                _skipLayerFreezing = false;
             }
         }
 
@@ -107,6 +99,7 @@ namespace AutoCADCleanupTool
                 CleanupCommands.UseClassicBindDuringFinalize = true;
                 CleanupCommands.ForceDetachOriginalXrefs = false;
                 CleanupCommands.RunKeepOnlyAfterFinalize = false;
+                CleanupCommands.EnableModelspaceXrefCopyFallback = false;
                 _chainFinalizeAfterEmbed = false;
                 _skipLayerFreezing = false; // Ensure freezing is NOT skipped for this workflow
 
@@ -120,6 +113,7 @@ namespace AutoCADCleanupTool
             {
                 ed.WriteMessage($"\nCLEANCAD failed to queue commands: {ex.Message}");
                 _isCleanSheetWorkflowActive = false; // Reset flag on failure
+                CleanupCommands.EnableModelspaceXrefCopyFallback = false;
                 CleanupCommands.ResetStrictTitleBlockProtection();
             }
         }
@@ -338,7 +332,7 @@ namespace AutoCADCleanupTool
                                 try { def = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord; }
                                 catch { }
 
-                                if (def == null || !def.IsFromExternalReference) continue;
+                                if (def == null || (!def.IsFromExternalReference && !def.IsFromOverlayReference)) continue;
                                 if (br.LayerId == zeroId) continue;
 
                                 LayerTableRecord sourceLayer = null;

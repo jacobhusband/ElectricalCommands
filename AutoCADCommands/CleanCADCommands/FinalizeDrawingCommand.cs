@@ -18,24 +18,29 @@ namespace AutoCADCleanupTool
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
-            Database db = doc.Database;
-            Editor ed = doc.Editor;
-            bool strictProtection = StrictTitleBlockProtectionActive;
-            bool useClassicBind = UseClassicBindDuringFinalize;
-            bool insertBind = !useClassicBind;
-            ObjectId protectedXrefId = ProtectedTitleBlockXrefId;
-            StrictTitleBlockBindFailed = false;
-            AbortRemainingXrefDetach = false;
-            string protectedNameAtScan = ProtectedTitleBlockName;
-            string protectedPathAtScan = ProtectedTitleBlockPath;
 
-            _blockIdsBeforeBind.Clear();
-            _originalXrefIds.Clear();
-            _imageDefsToPurge.Clear();
+            using (doc.LockDocument())
+            {
+                Database db = doc.Database;
+                Editor ed = doc.Editor;
+                bool strictProtection = StrictTitleBlockProtectionActive;
+                bool useClassicBind = UseClassicBindDuringFinalize;
+                bool insertBind = !useClassicBind;
+                ObjectId protectedXrefId = ProtectedTitleBlockXrefId;
+                StrictTitleBlockBindFailed = false;
+                AbortRemainingXrefDetach = false;
+                string protectedNameAtScan = ProtectedTitleBlockName;
+                string protectedPathAtScan = ProtectedTitleBlockPath;
 
-            SimplerCommands.DetachSpecialXrefs();
+                _blockIdsBeforeBind.Clear();
+                _originalXrefIds.Clear();
+                _imageDefsToPurge.Clear();
 
-            ed.WriteMessage("\n--- Stage 1: Analyzing and Binding... ---");
+                SimplerCommands.DetachSpecialXrefs();
+
+                ResolveConvertAndReloadAllXrefs(db, ed);
+
+                ed.WriteMessage("\n--- Stage 1: Analyzing and Binding... ---");
             if (useClassicBind)
             {
                 ed.WriteMessage("\nCLEANCAD color-preserve mode: using classic bind so bound layers keep XREF prefixes such as 'xref$0$Layer'.");
@@ -160,7 +165,7 @@ namespace AutoCADCleanupTool
                             continue;
                         }
 
-                        if (!btr.IsFromExternalReference || !btr.IsResolved)
+                        if ((!btr.IsFromExternalReference && !btr.IsFromOverlayReference) || !btr.IsResolved)
                         {
                             continue;
                         }
@@ -190,8 +195,74 @@ namespace AutoCADCleanupTool
                             ed.WriteMessage($"\nBinding {idsToBind.Count} DWG reference(s)...");
                         }
 
-                        db.BindXrefs(idsToBind, insertBind);
-                        bindCount = idsToBind.Count;
+                        bool bindThrew = false;
+                        try
+                        {
+                            db.BindXrefs(idsToBind, insertBind);
+                            bindCount = idsToBind.Count;
+                        }
+                        catch (System.Exception bindEx)
+                        {
+                            bindThrew = true;
+                            ed.WriteMessage(
+                                $"\nBulk BindXrefs threw '{bindEx.GetType().Name}: {bindEx.Message}'. Will attempt binding XREFs individually...");
+
+                            var unresolvedOrExternal = new List<(ObjectId Id, string Name)>();
+                            using (var tr = db.TransactionManager.StartTransaction())
+                            {
+                                foreach (ObjectId id in idsToBind)
+                                {
+                                    if (!id.IsValid || id.IsErased) continue;
+                                    var btr = tr.GetObject(id, OpenMode.ForRead) as BlockTableRecord;
+                                    if (btr == null || !IsDwgXrefDefinition(btr)) continue;
+                                    unresolvedOrExternal.Add((id, btr.Name ?? "unknown"));
+                                }
+                                tr.Commit();
+                            }
+
+                            int individualSuccessCount = 0;
+                            foreach (var item in unresolvedOrExternal)
+                            {
+                                try
+                                {
+                                    var singleColl = new ObjectIdCollection(new[] { item.Id });
+                                    db.BindXrefs(singleColl, insertBind);
+                                    individualSuccessCount++;
+                                    ed.WriteMessage($"\nSuccessfully bound individual XREF '{item.Name}'.");
+                                }
+                                catch (System.Exception ex)
+                                {
+                                    string modeStr = insertBind ? "insert-bind" : "classic bind";
+                                    ed.WriteMessage($"\nFailed to bind individual XREF '{item.Name}' with {modeStr}: {ex.Message}");
+
+                                    if (!insertBind)
+                                    {
+                                        try
+                                        {
+                                            ed.WriteMessage($"\nRetrying bind for '{item.Name}' using insert-bind fallback...");
+                                            var singleColl = new ObjectIdCollection(new[] { item.Id });
+                                            db.BindXrefs(singleColl, true);
+                                            individualSuccessCount++;
+                                            ed.WriteMessage($"\nSuccessfully bound individual XREF '{item.Name}' using insert-bind fallback.");
+                                        }
+                                        catch (System.Exception exInsert)
+                                        {
+                                            ed.WriteMessage($"\nFailed to bind individual XREF '{item.Name}' with insert-bind fallback: {exInsert.Message}");
+                                        }
+                                    }
+                                }
+                            }
+                            bindCount = individualSuccessCount;
+                            ed.WriteMessage($"\nIndividual bind completed: successfully bound {individualSuccessCount} reference(s).");
+                        }
+
+                        TryRunCopyFromXrefSourceFallback(db, ed, protectedXrefId);
+
+                        if (bindThrew)
+                        {
+                            ed.WriteMessage(
+                                "\nBulk bind exception was handled by individual bind and/or per-xref copy fallback; continuing post-bind validation.");
+                        }
                     }
                     else
                     {
@@ -246,6 +317,63 @@ namespace AutoCADCleanupTool
             {
                 SkipBindDuringFinalize = false;
                 UseClassicBindDuringFinalize = false;
+                EnableModelspaceXrefCopyFallback = false;
+            }
+            }
+        }
+
+        private static void TryRunCopyFromXrefSourceFallback(Database db, Editor ed, ObjectId protectedXrefId)
+        {
+            var stillExternal = new List<ObjectId>();
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    foreach (var id in _originalXrefIds)
+                    {
+                        if (!id.IsValid || id.IsErased) continue;
+                        if (!protectedXrefId.IsNull && id == protectedXrefId) continue;
+                        var btr = tr.GetObject(id, OpenMode.ForRead) as BlockTableRecord;
+                        if (btr == null) continue;
+                        if (!IsDwgXrefDefinition(btr)) continue;
+                        stillExternal.Add(id);
+                    }
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nUnable to scan post-bind XREF state: {ex.Message}");
+                return;
+            }
+
+            if (stillExternal.Count == 0)
+            {
+                ed.WriteMessage("\nAll DWG XREFs bound successfully.");
+                return;
+            }
+
+            if (!EnableModelspaceXrefCopyFallback)
+            {
+                ed.WriteMessage(
+                    $"\n{stillExternal.Count} DWG XREF(s) remained external after bind; copy-fallback disabled, leaving them attached.");
+                return;
+            }
+
+            ed.WriteMessage(
+                $"\n--- Stage 1b: Per-xref copy fallback for {stillExternal.Count} unbound modelspace XREF(s) ---");
+
+            int embedded, failed;
+            List<XrefEmbedFailure> failures;
+            TryEmbedFailedModelspaceXrefs(db, stillExternal, out embedded, out failed, out failures);
+
+            ed.WriteMessage($"\nXREF copy-fallback summary: {embedded} embedded, {failed} failed.");
+            if (failures != null)
+            {
+                foreach (var f in failures)
+                {
+                    ed.WriteMessage($"\n   * '{f.XrefName}' [{f.Category}]: {f.Reason}");
+                }
             }
         }
 
@@ -464,22 +592,7 @@ namespace AutoCADCleanupTool
         private static bool IsDwgXrefDefinition(BlockTableRecord btr)
         {
             if (btr == null) return false;
-
-            string pathName = btr.PathName ?? string.Empty;
-            if (!string.IsNullOrEmpty(pathName))
-            {
-                try
-                {
-                    if (string.Equals(Path.GetExtension(pathName), ".dwg", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
-                }
-                catch { }
-            }
-
-            string name = btr.Name ?? string.Empty;
-            return name.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase);
+            return btr.IsFromExternalReference || btr.IsFromOverlayReference;
         }
 
         private static void TryReloadXrefDefinition(Database db, Editor ed, ObjectId xrefId)
@@ -540,6 +653,150 @@ namespace AutoCADCleanupTool
             {
                 state = XrefState.Missing;
                 return false;
+            }
+        }
+
+        private static void ResolveConvertAndReloadAllXrefs(Database db, Editor ed)
+        {
+            if (db == null || ed == null) return;
+
+            string hostFile = db.Filename;
+            string hostDir = null;
+            try
+            {
+                hostDir = Application.GetSystemVariable("DWGPREFIX") as string;
+            }
+            catch { }
+
+            if (string.IsNullOrWhiteSpace(hostDir) || !Directory.Exists(hostDir))
+            {
+                try
+                {
+                    hostDir = Path.GetDirectoryName(hostFile);
+                }
+                catch { }
+            }
+
+            if (string.IsNullOrWhiteSpace(hostDir) || !Directory.Exists(hostDir))
+            {
+                ed.WriteMessage("\nCLEANCAD: Host drawing folder could not be determined; skipping XREF path resolution.");
+                return;
+            }
+
+            var idsToReload = new List<ObjectId>();
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                foreach (ObjectId btrId in bt)
+                {
+                    if (!btrId.IsValid || btrId.IsErased) continue;
+                    var btr = tr.GetObject(btrId, OpenMode.ForRead) as BlockTableRecord;
+                    if (btr == null || (!btr.IsFromExternalReference && !btr.IsFromOverlayReference)) continue;
+
+                    string savedPath = btr.PathName ?? string.Empty;
+                    string xrefName = btr.Name ?? "unknown";
+
+                    // Determine if path is relative
+                    bool isAbsolute = false;
+                    if (!string.IsNullOrWhiteSpace(savedPath))
+                    {
+                        try
+                        {
+                            isAbsolute = Path.IsPathRooted(savedPath);
+                        }
+                        catch { }
+                    }
+
+                    string absolutePath = savedPath;
+                    if (!isAbsolute && !string.IsNullOrWhiteSpace(savedPath))
+                    {
+                        try
+                        {
+                            absolutePath = Path.GetFullPath(Path.Combine(hostDir, savedPath));
+                        }
+                        catch { }
+                    }
+
+                    // Check if file exists. If not, find it via search candidates.
+                    bool exists = false;
+                    if (!string.IsNullOrWhiteSpace(absolutePath))
+                    {
+                        try
+                        {
+                            exists = File.Exists(absolutePath);
+                        }
+                        catch { }
+                    }
+
+                    if (!exists)
+                    {
+                        string xrefFileName = string.Empty;
+                        try { xrefFileName = Path.GetFileName(savedPath); } catch { }
+                        if (string.IsNullOrWhiteSpace(xrefFileName)) xrefFileName = xrefName;
+                        if (!xrefFileName.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase)) xrefFileName += ".dwg";
+
+                        var candidates = new List<string>
+                        {
+                            Path.Combine(hostDir, xrefFileName),
+                            Path.GetFullPath(Path.Combine(hostDir, "..", "Xrefs", xrefFileName)),
+                            Path.GetFullPath(Path.Combine(hostDir, "Xrefs", xrefFileName)),
+                            Path.GetFullPath(Path.Combine(hostDir, "..", "..", "Xrefs", xrefFileName))
+                        };
+
+                        foreach (var path in candidates)
+                        {
+                            try
+                            {
+                                if (File.Exists(path))
+                                {
+                                    absolutePath = path;
+                                    exists = true;
+                                    break;
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+
+                    if (exists)
+                    {
+                        try
+                        {
+                            // If the path changed (e.g. from relative to absolute, or resolved to a candidate), update it.
+                            if (string.Compare(btr.PathName, absolutePath, StringComparison.OrdinalIgnoreCase) != 0 || !btr.IsResolved)
+                            {
+                                btr.UpgradeOpen();
+                                btr.PathName = absolutePath;
+                                idsToReload.Add(btrId);
+                                ed.WriteMessage($"\nCLEANCAD: XREF '{xrefName}' path resolved/made absolute to: '{absolutePath}'");
+                            }
+                        }
+                        catch (System.Exception ex)
+                        {
+                            ed.WriteMessage($"\nCLEANCAD: Failed to update path for XREF '{xrefName}': {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        ed.WriteMessage($"\nCLEANCAD: [Warning] Could not locate drawing file for XREF '{xrefName}'.");
+                    }
+                }
+                tr.Commit();
+            }
+
+            if (idsToReload.Count > 0)
+            {
+                ed.WriteMessage($"\nCLEANCAD: Reloading {idsToReload.Count} resolved XREF(s)...");
+                try
+                {
+                    db.ReloadXrefs(new ObjectIdCollection(idsToReload.ToArray()));
+                    ed.WriteMessage("\nCLEANCAD: XREF reload complete.");
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nCLEANCAD: Failed to reload XREFs: {ex.Message}");
+                }
             }
         }
 
