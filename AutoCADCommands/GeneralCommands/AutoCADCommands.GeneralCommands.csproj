@@ -25,6 +25,8 @@
 
   <!-- WPF XAML Pages -->
   <ItemGroup>
+    <Page Include="AddNotePickerWindow.xaml" />
+    <Page Include="ProjectChecklistWindow.xaml" />
     <Page Include="XrefPickerWindow.xaml" />
   </ItemGroup>
 

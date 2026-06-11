@@ -51,6 +51,7 @@ namespace AutoCADCleanupTool
                 }
 
                 // --- Part 1: Detach ALL DWG XREFs ---
+                var xrefIdsToDetach = new HashSet<ObjectId>();
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
@@ -62,7 +63,6 @@ namespace AutoCADCleanupTool
                         paperSpaceLayoutsByXref,
                         resolverLikelyIds);
 
-                    var xrefIdsToDetach = new HashSet<ObjectId>();
                     if (protectedReasons.Count > 0)
                     {
                         ed.WriteMessage($"\nDETACHREMAININGXREFS: Protecting {protectedReasons.Count} titleblock-like XREF definition(s).");
@@ -137,21 +137,23 @@ namespace AutoCADCleanupTool
                             }
                         }
 
-                        // Now detach the definitions
-                        foreach (var xrefId in xrefIdsToDetach)
-                        {
-                            try
-                            {
-                                db.DetachXref(xrefId);
-                                dwgDetached++;
-                            }
-                            catch (System.Exception ex)
-                            {
-                                ed.WriteMessage($"\nFailed to detach DWG XREF {xrefId}: {ex.Message}");
-                            }
-                        }
                     }
                     tr.Commit();
+                }
+
+                // Now detach the definitions. DetachXref must run with no
+                // transaction open on the database.
+                foreach (var xrefId in xrefIdsToDetach)
+                {
+                    try
+                    {
+                        db.DetachXref(xrefId);
+                        dwgDetached++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ed.WriteMessage($"\nFailed to detach DWG XREF {xrefId}: {ex.Message}");
+                    }
                 }
 
                 // --- Part 2: Remove ALL Image References and Definitions ---
@@ -575,10 +577,10 @@ namespace AutoCADCleanupTool
                 Func<string, bool> checkWlSig = s => s.Contains("wl-sig") || s.Contains("wl_sig") || s.Contains("wl sig");
 
                 // 1) Detach DWG XREFs that match tokens or contain both "WL" and "sig"
+                var toDetach = new List<ObjectId>();
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                    var toDetach = new List<ObjectId>();
 
                     foreach (ObjectId btrId in bt)
                     {
@@ -654,13 +656,15 @@ namespace AutoCADCleanupTool
                         }
                     }
 
-                    foreach (var xrefId in toDetach)
-                    {
-                        try { db.DetachXref(xrefId); dwgDetached++; }
-                        catch (System.Exception ex) { ed.WriteMessage($"\nFailed to detach DWG XREF {xrefId}: {ex.Message}"); }
-                    }
-
                     tr.Commit();
+                }
+
+                // Detach after the transaction commits; DetachXref must run with
+                // no transaction open on the database.
+                foreach (var xrefId in toDetach)
+                {
+                    try { db.DetachXref(xrefId); dwgDetached++; }
+                    catch (System.Exception ex) { ed.WriteMessage($"\nFailed to detach DWG XREF {xrefId}: {ex.Message}"); }
                 }
 
                 // 2) Detach image references/defs that match tokens

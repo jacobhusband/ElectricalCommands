@@ -956,8 +956,6 @@ namespace AutoCADCleanupTool
                 }
                 catch { }
 
-                int detached = 0;
-
                 foreach (var id in _pdfsToDetach.ToList())
                 {
                     try
@@ -977,19 +975,6 @@ namespace AutoCADCleanupTool
                                 try { pdfDict.Remove(key); } catch { }
                             }
                         }
-
-                        // Some AutoCAD versions treat PDF underlays like XREFs; try both detach paths.
-                        try { db.DetachXref(id); } catch { }
-
-                        try
-                        {
-                            var obj = tr.GetObject(id, OpenMode.ForWrite, false);
-                            if (obj != null && !obj.IsErased)
-                                obj.Erase();
-                        }
-                        catch { }
-
-                        detached++;
                     }
                     catch (System.Exception ex)
                     {
@@ -998,10 +983,42 @@ namespace AutoCADCleanupTool
                 }
 
                 tr.Commit();
-
-                if (detached > 0)
-                    ed.WriteMessage($"\n - Detached {detached} PDF reference(s).");
             }
+
+            // Some AutoCAD versions treat PDF underlays like XREFs; try the detach
+            // path first. DetachXref must run with no transaction open on the database.
+            foreach (var id in _pdfsToDetach.ToList())
+            {
+                try { db.DetachXref(id); } catch { }
+            }
+
+            // Erase whatever definitions the detach did not remove.
+            int detached = 0;
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                foreach (var id in _pdfsToDetach.ToList())
+                {
+                    try
+                    {
+                        if (!id.IsErased)
+                        {
+                            var obj = tr.GetObject(id, OpenMode.ForWrite, false);
+                            if (obj != null && !obj.IsErased)
+                                obj.Erase();
+                        }
+                        detached++;
+                    }
+                    catch
+                    {
+                        detached++;
+                    }
+                }
+
+                tr.Commit();
+            }
+
+            if (detached > 0)
+                ed.WriteMessage($"\n - Detached {detached} PDF reference(s).");
 
             _pdfsToDetach.Clear();
         }
@@ -1017,6 +1034,8 @@ namespace AutoCADCleanupTool
             var uniqueXrefs = new HashSet<ObjectId>(_xrefsToDetach);
 
             ed.WriteMessage($"\nProcessing {uniqueXrefs.Count} XREF(s) for detachment...");
+
+            var detachList = new List<(ObjectId Id, string Name)>();
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -1066,17 +1085,29 @@ namespace AutoCADCleanupTool
                             continue;
                         }
 
-                        // 3. Perform the Detach
-                        // Note: DetachXref is a Database method, not a Transaction method.
-                        db.DetachXref(xrefId);
-                        ed.WriteMessage($"\n - Successfully detached XREF: {xrefName}");
+                        detachList.Add((xrefId, xrefName));
                     }
                     catch (System.Exception ex)
                     {
-                        ed.WriteMessage($"\n [!] Failed to detach XREF: {ex.Message}");
+                        ed.WriteMessage($"\n [!] Failed to inspect XREF: {ex.Message}");
                     }
                 }
                 tr.Commit();
+            }
+
+            // 3. Perform the Detach. DetachXref must run with no transaction open
+            // on the database, otherwise the drawing can be left inconsistent.
+            foreach (var (xrefId, xrefName) in detachList)
+            {
+                try
+                {
+                    db.DetachXref(xrefId);
+                    ed.WriteMessage($"\n - Successfully detached XREF: {xrefName}");
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\n [!] Failed to detach XREF '{xrefName}': {ex.Message}");
+                }
             }
 
             // Clear the list so we don't try to detach them again later

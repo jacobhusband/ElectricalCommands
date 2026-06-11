@@ -154,7 +154,7 @@ namespace ElectricalCommands
 
         string pdfPath = ofd.FileName;
         string baseName = Path.GetFileNameWithoutExtension(pdfPath);
-        string defPrefix = $"{baseName}_{ComputeStableHashSuffixT24(pdfPath)}";
+        string defPrefix = BuildPdfDefinitionPrefixT24(baseName, pdfPath);
 
         // 2. Get PDF page count
         if (!TryGetPdfPageCountT24(pdfPath, out int pageCount))
@@ -256,7 +256,7 @@ namespace ElectricalCommands
           // Loop through pages
           for (int page = 1; page <= pageCount; page++)
           {
-            string defKey = $"{defPrefix} - {page}";
+            string defKey = $"{defPrefix}_{page}";
             ObjectId defId;
             bool definitionCreated = false;
 
@@ -786,6 +786,24 @@ namespace ElectricalCommands
         byte[] hash = sha1.ComputeHash(Encoding.UTF8.GetBytes(input.ToLowerInvariant()));
         return BitConverter.ToString(hash, 0, 3).Replace("-", string.Empty);
       }
+    }
+
+    private static string BuildPdfDefinitionPrefixT24(string baseName, string pdfPath)
+    {
+      const int MaxSafeNameLength = 160;
+
+      string safeName = Regex.Replace(baseName ?? string.Empty, @"[^A-Za-z0-9_-]+", "_").Trim('_', '-');
+      if (string.IsNullOrWhiteSpace(safeName))
+      {
+        safeName = "PDF";
+      }
+
+      if (safeName.Length > MaxSafeNameLength)
+      {
+        safeName = safeName.Substring(0, MaxSafeNameLength).Trim('_', '-');
+      }
+
+      return $"PDF_{safeName}_{ComputeStableHashSuffixT24(pdfPath)}";
     }
 
     private static double InchesToDrawingUnitsT24(UnitsValue u)

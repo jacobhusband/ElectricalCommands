@@ -23,8 +23,16 @@ namespace AutoCADCleanupTool
 
             ed.WriteMessage("\n--- Stage 2: Cleaning up bound blocks and detaching remaining XREFs... ---");
 
+            if (_blockIdsBeforeBind.Count == 0)
+            {
+                ed.WriteMessage("\nNo pre-bind block snapshot found. Run the finalize workflow from stage 1; aborting so every existing block is not treated as newly bound.");
+                return;
+            }
+
             try
             {
+                var xrefsToDetach = new List<ObjectId>();
+
                 using (Transaction trans = db.TransactionManager.StartTransaction())
                 {
                     var newBlockIds = new List<ObjectId>();
@@ -47,7 +55,8 @@ namespace AutoCADCleanupTool
                             if (entId.ObjectClass.DxfName == "IMAGE")
                             {
                                 RasterImage image = trans.GetObject(entId, OpenMode.ForWrite) as RasterImage;
-                                if (image != null && !image.ImageDefId.IsNull)
+                                if (image == null) continue;
+                                if (!image.ImageDefId.IsNull)
                                 {
                                     _imageDefsToPurge.Add(image.ImageDefId);
                                 }
@@ -58,8 +67,6 @@ namespace AutoCADCleanupTool
                     }
                     if (imagesErased > 0) ed.WriteMessage($"\nErased {imagesErased} RasterImage entit(ies) from within new blocks.");
 
-                    int ghostsDetached = 0;
-                    var xrefsToDetach = new List<ObjectId>();
                     var blockTable = (BlockTable)trans.GetObject(db.BlockTableId, OpenMode.ForRead);
                     string[] titleBlockHints = { "x-tb", "title", "tblock", "border", "sheet" };
 
@@ -87,26 +94,26 @@ namespace AutoCADCleanupTool
                         }
                     }
 
-                    foreach (var xrefId in xrefsToDetach)
-                    {
-                        try
-                        {
-                            var btrToDetach = trans.GetObject(xrefId, OpenMode.ForRead, false, true) as BlockTableRecord;
-                            if (btrToDetach != null)
-                            {
-                                db.DetachXref(xrefId);
-                                ghostsDetached++;
-                            }
-                        }
-                        catch (System.Exception exDetach)
-                        {
-                            ed.WriteMessage($"\n  - Failed to detach XREF {xrefId}: {exDetach.Message}");
-                        }
-                    }
-                    if (ghostsDetached > 0) ed.WriteMessage($"\nDetached {ghostsDetached} remaining XREF definition(s).");
-
                     trans.Commit();
                 }
+
+                // DetachXref must run with no transaction open on the database,
+                // otherwise the commit can write an inconsistent drawing.
+                int ghostsDetached = 0;
+                foreach (var xrefId in xrefsToDetach)
+                {
+                    try
+                    {
+                        if (xrefId.IsNull || xrefId.IsErased) continue;
+                        db.DetachXref(xrefId);
+                        ghostsDetached++;
+                    }
+                    catch (System.Exception exDetach)
+                    {
+                        ed.WriteMessage($"\n  - Failed to detach XREF {xrefId}: {exDetach.Message}");
+                    }
+                }
+                if (ghostsDetached > 0) ed.WriteMessage($"\nDetached {ghostsDetached} remaining XREF definition(s).");
 
                 ed.WriteMessage("\nIntermediate cleanup complete. Queueing final surgical purge...");
                 doc.SendStringToExecute("_-FINALIZE-PURGEDEFS ", true, false, false);

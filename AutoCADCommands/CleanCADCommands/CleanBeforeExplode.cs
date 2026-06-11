@@ -63,6 +63,7 @@ namespace AutoCADCleanupTool
             };
 
             int dwgDetached = 0, imagesDetached = 0, blocksErased = 0;
+            var xrefDefsToDetach = new List<ObjectId>();
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -99,8 +100,9 @@ namespace AutoCADCleanupTool
                             var btr = (BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead);
                             if (btr.IsFromExternalReference)
                             {
-                                db.DetachXref(defId);
-                                dwgDetached++;
+                                // Deferred: DetachXref must run with no transaction
+                                // open on the database.
+                                xrefDefsToDetach.Add(defId);
                             }
                             else
                             {
@@ -154,6 +156,20 @@ namespace AutoCADCleanupTool
 
                 tr.Commit();
             }
+
+            foreach (var defId in xrefDefsToDetach)
+            {
+                try
+                {
+                    db.DetachXref(defId);
+                    dwgDetached++;
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\nFailed to detach DWG XREF {defId}: {ex.Message}");
+                }
+            }
+
             ed.WriteMessage($"\nCleanup Summary: Detached {dwgDetached} DWG XREF(s), {imagesDetached} Image(s), and erased {blocksErased} Block Definition(s).");
         }
 

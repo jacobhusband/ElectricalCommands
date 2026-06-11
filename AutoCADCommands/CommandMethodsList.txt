@@ -22,6 +22,7 @@ ElectricalCommands.T24Commands
 ElectricalCommands.GetAttributesCommands
 
 ElectricalCommands.GeneralCommands
+- ADDNOTE / AddNote (AutoCADCommands\GeneralCommands\AddNoteCommand.cs:18)
 - AREALABEL / AREACALCULATOR (AutoCADCommands\T24Commands\CalculateAreas.cs:12)
 - LG / TurnXrefLayersGreen (AutoCADCommands\GeneralCommands\TurnGreen.cs:12)
 - LAYGREEN / TurnXrefLayersGreen (AutoCADCommands\GeneralCommands\TurnGreen.cs:11)
@@ -29,6 +30,8 @@ ElectricalCommands.GeneralCommands
 - LR / TurnLayerRed (AutoCADCommands\GeneralCommands\TurnRed.cs:23)
 - OBJMASK / WO (AutoCADCommands\GeneralCommands\WipeoutObjects.cs:11)
 - OM / WO (AutoCADCommands\GeneralCommands\WipeoutObjects.cs:12)
+- PCL / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:19)
+- PROJECTCHECKLIST / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:18)
 - QA / AREACALCULATOR (AutoCADCommands\T24Commands\CalculateAreas.cs:13)
 - QUICKXREF / QuickXref (AutoCADCommands\GeneralCommands\QuickXref.cs:14)
 - QVP / CREATEVIEWPORTFROMREGION (AutoCADCommands\GeneralCommands\CreateViewportFromRegion.cs:16)

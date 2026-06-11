@@ -1,0 +1,75 @@
+<Window x:Class="ElectricalCommands.AddNotePickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add Note"
+        Height="520" Width="720"
+        MinHeight="360" MinWidth="520"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False">
+  <Grid Margin="12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <TextBlock Grid.Row="0"
+               Text="Select a note to add:"
+               FontWeight="SemiBold"
+               Margin="0,0,0,8"/>
+
+    <Grid Grid.Row="1" Margin="0,0,0,8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="220"/>
+        <ColumnDefinition Width="8"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+
+      <ComboBox Grid.Column="0"
+                x:Name="TabComboBox"
+                DisplayMemberPath="Name"
+                SelectionChanged="TabComboBox_SelectionChanged"/>
+      <TextBox Grid.Column="2"
+               x:Name="SearchTextBox"
+               TextChanged="SearchTextBox_TextChanged"
+               VerticalContentAlignment="Center"/>
+    </Grid>
+
+    <ListBox Grid.Row="2"
+             x:Name="NotesListBox"
+             SelectionMode="Single"
+             MouseDoubleClick="NotesListBox_MouseDoubleClick"
+             HorizontalContentAlignment="Stretch">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <Border Padding="8,6">
+            <TextBlock Text="{Binding Preview}"
+                       TextWrapping="Wrap"
+                       LineHeight="18"/>
+          </Border>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <Grid Grid.Row="3" Margin="0,12,0,0">
+      <TextBlock x:Name="StatusTextBlock"
+                 VerticalAlignment="Center"
+                 Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button Content="OK"
+                Click="OK_Click"
+                IsDefault="True"
+                Padding="12,6"
+                MinWidth="80"/>
+        <Button Content="Cancel"
+                Click="Cancel_Click"
+                IsCancel="True"
+                Padding="12,6"
+                MinWidth="80"
+                Margin="8,0,0,0"/>
+      </StackPanel>
+    </Grid>
+  </Grid>
+</Window>

@@ -4,7 +4,10 @@
         "VPFROMREG": "Creates a viewport in paperspace from a selected region in modelspace, with automatic scaling options.",
         "LAYRED": "Sets selected layer, region entities, or XREF-related layers to red based on the chosen mode.",
         "LAYGREEN": "Sets all layers belonging to a selected XREF to green.",
-        "AREALABEL": "Calculates the area of selected closed polylines and places square-foot labels at their centers."
+        "AREALABEL": "Calculates the area of selected closed polylines and places square-foot labels at their centers.",
+        "ADDNOTE": "Adds a note from the Project Management app Notes tab to an existing or new MText object.",
+        "PROJECTCHECKLIST": "Opens a project-scoped checklist palette using checklist definitions from the desktop app and shared completion state for the current project.",
+        "PCL": "Alias for PROJECTCHECKLIST."
     },
     "links": {
         "OBJMASK": "https://brainy-seahorse-3c5.notion.site/OBJMASK-2b13fdbb662c802fb082e4095528ec06",

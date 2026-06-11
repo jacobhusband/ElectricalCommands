@@ -32,6 +32,27 @@ namespace AutoCADCleanupTool
                     using (Transaction trans = db.TransactionManager.StartTransaction())
                     {
                         int defsPurged = 0;
+                        int defsKept = 0;
+
+                        // A def on the kill list may still be shared by images that were
+                        // not erased; purging it would leave dangling references that
+                        // AUDIT reports as errors.
+                        var defsStillReferenced = new HashSet<ObjectId>();
+                        var bt = (BlockTable)trans.GetObject(db.BlockTableId, OpenMode.ForRead);
+                        foreach (ObjectId btrId in bt)
+                        {
+                            var btr = (BlockTableRecord)trans.GetObject(btrId, OpenMode.ForRead);
+                            foreach (ObjectId entId in btr)
+                            {
+                                if (entId.IsErased || entId.ObjectClass.DxfName != "IMAGE") continue;
+                                var img = trans.GetObject(entId, OpenMode.ForRead) as RasterImage;
+                                if (img != null && !img.IsErased && !img.ImageDefId.IsNull)
+                                {
+                                    defsStillReferenced.Add(img.ImageDefId);
+                                }
+                            }
+                        }
+
                         DBDictionary namedObjectsDict = trans.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead) as DBDictionary;
                         if (namedObjectsDict.Contains("ACAD_IMAGE_DICT"))
                         {
@@ -41,10 +62,13 @@ namespace AutoCADCleanupTool
                             // Find the dictionary keys for the defs on our kill list
                             foreach (DBDictionaryEntry entry in imageDict)
                             {
-                                if (_imageDefsToPurge.Contains(entry.Value))
+                                if (!_imageDefsToPurge.Contains(entry.Value)) continue;
+                                if (defsStillReferenced.Contains(entry.Value))
                                 {
-                                    entriesToRemove.Add(entry.Key, entry.Value);
+                                    defsKept++;
+                                    continue;
                                 }
+                                entriesToRemove.Add(entry.Key, entry.Value);
                             }
 
                             foreach (var item in entriesToRemove)
@@ -56,6 +80,10 @@ namespace AutoCADCleanupTool
                             }
                         }
                         ed.WriteMessage($"\nSuccessfully purged {defsPurged} image definition(s).");
+                        if (defsKept > 0)
+                        {
+                            ed.WriteMessage($"\nKept {defsKept} image definition(s) still referenced by live images.");
+                        }
                         trans.Commit();
                     }
                 }
