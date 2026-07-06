@@ -84,11 +84,12 @@ if (-not (Test-Path $distRoot)) {
     exit 1
 }
 
-# Collect assets: all zip files and release_meta.json if present
+# Collect assets for this version and release_meta.json if present
 $assetsToUpload = @()
-$zipFiles = Get-ChildItem -Path $distRoot -Filter "*.zip" -File
+$zipFilter = "*-v$version.zip"
+$zipFiles = Get-ChildItem -Path $distRoot -Filter $zipFilter -File
 if (-not $zipFiles) {
-    Write-Error "No zip assets found in $distRoot. Build first or pass -Build."
+    Write-Error "No zip assets matching '$zipFilter' found in $distRoot. Build first or pass -Build."
     exit 1
 }
 $assetsToUpload += $zipFiles
