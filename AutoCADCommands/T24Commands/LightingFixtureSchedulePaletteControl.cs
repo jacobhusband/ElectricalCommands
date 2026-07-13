@@ -44,6 +44,7 @@ namespace ElectricalCommands
     private Label _tableValue;
     private Label _versionValue;
     private Label _statusValue;
+    private CheckBox _includeSymbolColumnCheckBox;
     private Timer _saveTimer;
     private bool _suppressEvents;
 
@@ -101,6 +102,7 @@ namespace ElectricalCommands
         ResetRows(schedule.Rows);
         _generalNotes.Text = schedule?.GeneralNotes ?? string.Empty;
         _notes.Text = schedule?.Notes ?? string.Empty;
+        _includeSymbolColumnCheckBox.Checked = schedule?.IncludeSymbolColumn ?? false;
         HasPendingLocalEdits = false;
         _saveTimer.Stop();
         SetStatus(string.IsNullOrWhiteSpace(statusMessage) ? "Ready." : statusMessage);
@@ -177,10 +179,12 @@ namespace ElectricalCommands
       var rowsHeader = new TableLayoutPanel
       {
         Dock = DockStyle.Top,
-        ColumnCount = 2,
+        ColumnCount = 4,
         AutoSize = true,
       };
       rowsHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+      rowsHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+      rowsHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
       rowsHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
       rowsHeader.Controls.Add(
         new Label
@@ -194,6 +198,24 @@ namespace ElectricalCommands
         0
       );
 
+      _includeSymbolColumnCheckBox = new CheckBox
+      {
+        AutoSize = true,
+        Text = "Include Symbol Column",
+        Margin = new Padding(4, 5, 4, 0),
+      };
+      _includeSymbolColumnCheckBox.CheckedChanged += (_, __) => OnLocalEdit();
+      rowsHeader.Controls.Add(_includeSymbolColumnCheckBox, 1, 0);
+
+      var allCapsButton = new Button
+      {
+        AutoSize = true,
+        Text = "ALL CAPS",
+        Margin = new Padding(4, 0, 0, 0),
+      };
+      allCapsButton.Click += (_, __) => ConvertAllTextToUppercase();
+      rowsHeader.Controls.Add(allCapsButton, 2, 0);
+
       var addRowButton = new Button
       {
         AutoSize = true,
@@ -204,7 +226,7 @@ namespace ElectricalCommands
       {
         AddRowCard(new LightingFixtureScheduleSyncRow(), true);
       };
-      rowsHeader.Controls.Add(addRowButton, 1, 0);
+      rowsHeader.Controls.Add(addRowButton, 3, 0);
       rowsSection.Controls.Add(rowsHeader, 0, 0);
 
       rowsSection.Controls.Add(
@@ -461,6 +483,18 @@ namespace ElectricalCommands
       _saveTimer.Start();
     }
 
+    private void ConvertAllTextToUppercase()
+    {
+      foreach (LightingFixtureScheduleRowCard rowCard in _rowCards)
+      {
+        rowCard.ConvertTextToUppercase();
+      }
+      _generalNotes.Text = (_generalNotes.Text ?? string.Empty).ToUpperInvariant();
+      _notes.Text = (_notes.Text ?? string.Empty).ToUpperInvariant();
+      OnLocalEdit();
+      SetStatus("Converted all schedule text to uppercase. Saving changes...");
+    }
+
     private void RaiseSaveRequested()
     {
       if (_suppressEvents)
@@ -502,6 +536,7 @@ namespace ElectricalCommands
         Rows = _rowCards.Select(rowCard => rowCard.Build()).ToList(),
         GeneralNotes = _generalNotes.Text ?? string.Empty,
         Notes = _notes.Text ?? string.Empty,
+        IncludeSymbolColumn = _includeSymbolColumnCheckBox.Checked,
       };
       return GeneralCommands.NormalizeLightingFixtureScheduleForExternalUse(schedule);
     }
@@ -598,6 +633,10 @@ namespace ElectricalCommands
     private readonly TextBox _voltsTextBox;
     private readonly TextBox _wattsTextBox;
     private readonly TextBox _notesTextBox;
+    private readonly PictureBox _symbolPreview;
+    private string _symbolAssetPath = string.Empty;
+    private string _symbolAlt = string.Empty;
+    private string _starterFixtureKey = string.Empty;
 
     internal LightingFixtureScheduleRowCard()
     {
@@ -617,8 +656,9 @@ namespace ElectricalCommands
         AutoSize = true,
         AutoSizeMode = AutoSizeMode.GrowAndShrink,
         ColumnCount = 1,
-        RowCount = 5,
+        RowCount = 6,
       };
+      shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
       shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
       shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
       shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -674,12 +714,43 @@ namespace ElectricalCommands
       header.Controls.Add(_deleteButton, 3, 0);
       shell.Controls.Add(header, 0, 0);
 
+      var symbolPanel = new TableLayoutPanel
+      {
+        Dock = DockStyle.Top,
+        AutoSize = true,
+        ColumnCount = 2,
+        Margin = new Padding(0, 2, 0, 6),
+      };
+      symbolPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+      symbolPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+      symbolPanel.Controls.Add(
+        new Label
+        {
+          AutoSize = true,
+          Text = "Symbol",
+          Margin = new Padding(0, 22, 8, 0),
+        },
+        0,
+        0
+      );
+      _symbolPreview = new PictureBox
+      {
+        Width = 104,
+        Height = 64,
+        BorderStyle = BorderStyle.FixedSingle,
+        BackColor = System.Drawing.Color.White,
+        SizeMode = PictureBoxSizeMode.Zoom,
+        Margin = new Padding(0),
+      };
+      symbolPanel.Controls.Add(_symbolPreview, 1, 0);
+      shell.Controls.Add(symbolPanel, 0, 1);
+
       _markTextBox = CreateTextBox();
       _descriptionTextBox = CreateTextBox();
       shell.Controls.Add(
         CreateFieldRow("Mark", _markTextBox, "Description", _descriptionTextBox),
         0,
-        1
+        2
       );
 
       _manufacturerTextBox = CreateTextBox();
@@ -687,7 +758,7 @@ namespace ElectricalCommands
       shell.Controls.Add(
         CreateFieldRow("Manufacturer", _manufacturerTextBox, "Model Number", _modelNumberTextBox),
         0,
-        2
+        3
       );
 
       _mountingTextBox = CreateTextBox();
@@ -696,11 +767,11 @@ namespace ElectricalCommands
       shell.Controls.Add(
         CreateTripleFieldRow("Mounting", _mountingTextBox, "Volts", _voltsTextBox, "Watts", _wattsTextBox),
         0,
-        3
+        4
       );
 
       _notesTextBox = CreateTextBox();
-      shell.Controls.Add(CreateSingleFieldRow("Notes", _notesTextBox), 0, 4);
+      shell.Controls.Add(CreateSingleFieldRow("Notes", _notesTextBox), 0, 5);
 
       HookChanged(_markTextBox);
       HookChanged(_descriptionTextBox);
@@ -730,6 +801,16 @@ namespace ElectricalCommands
       _voltsTextBox.Text = source.Volts ?? string.Empty;
       _wattsTextBox.Text = source.Watts ?? string.Empty;
       _notesTextBox.Text = source.Notes ?? string.Empty;
+      _symbolAssetPath = source.SymbolAssetPath ?? string.Empty;
+      _symbolAlt = source.SymbolAlt ?? string.Empty;
+      _starterFixtureKey = source.StarterFixtureKey ?? string.Empty;
+      System.Drawing.Image previousImage = _symbolPreview.Image;
+      _symbolPreview.Image = GeneralCommands.LoadLightingFixtureSymbolPreview(
+        _symbolAssetPath,
+        _starterFixtureKey
+      );
+      previousImage?.Dispose();
+      _symbolPreview.AccessibleDescription = _symbolAlt;
       _titleLabel.Text = $"Fixture {displayIndex}";
     }
 
@@ -753,11 +834,27 @@ namespace ElectricalCommands
         Volts = _voltsTextBox.Text ?? string.Empty,
         Watts = _wattsTextBox.Text ?? string.Empty,
         Notes = _notesTextBox.Text ?? string.Empty,
+        SymbolAssetPath = _symbolAssetPath,
+        SymbolAlt = _symbolAlt,
+        StarterFixtureKey = _starterFixtureKey,
       };
+    }
+
+    internal void ConvertTextToUppercase()
+    {
+      _markTextBox.Text = (_markTextBox.Text ?? string.Empty).ToUpperInvariant();
+      _descriptionTextBox.Text = (_descriptionTextBox.Text ?? string.Empty).ToUpperInvariant();
+      _manufacturerTextBox.Text = (_manufacturerTextBox.Text ?? string.Empty).ToUpperInvariant();
+      _modelNumberTextBox.Text = (_modelNumberTextBox.Text ?? string.Empty).ToUpperInvariant();
+      _mountingTextBox.Text = (_mountingTextBox.Text ?? string.Empty).ToUpperInvariant();
+      _voltsTextBox.Text = (_voltsTextBox.Text ?? string.Empty).ToUpperInvariant();
+      _wattsTextBox.Text = (_wattsTextBox.Text ?? string.Empty).ToUpperInvariant();
+      _notesTextBox.Text = (_notesTextBox.Text ?? string.Empty).ToUpperInvariant();
     }
 
     public void Dispose()
     {
+      _symbolPreview.Image?.Dispose();
       if (Root != null && !Root.IsDisposed)
       {
         Root.Dispose();

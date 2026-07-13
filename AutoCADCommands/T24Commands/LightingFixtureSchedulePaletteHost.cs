@@ -55,6 +55,13 @@ namespace ElectricalCommands
       return NormalizeSyncSchedule(schedule);
     }
 
+    internal static LightingFixtureScheduleSyncRow NormalizeLightingFixtureScheduleRowForExternalUse(
+      LightingFixtureScheduleSyncRow row
+    )
+    {
+      return NormalizeSyncRow(row);
+    }
+
     internal static void InitializeLightingFixtureScheduleAutoSync()
     {
       if (s_lightingFixtureScheduleAutoSyncInitialized)
@@ -107,6 +114,31 @@ namespace ElectricalCommands
         LightingFixtureScheduleStoreRecord record =
           EnsureLightingFixtureScheduleStoreRecord(context);
 
+        LightingFixtureScheduleStoreLink link =
+          GetLightingFixtureScheduleStoreLinkByDwgPath(dwgPath);
+        int rowCount = record?.Schedule?.Rows?.Count ?? 0;
+        string linkedTableStatus = context.TableId == ObjectId.Null
+          ? "not linked"
+          : $"linked handle {context.TableHandle}";
+        ed.WriteMessage(
+          $"\nLFS store: {ResolveLightingFixtureScheduleDatabasePath()}"
+        );
+        ed.WriteMessage(
+          $"\nLFS record: project {context.ProjectId}, version {record?.Version ?? 0}, " +
+          $"{rowCount} fixture row(s), {linkedTableStatus}."
+        );
+
+        if (
+          context.TableId != ObjectId.Null &&
+          record != null &&
+          record.Version > (link?.LastAppliedVersion ?? 0)
+        )
+        {
+          stage = "linked table refresh";
+          ApplyLightingFixtureScheduleRecordToLinkedTable(context, record);
+          link = GetLightingFixtureScheduleStoreLinkByDwgPath(dwgPath);
+        }
+
         stage = "UI host creation";
         EnsureLightingFixtureScheduleHost(ed);
 
@@ -135,6 +167,15 @@ namespace ElectricalCommands
         ed.WriteMessage(
           $"\nLFS: opened lighting schedule using {s_lightingFixtureScheduleHost.HostKind}."
         );
+
+        if (
+          context.TableId == ObjectId.Null &&
+          HasMeaningfulLightingFixtureScheduleRows(record?.Schedule)
+        )
+        {
+          stage = "unlinked schedule action";
+          PromptForUnlinkedLightingFixtureScheduleAction(context, record);
+        }
       }
       catch (System.Exception ex)
       {
@@ -409,6 +450,8 @@ namespace ElectricalCommands
       LightingFixtureScheduleBindingContext context
     )
     {
+      LightingFixtureScheduleStoreLink existingLink =
+        GetLightingFixtureScheduleStoreLinkByDwgPath(context.DwgPath);
       LightingFixtureScheduleStoreRecord record =
         GetLightingFixtureScheduleStoreRecord(context.ProjectId)
         ?? GetLightingFixtureScheduleStoreRecordForDwg(context.DwgPath);
@@ -445,13 +488,17 @@ namespace ElectricalCommands
       {
         context.TableHandle = record.TableHandle;
         context.TableId = ResolveLightingFixtureScheduleTableIdByHandle(context.Database, context.TableHandle);
+        if (context.TableId == ObjectId.Null)
+        {
+          context.TableHandle = string.Empty;
+        }
       }
 
       SaveLightingFixtureScheduleStoreLink(
         context.ProjectId,
         context.DwgPath,
         context.TableHandle,
-        record?.Version ?? 0
+        existingLink?.LastAppliedVersion ?? 0
       );
 
       return record;
@@ -470,6 +517,107 @@ namespace ElectricalCommands
       options.AllowSpaces = true;
       PromptResult result = ed.GetString(options);
       return result.Status == PromptStatus.OK ? NormalizePlainText(result.StringResult) : string.Empty;
+    }
+
+    private static bool HasMeaningfulLightingFixtureScheduleRows(
+      LightingFixtureScheduleSyncSchedule schedule
+    )
+    {
+      return (schedule?.Rows ?? new List<LightingFixtureScheduleSyncRow>()).Any(row =>
+        row != null &&
+        new[]
+        {
+          row.Mark,
+          row.Description,
+          row.Manufacturer,
+          row.ModelNumber,
+          row.Mounting,
+          row.Volts,
+          row.Watts,
+          row.Notes,
+        }.Any(value => !string.IsNullOrWhiteSpace(value))
+      );
+    }
+
+    private static void PromptForUnlinkedLightingFixtureScheduleAction(
+      LightingFixtureScheduleBindingContext context,
+      LightingFixtureScheduleStoreRecord record
+    )
+    {
+      if (context?.Editor == null || record == null)
+      {
+        return;
+      }
+
+      int rowCount = record.Schedule?.Rows?.Count ?? 0;
+      var options = new PromptKeywordOptions(
+        $"\nLoaded {rowCount} fixture row(s) for project {context.ProjectId}. " +
+        "No schedule table is linked. [Place/Link/Open] <Place>: "
+      );
+      options.AllowNone = true;
+      options.Keywords.Add("Place");
+      options.Keywords.Add("Link");
+      options.Keywords.Add("Open");
+      options.Keywords.Default = "Place";
+
+      PromptResult result = context.Editor.GetKeywords(options);
+      if (result.Status == PromptStatus.Cancel)
+      {
+        SetLightingFixtureScheduleEditorStatus(
+          "Editor open with application data. No AutoCAD table was changed."
+        );
+        return;
+      }
+
+      string action = NormalizePlainText(result.StringResult);
+      if (string.IsNullOrWhiteSpace(action))
+      {
+        action = "Place";
+      }
+
+      if (string.Equals(action, "Open", StringComparison.OrdinalIgnoreCase))
+      {
+        SetLightingFixtureScheduleEditorStatus(
+          "Editor open with application data. Use Place New Table or Link Table when ready."
+        );
+        return;
+      }
+
+      if (string.Equals(action, "Link", StringComparison.OrdinalIgnoreCase))
+      {
+        LightingFixtureScheduleStoreRecord linkedRecord =
+          LinkLightingFixtureScheduleTable(context);
+        if (linkedRecord != null && IsLightingFixtureScheduleEditorControlReady())
+        {
+          s_lightingFixtureScheduleEditorControl.LoadRecord(
+            context,
+            linkedRecord,
+            "Table linked and populated from the application schedule."
+          );
+        }
+        return;
+      }
+
+      string statusMessage;
+      LightingFixtureScheduleStoreRecord placedRecord =
+        PlaceLightingFixtureScheduleTable(
+          context,
+          record.Schedule,
+          record.Version,
+          out statusMessage
+        );
+      if (placedRecord != null && IsLightingFixtureScheduleEditorControlReady())
+      {
+        s_lightingFixtureScheduleEditorControl.LoadRecord(
+          context,
+          placedRecord,
+          statusMessage
+        );
+      }
+      else
+      {
+        SetLightingFixtureScheduleEditorStatus(statusMessage);
+      }
     }
 
     private static void LightingFixtureSchedulePaletteSaveRequested(
@@ -563,33 +711,9 @@ namespace ElectricalCommands
 
       try
       {
-        ObjectId tableId = PromptForLightingFixtureScheduleTable(
-          context.Editor,
-          "\nSelect lighting fixture schedule table to link to the central store: "
-        );
-        if (tableId == ObjectId.Null)
-        {
-          SetLightingFixtureScheduleEditorStatus("Link cancelled.");
-          return;
-        }
-
-        using (Transaction tr = context.Database.TransactionManager.StartTransaction())
-        {
-          Table table = tr.GetObject(tableId, OpenMode.ForRead, false) as Table;
-          if (table == null)
-          {
-            throw new InvalidOperationException("Selected object is not an AutoCAD table.");
-          }
-          context.TableId = tableId;
-          context.TableHandle = table.Handle.ToString();
-          tr.Commit();
-        }
-
         LightingFixtureScheduleStoreRecord record =
-          GetLightingFixtureScheduleStoreRecord(context.ProjectId)
-          ?? EnsureLightingFixtureScheduleStoreRecord(context);
-        ApplyLightingFixtureScheduleRecordToLinkedTable(context, record);
-        if (IsLightingFixtureScheduleEditorControlReady())
+          LinkLightingFixtureScheduleTable(context);
+        if (record != null && IsLightingFixtureScheduleEditorControlReady())
         {
           s_lightingFixtureScheduleEditorControl.LoadRecord(
             context,
@@ -602,6 +726,44 @@ namespace ElectricalCommands
       {
         SetLightingFixtureScheduleEditorStatus($"Link failed: {ex.Message}");
       }
+    }
+
+    private static LightingFixtureScheduleStoreRecord LinkLightingFixtureScheduleTable(
+      LightingFixtureScheduleBindingContext context
+    )
+    {
+      if (context?.Editor == null || context.Database == null)
+      {
+        return null;
+      }
+
+      ObjectId tableId = PromptForLightingFixtureScheduleTable(
+        context.Editor,
+        "\nSelect lighting fixture schedule table to link to the central store: "
+      );
+      if (tableId == ObjectId.Null)
+      {
+        SetLightingFixtureScheduleEditorStatus("Link cancelled.");
+        return null;
+      }
+
+      using (Transaction tr = context.Database.TransactionManager.StartTransaction())
+      {
+        Table table = tr.GetObject(tableId, OpenMode.ForRead, false) as Table;
+        if (table == null)
+        {
+          throw new InvalidOperationException("Selected object is not an AutoCAD table.");
+        }
+        context.TableId = tableId;
+        context.TableHandle = table.Handle.ToString();
+        tr.Commit();
+      }
+
+      LightingFixtureScheduleStoreRecord record =
+        GetLightingFixtureScheduleStoreRecord(context.ProjectId)
+        ?? EnsureLightingFixtureScheduleStoreRecord(context);
+      ApplyLightingFixtureScheduleRecordToLinkedTable(context, record);
+      return record;
     }
 
     private static void LightingFixtureSchedulePaletteCopyFromTableRequested(
@@ -713,7 +875,10 @@ namespace ElectricalCommands
 
       LightingFixtureScheduleStoreRecord record = SaveLightingFixtureScheduleStoreRecord(
         context.ProjectId,
-        schedule,
+        MergeLightingFixtureScheduleSymbolMetadata(
+          schedule,
+          GetLightingFixtureScheduleStoreRecord(context.ProjectId)?.Schedule
+        ),
         context.DwgPath,
         tableHandle,
         LightingFixtureScheduleStoreUpdatedByAutoCAD,
@@ -731,6 +896,38 @@ namespace ElectricalCommands
       );
 
       return record;
+    }
+
+    private static LightingFixtureScheduleSyncSchedule MergeLightingFixtureScheduleSymbolMetadata(
+      LightingFixtureScheduleSyncSchedule extracted,
+      LightingFixtureScheduleSyncSchedule existing
+    )
+    {
+      LightingFixtureScheduleSyncSchedule result =
+        NormalizeLightingFixtureScheduleForExternalUse(extracted);
+      List<LightingFixtureScheduleSyncRow> existingRows =
+        existing?.Rows ?? new List<LightingFixtureScheduleSyncRow>();
+      for (int index = 0; index < result.Rows.Count; index++)
+      {
+        LightingFixtureScheduleSyncRow target = result.Rows[index];
+        LightingFixtureScheduleSyncRow source = existingRows.FirstOrDefault(row =>
+          row != null &&
+          !string.IsNullOrWhiteSpace(target?.Mark) &&
+          string.Equals(row.Mark, target.Mark, StringComparison.OrdinalIgnoreCase)
+        );
+        if (source == null && index < existingRows.Count)
+        {
+          source = existingRows[index];
+        }
+        if (source == null || target == null)
+        {
+          continue;
+        }
+        target.SymbolAssetPath = source.SymbolAssetPath;
+        target.SymbolAlt = source.SymbolAlt;
+        target.StarterFixtureKey = source.StarterFixtureKey;
+      }
+      return result;
     }
 
     private static LightingFixtureScheduleStoreRecord PlaceLightingFixtureScheduleTable(

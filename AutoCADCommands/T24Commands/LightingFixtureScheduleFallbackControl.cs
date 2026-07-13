@@ -18,6 +18,9 @@ namespace ElectricalCommands
     private Label _tableValue;
     private Label _versionValue;
     private Label _statusValue;
+    private CheckBox _includeSymbolColumnCheckBox;
+    private List<LightingFixtureScheduleSyncRow> _loadedRows =
+      new List<LightingFixtureScheduleSyncRow>();
     private Timer _saveTimer;
     private bool _suppressEvents;
 
@@ -72,9 +75,13 @@ namespace ElectricalCommands
 
         LightingFixtureScheduleSyncSchedule schedule =
           record?.Schedule ?? GeneralCommands.CreateDefaultLightingFixtureSchedule();
+        _loadedRows = (schedule.Rows ?? new List<LightingFixtureScheduleSyncRow>())
+          .Select(GeneralCommands.NormalizeLightingFixtureScheduleRowForExternalUse)
+          .ToList();
         _rowsText.Text = SerializeRows(schedule.Rows);
         _generalNotes.Text = schedule?.GeneralNotes ?? string.Empty;
         _notes.Text = schedule?.Notes ?? string.Empty;
+        _includeSymbolColumnCheckBox.Checked = schedule?.IncludeSymbolColumn ?? false;
         HasPendingLocalEdits = false;
         _saveTimer.Stop();
         SetStatus(string.IsNullOrWhiteSpace(statusMessage) ? "Ready." : statusMessage);
@@ -197,11 +204,36 @@ namespace ElectricalCommands
       var footer = new TableLayoutPanel
       {
         Dock = DockStyle.Top,
-        ColumnCount = 6,
+        ColumnCount = 8,
         AutoSize = true,
       };
       footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
       footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+      footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+      footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+      _includeSymbolColumnCheckBox = new CheckBox
+      {
+        AutoSize = true,
+        Text = "Include Symbol Column",
+        Margin = new Padding(4, 5, 4, 0),
+      };
+      _includeSymbolColumnCheckBox.CheckedChanged += (_, __) => OnLocalEdit();
+
+      var allCapsButton = new Button
+      {
+        AutoSize = true,
+        Text = "ALL CAPS",
+        Margin = new Padding(4, 0, 0, 0),
+      };
+      allCapsButton.Click += (_, __) =>
+      {
+        _rowsText.Text = (_rowsText.Text ?? string.Empty).ToUpperInvariant();
+        _generalNotes.Text = (_generalNotes.Text ?? string.Empty).ToUpperInvariant();
+        _notes.Text = (_notes.Text ?? string.Empty).ToUpperInvariant();
+        OnLocalEdit();
+        SetStatus("Converted all schedule text to uppercase. Saving changes...");
+      };
       footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
       footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
       footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -265,11 +297,13 @@ namespace ElectricalCommands
       };
 
       footer.Controls.Add(_statusValue, 0, 0);
-      footer.Controls.Add(copyFromTableButton, 1, 0);
-      footer.Controls.Add(placeTableButton, 2, 0);
-      footer.Controls.Add(linkTableButton, 3, 0);
-      footer.Controls.Add(reloadButton, 4, 0);
-      footer.Controls.Add(saveButton, 5, 0);
+      footer.Controls.Add(_includeSymbolColumnCheckBox, 1, 0);
+      footer.Controls.Add(allCapsButton, 2, 0);
+      footer.Controls.Add(copyFromTableButton, 3, 0);
+      footer.Controls.Add(placeTableButton, 4, 0);
+      footer.Controls.Add(linkTableButton, 5, 0);
+      footer.Controls.Add(reloadButton, 6, 0);
+      footer.Controls.Add(saveButton, 7, 0);
       layout.Controls.Add(footer, 0, 5);
 
       layout.Controls.Add(
@@ -345,11 +379,19 @@ namespace ElectricalCommands
 
     private LightingFixtureScheduleSyncSchedule BuildSchedule()
     {
+      List<LightingFixtureScheduleSyncRow> rows = ParseRows(_rowsText.Text);
+      for (int index = 0; index < rows.Count && index < _loadedRows.Count; index++)
+      {
+        rows[index].SymbolAssetPath = _loadedRows[index].SymbolAssetPath;
+        rows[index].SymbolAlt = _loadedRows[index].SymbolAlt;
+        rows[index].StarterFixtureKey = _loadedRows[index].StarterFixtureKey;
+      }
       var schedule = new LightingFixtureScheduleSyncSchedule
       {
-        Rows = ParseRows(_rowsText.Text),
+        Rows = rows,
         GeneralNotes = _generalNotes.Text ?? string.Empty,
         Notes = _notes.Text ?? string.Empty,
+        IncludeSymbolColumn = _includeSymbolColumnCheckBox.Checked,
       };
       return GeneralCommands.NormalizeLightingFixtureScheduleForExternalUse(schedule);
     }

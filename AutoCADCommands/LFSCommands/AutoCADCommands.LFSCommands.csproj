@@ -41,6 +41,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="..\T24Commands\Resources\LightingFixtureSchedule.tableanalyze.json" Link="Resources\LightingFixtureSchedule.tableanalyze.json" />
+    <EmbeddedResource Include="Resources\LightingSymbols\*.png" />
   </ItemGroup>
 
   <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">

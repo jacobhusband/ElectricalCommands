@@ -2,6 +2,7 @@ using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -33,6 +34,110 @@ namespace ElectricalCommands
     };
     private static readonly Regex LightingProjectSegmentRegex =
       new Regex(@"^(\d{5,})\s*(?:[-_]\s*)?(.+)$", RegexOptions.Compiled);
+    private static readonly Dictionary<string, string> CaliforniaStarterModelFragments =
+      new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+      {
+        { "L1", "IC1JBPF 07LM 30K 90CRI 120 FRPC" },
+        { "L2", "6020EN3-15" },
+        { "L3", "49119EN3-962" },
+        { "L4", "WF4 ADJ SWW5 90CRI MW M6" },
+        { "L5", "8909PEN3-12" },
+        { "L6", "WF4 REG SWW5 90CRI MW M6" },
+        { "L7", "T24M-2C-TUBS-SP-30K-WH" },
+        { "L8", "JSBC 6IN 30K 90CRI WH" },
+        { "L9", "TR24M-2C-WH" },
+        { "L10", "T24M LINEA" },
+        { "L11", "HTLHD-WW-16" },
+      };
+
+    internal static System.Drawing.Image LoadLightingFixtureSymbolPreview(
+      string assetPath,
+      string starterFixtureKey = null
+    )
+    {
+      try
+      {
+        using (Stream stream = OpenLightingFixtureSymbolStream(assetPath, starterFixtureKey))
+        {
+          if (stream == null)
+          {
+            return null;
+          }
+          using (System.Drawing.Image source = System.Drawing.Image.FromStream(stream))
+          {
+            return new System.Drawing.Bitmap(source);
+          }
+        }
+      }
+      catch
+      {
+        return null;
+      }
+    }
+
+    private static Stream OpenLightingFixtureSymbolStream(
+      string assetPath,
+      string starterFixtureKey = null
+    )
+    {
+      string normalizedAssetPath = NormalizePlainText(assetPath)
+        .Replace('\\', '/');
+      string fileName = Path.GetFileName(normalizedAssetPath);
+      if (
+        string.IsNullOrWhiteSpace(fileName) &&
+        !string.IsNullOrWhiteSpace(starterFixtureKey)
+      )
+      {
+        Match match = Regex.Match(
+          starterFixtureKey,
+          @"ca-2025-res-l(\d+)$",
+          RegexOptions.IgnoreCase
+        );
+        if (match.Success)
+        {
+          fileName = $"ca-residential-l{match.Groups[1].Value}.png";
+        }
+      }
+
+      if (
+        normalizedAssetPath.StartsWith("assets/lighting/", StringComparison.OrdinalIgnoreCase) ||
+        (!string.IsNullOrWhiteSpace(fileName) &&
+          fileName.StartsWith("ca-residential-l", StringComparison.OrdinalIgnoreCase))
+      )
+      {
+        Assembly assembly = typeof(GeneralCommands).Assembly;
+        string resourceName = assembly.GetManifestResourceNames().FirstOrDefault(name =>
+          name.EndsWith(
+            $"LightingSymbols.{fileName}",
+            StringComparison.OrdinalIgnoreCase
+          )
+        );
+        return string.IsNullOrWhiteSpace(resourceName)
+          ? null
+          : assembly.GetManifestResourceStream(resourceName);
+      }
+
+      if (normalizedAssetPath.StartsWith("page_assets/", StringComparison.OrdinalIgnoreCase))
+      {
+        string appDataRoot = Path.GetDirectoryName(
+          ResolveLightingFixtureScheduleDatabasePath()
+        );
+        string relativePath = normalizedAssetPath.Replace('/', Path.DirectorySeparatorChar);
+        string resolvedPath = Path.GetFullPath(Path.Combine(appDataRoot, relativePath));
+        string safeRoot = Path.GetFullPath(appDataRoot)
+          .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+          Path.DirectorySeparatorChar;
+        if (
+          resolvedPath.StartsWith(safeRoot, StringComparison.OrdinalIgnoreCase) &&
+          File.Exists(resolvedPath)
+        )
+        {
+          return File.Open(resolvedPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        }
+      }
+
+      return null;
+    }
 
     public void LightingFixtureSchedulePull()
     {
@@ -503,6 +608,7 @@ namespace ElectricalCommands
         Rows = normalizedRows,
         GeneralNotes = NormalizePlainText(schedule?.GeneralNotes),
         Notes = NormalizePlainText(schedule?.Notes),
+        IncludeSymbolColumn = schedule?.IncludeSymbolColumn ?? false,
       };
     }
 
@@ -510,7 +616,7 @@ namespace ElectricalCommands
       LightingFixtureScheduleSyncRow row
     )
     {
-      return new LightingFixtureScheduleSyncRow
+      var normalized = new LightingFixtureScheduleSyncRow
       {
         Mark = NormalizePlainText(row?.Mark),
         Description = NormalizePlainText(row?.Description),
@@ -520,7 +626,48 @@ namespace ElectricalCommands
         Volts = NormalizePlainText(row?.Volts),
         Watts = NormalizePlainText(row?.Watts),
         Notes = NormalizePlainText(row?.Notes),
+        SymbolAssetPath = NormalizePlainText(row?.SymbolAssetPath),
+        SymbolAlt = NormalizePlainText(row?.SymbolAlt),
+        StarterFixtureKey = NormalizePlainText(row?.StarterFixtureKey),
       };
+      RestoreCaliforniaStarterSymbolMetadata(normalized);
+      return normalized;
+    }
+
+    private static void RestoreCaliforniaStarterSymbolMetadata(
+      LightingFixtureScheduleSyncRow row
+    )
+    {
+      if (
+        row == null ||
+        !string.IsNullOrWhiteSpace(row.SymbolAssetPath) ||
+        !string.IsNullOrWhiteSpace(row.StarterFixtureKey)
+      )
+      {
+        return;
+      }
+
+      string expectedModelFragment;
+      if (
+        !CaliforniaStarterModelFragments.TryGetValue(row.Mark, out expectedModelFragment) ||
+        (row.ModelNumber ?? string.Empty).IndexOf(
+          expectedModelFragment,
+          StringComparison.OrdinalIgnoreCase
+        ) < 0
+      )
+      {
+        return;
+      }
+
+      string fixtureNumber = row.Mark.Substring(1);
+      row.StarterFixtureKey = $"ca-2025-res-l{fixtureNumber}";
+      row.SymbolAssetPath = $"assets/lighting/ca-residential-l{fixtureNumber}.png";
+      if (string.IsNullOrWhiteSpace(row.SymbolAlt))
+      {
+        row.SymbolAlt = string.IsNullOrWhiteSpace(row.Description)
+          ? $"Fixture {row.Mark} symbol"
+          : $"{row.Description} symbol";
+      }
     }
 
     private static string ComputeLightingScheduleFingerprint(
@@ -604,19 +751,20 @@ namespace ElectricalCommands
       }
 
       LightingFixtureScheduleTableLayout layout = ResolveLightingScheduleTableLayout(table);
+      int symbolColumn = ResolveLightingFixtureScheduleSymbolColumnIndex(table, layout.HeaderRow);
       var rows = new List<LightingFixtureScheduleSyncRow>();
       for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
       {
         rows.Add(new LightingFixtureScheduleSyncRow
         {
           Mark = GetCellPlainText(table, row, 0),
-          Description = GetCellPlainText(table, row, 1),
-          Manufacturer = GetCellPlainText(table, row, 2),
-          ModelNumber = GetCellPlainText(table, row, 3),
-          Mounting = GetCellPlainText(table, row, 4),
-          Volts = GetCellPlainText(table, row, 5),
-          Watts = GetCellPlainText(table, row, 6),
-          Notes = GetCellPlainText(table, row, 7),
+          Description = GetCellPlainText(table, row, GetLightingFixtureScheduleTextColumn(1, symbolColumn)),
+          Manufacturer = GetCellPlainText(table, row, GetLightingFixtureScheduleTextColumn(2, symbolColumn)),
+          ModelNumber = GetCellPlainText(table, row, GetLightingFixtureScheduleTextColumn(3, symbolColumn)),
+          Mounting = GetCellPlainText(table, row, GetLightingFixtureScheduleTextColumn(4, symbolColumn)),
+          Volts = GetCellPlainText(table, row, GetLightingFixtureScheduleTextColumn(5, symbolColumn)),
+          Watts = GetCellPlainText(table, row, GetLightingFixtureScheduleTextColumn(6, symbolColumn)),
+          Notes = GetCellPlainText(table, row, GetLightingFixtureScheduleTextColumn(7, symbolColumn)),
         });
       }
 
@@ -631,6 +779,7 @@ namespace ElectricalCommands
           GetCellPlainText(table, layout.NotesRow, 0),
           "NOTES"
         ),
+        IncludeSymbolColumn = symbolColumn >= 0,
       };
 
       return NormalizeSyncSchedule(schedule);
@@ -658,6 +807,13 @@ namespace ElectricalCommands
 
       LightingFixtureScheduleSyncSchedule normalized = NormalizeSyncSchedule(schedule);
       LightingFixtureScheduleTableLayout layout = ResolveLightingScheduleTableLayout(table);
+      EnsureLightingFixtureScheduleSymbolColumn(
+        table,
+        layout,
+        normalized.IncludeSymbolColumn
+      );
+      layout = ResolveLightingScheduleTableLayout(table);
+      int symbolColumn = ResolveLightingFixtureScheduleSymbolColumnIndex(table, layout.HeaderRow);
       int targetRowCount = Math.Max(1, normalized.Rows.Count);
       int existingRowCount = Math.Max(0, layout.GeneralNotesRow - layout.FirstDataRow);
 
@@ -681,13 +837,17 @@ namespace ElectricalCommands
           : new LightingFixtureScheduleSyncRow();
         int tableRow = layout.FirstDataRow + i;
         SetCellPlainText(table, tableRow, 0, row.Mark);
-        SetCellPlainText(table, tableRow, 1, row.Description);
-        SetCellPlainText(table, tableRow, 2, row.Manufacturer);
-        SetCellPlainText(table, tableRow, 3, row.ModelNumber);
-        SetCellPlainText(table, tableRow, 4, row.Mounting);
-        SetCellPlainText(table, tableRow, 5, row.Volts);
-        SetCellPlainText(table, tableRow, 6, row.Watts);
-        SetCellPlainText(table, tableRow, 7, row.Notes);
+        SetCellPlainText(table, tableRow, GetLightingFixtureScheduleTextColumn(1, symbolColumn), row.Description);
+        SetCellPlainText(table, tableRow, GetLightingFixtureScheduleTextColumn(2, symbolColumn), row.Manufacturer);
+        SetCellPlainText(table, tableRow, GetLightingFixtureScheduleTextColumn(3, symbolColumn), row.ModelNumber);
+        SetCellPlainText(table, tableRow, GetLightingFixtureScheduleTextColumn(4, symbolColumn), row.Mounting);
+        SetCellPlainText(table, tableRow, GetLightingFixtureScheduleTextColumn(5, symbolColumn), row.Volts);
+        SetCellPlainText(table, tableRow, GetLightingFixtureScheduleTextColumn(6, symbolColumn), row.Watts);
+        SetCellPlainText(table, tableRow, GetLightingFixtureScheduleTextColumn(7, symbolColumn), row.Notes);
+        if (normalized.IncludeSymbolColumn)
+        {
+          SetLightingFixtureScheduleSymbolCell(table, db, tr, tableRow, row);
+        }
       }
 
       SetCellPlainText(
@@ -703,7 +863,484 @@ namespace ElectricalCommands
         ComposeNotesCellText("NOTES", normalized.Notes)
       );
 
-      return ApplyTemplateVisualNormalization(table, db, tr, layout);
+      LightingFixtureScheduleVisualNormalizationResult result =
+        ApplyTemplateVisualNormalization(table, db, tr, layout);
+      if (normalized.IncludeSymbolColumn)
+      {
+        ApplyLightingFixtureScheduleSymbolColumnVisuals(table, layout);
+      }
+      return result;
+    }
+
+    private static void EnsureLightingFixtureScheduleSymbolColumn(
+      Table table,
+      LightingFixtureScheduleTableLayout layout,
+      bool includeSymbolColumn
+    )
+    {
+      int symbolColumn = ResolveLightingFixtureScheduleSymbolColumnIndex(
+        table,
+        layout.HeaderRow
+      );
+
+      if (includeSymbolColumn && symbolColumn != 1)
+      {
+        if (symbolColumn >= 0)
+        {
+          table.DeleteColumns(symbolColumn, 1);
+        }
+        else if (table.NumColumns != 8)
+        {
+          throw new InvalidOperationException(
+            "The symbol column can only be added to an eight-column lighting schedule."
+          );
+        }
+        double width = table.Columns[0].Width;
+        table.InsertColumns(1, width > 0 ? width : 0.75, 1);
+        SetCellPlainText(table, layout.HeaderRow, 1, "SYMBOL");
+        MergeLightingFixtureScheduleFullWidthRow(table, layout.HeaderRow - 1);
+        MergeLightingFixtureScheduleFullWidthRow(table, layout.GeneralNotesRow);
+        MergeLightingFixtureScheduleFullWidthRow(table, layout.NotesRow);
+      }
+      else if (!includeSymbolColumn && symbolColumn >= 0)
+      {
+        table.DeleteColumns(symbolColumn, 1);
+        MergeLightingFixtureScheduleFullWidthRow(table, layout.HeaderRow - 1);
+        MergeLightingFixtureScheduleFullWidthRow(table, layout.GeneralNotesRow);
+        MergeLightingFixtureScheduleFullWidthRow(table, layout.NotesRow);
+      }
+    }
+
+    private static int ResolveLightingFixtureScheduleSymbolColumnIndex(
+      Table table,
+      int headerRow
+    )
+    {
+      if (table == null || headerRow < 0 || headerRow >= table.NumRows)
+      {
+        return -1;
+      }
+      foreach (int column in new[] { 1, 8 })
+      {
+        if (
+          column < table.NumColumns &&
+          string.Equals(
+            NormalizeHeaderToken(GetCellPlainText(table, headerRow, column)),
+            "SYMBOL",
+            StringComparison.OrdinalIgnoreCase
+          )
+        )
+        {
+          return column;
+        }
+      }
+      return -1;
+    }
+
+    private static int GetLightingFixtureScheduleTextColumn(
+      int baseColumn,
+      int symbolColumn
+    )
+    {
+      return symbolColumn == 1 && baseColumn >= 1 ? baseColumn + 1 : baseColumn;
+    }
+
+    private static void MergeLightingFixtureScheduleFullWidthRow(Table table, int row)
+    {
+      if (row < 0 || row >= table.NumRows)
+      {
+        return;
+      }
+      CellRange existingRange;
+      if (table.IsMergedCell(row, 0, out existingRange))
+      {
+        table.UnmergeCells(existingRange);
+      }
+      table.MergeCells(CellRange.Create(table, row, 0, row, table.NumColumns - 1));
+    }
+
+    private static void SetLightingFixtureScheduleSymbolCell(
+      Table table,
+      Database db,
+      Transaction tr,
+      int row,
+      LightingFixtureScheduleSyncRow fixture
+    )
+    {
+      const int symbolColumn = 1;
+      SetCellPlainText(table, row, symbolColumn, string.Empty);
+      ObjectId blockId = GetOrCreateLightingFixtureSymbolBlock(db, tr, fixture);
+      if (blockId.IsNull)
+      {
+        return;
+      }
+      EnsureCellHasContent(table, row, symbolColumn);
+      table.SetBlockTableRecordId(row, symbolColumn, 0, blockId, true);
+      table.SetIsAutoScale(row, symbolColumn, 0, true);
+      table.SetAlignment(row, symbolColumn, CellAlignment.MiddleCenter);
+    }
+
+    private static ObjectId GetOrCreateLightingFixtureSymbolBlock(
+      Database db,
+      Transaction tr,
+      LightingFixtureScheduleSyncRow fixture
+    )
+    {
+      if (db == null || tr == null || fixture == null)
+      {
+        return ObjectId.Null;
+      }
+      using (System.Drawing.Image preview = LoadLightingFixtureSymbolPreview(
+        fixture.SymbolAssetPath,
+        fixture.StarterFixtureKey
+      ))
+      {
+        if (preview == null)
+        {
+          return ObjectId.Null;
+        }
+
+        string identity = $"{fixture.SymbolAssetPath}|{fixture.StarterFixtureKey}";
+        string blockName = $"LFS_SYMBOL_V2_{ComputeLightingFixtureSymbolHash(identity)}";
+        BlockTable blockTable = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
+        if (blockTable == null)
+        {
+          return ObjectId.Null;
+        }
+        if (blockTable.Has(blockName))
+        {
+          return blockTable[blockName];
+        }
+
+        blockTable.UpgradeOpen();
+        var definition = new BlockTableRecord { Name = blockName };
+        ObjectId definitionId = blockTable.Add(definition);
+        tr.AddNewlyCreatedDBObject(definition, true);
+
+        System.Drawing.Rectangle inkBounds = GetLightingFixtureSymbolInkBounds(preview);
+        const int traceLongSide = 112;
+        double traceScale = (double)traceLongSide /
+          Math.Max(inkBounds.Width, inkBounds.Height);
+        int width = Math.Max(1, (int)Math.Round(inkBounds.Width * traceScale));
+        int height = Math.Max(1, (int)Math.Round(inkBounds.Height * traceScale));
+        using (var bitmap = new System.Drawing.Bitmap(
+          width,
+          height,
+          System.Drawing.Imaging.PixelFormat.Format32bppArgb
+        ))
+        {
+          using (System.Drawing.Graphics graphics = System.Drawing.Graphics.FromImage(bitmap))
+          {
+            graphics.Clear(System.Drawing.Color.White);
+            graphics.CompositingQuality =
+              System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+            graphics.InterpolationMode =
+              System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+            graphics.DrawImage(
+              preview,
+              new System.Drawing.Rectangle(0, 0, width, height),
+              inkBounds,
+              System.Drawing.GraphicsUnit.Pixel
+            );
+          }
+
+          double pixelSize = 1.0 / Math.Max(width, height);
+          double totalWidth = width * pixelSize;
+          double totalHeight = height * pixelSize;
+          for (int y = 0; y < height; y++)
+          {
+            int x = 0;
+            while (x < width)
+            {
+              while (x < width && !IsLightingFixtureSymbolDarkPixel(bitmap.GetPixel(x, y)))
+              {
+                x++;
+              }
+              int startX = x;
+              while (x < width && IsLightingFixtureSymbolDarkPixel(bitmap.GetPixel(x, y)))
+              {
+                x++;
+              }
+              if (startX >= x)
+              {
+                continue;
+              }
+
+              double left = startX * pixelSize - totalWidth / 2.0;
+              double right = x * pixelSize - totalWidth / 2.0;
+              double top = totalHeight / 2.0 - y * pixelSize;
+              double bottom = top - pixelSize;
+              var solid = new Solid(
+                new Point3d(left, bottom, 0),
+                new Point3d(right, bottom, 0),
+                new Point3d(left, top, 0),
+                new Point3d(right, top, 0)
+              );
+              solid.Color = Color.FromColorIndex(ColorMethod.ByBlock, 0);
+              definition.AppendEntity(solid);
+              tr.AddNewlyCreatedDBObject(solid, true);
+            }
+          }
+        }
+        return definitionId;
+      }
+    }
+
+    private static System.Drawing.Rectangle GetLightingFixtureSymbolInkBounds(
+      System.Drawing.Image image
+    )
+    {
+      using (var bitmap = new System.Drawing.Bitmap(image))
+      {
+        int minX = bitmap.Width;
+        int minY = bitmap.Height;
+        int maxX = -1;
+        int maxY = -1;
+        for (int y = 0; y < bitmap.Height; y++)
+        {
+          for (int x = 0; x < bitmap.Width; x++)
+          {
+            if (!IsLightingFixtureSymbolDarkPixel(bitmap.GetPixel(x, y)))
+            {
+              continue;
+            }
+            minX = Math.Min(minX, x);
+            minY = Math.Min(minY, y);
+            maxX = Math.Max(maxX, x);
+            maxY = Math.Max(maxY, y);
+          }
+        }
+
+        if (maxX < minX || maxY < minY)
+        {
+          return new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        }
+
+        const int padding = 2;
+        minX = Math.Max(0, minX - padding);
+        minY = Math.Max(0, minY - padding);
+        maxX = Math.Min(bitmap.Width - 1, maxX + padding);
+        maxY = Math.Min(bitmap.Height - 1, maxY + padding);
+        return System.Drawing.Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
+      }
+    }
+
+    private static bool IsLightingFixtureSymbolDarkPixel(System.Drawing.Color color)
+    {
+      if (color.A < 32)
+      {
+        return false;
+      }
+      int luminance = (299 * color.R + 587 * color.G + 114 * color.B) / 1000;
+      return luminance < 180;
+    }
+
+    private static string ComputeLightingFixtureSymbolHash(string value)
+    {
+      uint hash = 2166136261;
+      foreach (char c in value ?? string.Empty)
+      {
+        hash ^= c;
+        hash *= 16777619;
+      }
+      return hash.ToString("X8", CultureInfo.InvariantCulture);
+    }
+
+    private static void ApplyLightingFixtureScheduleSymbolColumnVisuals(
+      Table table,
+      LightingFixtureScheduleTableLayout layout
+    )
+    {
+      const int symbolColumn = 1;
+      var warnings = new List<LightingFixtureScheduleWarning>();
+      CopyLightingFixtureScheduleCellVisualProfile(
+        table,
+        layout.HeaderRow,
+        0,
+        layout.HeaderRow,
+        symbolColumn,
+        warnings
+      );
+      for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
+      {
+        CopyLightingFixtureScheduleCellVisualProfile(
+          table,
+          row,
+          0,
+          row,
+          symbolColumn,
+          warnings
+        );
+      }
+    }
+
+    private static void CopyLightingFixtureScheduleCellVisualProfile(
+      Table table,
+      int sourceRow,
+      int sourceCol,
+      int targetRow,
+      int targetCol,
+      List<LightingFixtureScheduleWarning> warnings
+    )
+    {
+      CopyGridProfile(table, sourceRow, sourceCol, targetRow, targetCol, warnings);
+
+      string cellStyle = SafeGet(
+        warnings,
+        "visual.symbol.cellStyle.get",
+        () => table.GetCellStyle(sourceRow, sourceCol),
+        sourceRow,
+        sourceCol,
+        string.Empty
+      );
+      if (!string.IsNullOrWhiteSpace(cellStyle))
+      {
+        SafeApply(
+          warnings,
+          "visual.symbol.cellStyle.set",
+          () => table.SetCellStyle(targetRow, targetCol, cellStyle),
+          targetRow,
+          targetCol
+        );
+      }
+
+      CellAlignment alignment = SafeGet(
+        warnings,
+        "visual.symbol.alignment.get",
+        () => table.Alignment(sourceRow, sourceCol),
+        sourceRow,
+        sourceCol,
+        CellAlignment.MiddleCenter
+      );
+      SafeApply(
+        warnings,
+        "visual.symbol.alignment.set",
+        () => table.SetAlignment(targetRow, targetCol, alignment),
+        targetRow,
+        targetCol
+      );
+
+      ObjectId textStyleId = SafeGet(
+        warnings,
+        "visual.symbol.textStyle.get",
+        () => table.TextStyle(sourceRow, sourceCol),
+        sourceRow,
+        sourceCol,
+        ObjectId.Null
+      );
+      if (!textStyleId.IsNull)
+      {
+        SafeApply(
+          warnings,
+          "visual.symbol.textStyle.set",
+          () => table.SetTextStyle(targetRow, targetCol, textStyleId),
+          targetRow,
+          targetCol
+        );
+      }
+
+      double textHeight = SafeGet(
+        warnings,
+        "visual.symbol.textHeight.get",
+        () => table.TextHeight(sourceRow, sourceCol),
+        sourceRow,
+        sourceCol,
+        0.0
+      );
+      if (textHeight > 0)
+      {
+        SafeApply(
+          warnings,
+          "visual.symbol.textHeight.set",
+          () => table.SetTextHeight(targetRow, targetCol, textHeight),
+          targetRow,
+          targetCol
+        );
+      }
+
+      Color contentColor = SafeGet(
+        warnings,
+        "visual.symbol.contentColor.get",
+        () => table.ContentColor(sourceRow, sourceCol),
+        sourceRow,
+        sourceCol,
+        null as Color
+      );
+      if (contentColor != null)
+      {
+        SafeApply(
+          warnings,
+          "visual.symbol.contentColor.set",
+          () => table.SetContentColor(targetRow, targetCol, contentColor),
+          targetRow,
+          targetCol
+        );
+      }
+
+      bool backgroundColorNone = SafeGet(
+        warnings,
+        "visual.symbol.backgroundNone.get",
+        () => table.IsBackgroundColorNone(sourceRow, sourceCol),
+        sourceRow,
+        sourceCol,
+        true
+      );
+      SafeApply(
+        warnings,
+        "visual.symbol.backgroundNone.set",
+        () => table.SetBackgroundColorNone(targetRow, targetCol, backgroundColorNone),
+        targetRow,
+        targetCol
+      );
+      if (!backgroundColorNone)
+      {
+        Color backgroundColor = SafeGet(
+          warnings,
+          "visual.symbol.backgroundColor.get",
+          () => table.BackgroundColor(sourceRow, sourceCol),
+          sourceRow,
+          sourceCol,
+          null as Color
+        );
+        if (backgroundColor != null)
+        {
+          SafeApply(
+            warnings,
+            "visual.symbol.backgroundColor.set",
+            () => table.SetBackgroundColor(targetRow, targetCol, backgroundColor),
+            targetRow,
+            targetCol
+          );
+        }
+      }
+
+      foreach (CellMargins margin in new[]
+      {
+        CellMargins.Top,
+        CellMargins.Left,
+        CellMargins.Bottom,
+        CellMargins.Right,
+      })
+      {
+        CellMargins targetMargin = margin;
+        double marginValue = SafeGet(
+          warnings,
+          "visual.symbol.margin.get",
+          () => table.GetMargin(sourceRow, sourceCol, targetMargin),
+          sourceRow,
+          sourceCol,
+          0.0
+        );
+        SafeApply(
+          warnings,
+          "visual.symbol.margin.set",
+          () => table.SetMargin(targetRow, targetCol, targetMargin, marginValue),
+          targetRow,
+          targetCol
+        );
+      }
     }
 
     private static LightingFixtureScheduleVisualNormalizationResult ApplyTemplateVisualNormalization(
@@ -767,29 +1404,34 @@ namespace ElectricalCommands
       }
 
       int maxDataColumns = Math.Min(8, table.NumColumns);
+      int symbolColumn = ResolveLightingFixtureScheduleSymbolColumnIndex(
+        table,
+        layout.HeaderRow
+      );
       for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
       {
         for (int col = 0; col < maxDataColumns; col++)
         {
+          int targetCol = GetLightingFixtureScheduleTextColumn(col, symbolColumn);
           TableAnalyzeCell donorCell;
           if (templateProfile.DataCellsByColumn.TryGetValue(col, out donorCell))
           {
-            ApplyCellVisualFromTemplate(table, db, tr, row, col, donorCell, warnings);
+            ApplyCellVisualFromTemplate(table, db, tr, row, targetCol, donorCell, warnings);
           }
           else
           {
-            CopyGridProfile(table, layout.FirstDataRow, col, row, col, warnings);
+            CopyGridProfile(table, layout.FirstDataRow, targetCol, row, targetCol, warnings);
           }
 
-          string text = GetCellPlainText(table, row, col);
-          ApplyUniformDataTextVisual(table, row, col, uniformTextStyleId, uniformColor, warnings);
-          SetCellPlainText(table, row, col, text);
+          string text = GetCellPlainText(table, row, targetCol);
+          ApplyUniformDataTextVisual(table, row, targetCol, uniformTextStyleId, uniformColor, warnings);
+          SetCellPlainText(table, row, targetCol, text);
         }
       }
       ApplyUniformDataTextHeight(
         table,
         layout,
-        maxDataColumns,
+        table.NumColumns,
         templateProfile.UniformDataTextHeight,
         warnings
       );
@@ -813,7 +1455,7 @@ namespace ElectricalCommands
       ApplyUniformNotesTextVisual(
         table,
         layout,
-        maxDataColumns,
+        table.NumColumns,
         uniformTextStyleId,
         uniformColor,
         warnings
@@ -872,22 +1514,27 @@ namespace ElectricalCommands
         ResolveRuntimeManufacturerTextHeight(table, layout, 0.09375)
       );
       int maxDataColumns = Math.Min(8, table.NumColumns);
+      int symbolColumn = ResolveLightingFixtureScheduleSymbolColumnIndex(
+        table,
+        layout.HeaderRow
+      );
       for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
       {
         for (int col = 0; col < maxDataColumns; col++)
         {
-          string text = GetCellPlainText(table, row, col);
-          CopyGridProfile(table, layout.FirstDataRow, col, row, col, warnings);
-          ApplyUniformDataTextVisual(table, row, col, runtimeTextStyleId, runtimeColor, warnings);
-          SetCellPlainText(table, row, col, text);
+          int targetCol = GetLightingFixtureScheduleTextColumn(col, symbolColumn);
+          string text = GetCellPlainText(table, row, targetCol);
+          CopyGridProfile(table, layout.FirstDataRow, targetCol, row, targetCol, warnings);
+          ApplyUniformDataTextVisual(table, row, targetCol, runtimeTextStyleId, runtimeColor, warnings);
+          SetCellPlainText(table, row, targetCol, text);
         }
       }
-      ApplyUniformDataTextHeight(table, layout, maxDataColumns, runtimeTextHeight, warnings);
+      ApplyUniformDataTextHeight(table, layout, table.NumColumns, runtimeTextHeight, warnings);
 
       int[] noteRows = { layout.GeneralNotesRow, layout.NotesRow };
       foreach (int noteRow in noteRows)
       {
-        for (int col = 0; col < maxDataColumns; col++)
+        for (int col = 0; col < table.NumColumns; col++)
         {
           string text = GetCellPlainText(table, noteRow, col);
           CopyGridProfile(table, noteRow, col, noteRow, col, warnings);
@@ -1673,10 +2320,15 @@ namespace ElectricalCommands
         return;
       }
 
+      int symbolColumn = ResolveLightingFixtureScheduleSymbolColumnIndex(
+        table,
+        layout.HeaderRow
+      );
       for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
       {
         for (int col = 0; col < maxDataColumns; col++)
         {
+          int targetCol = GetLightingFixtureScheduleTextColumn(col, symbolColumn);
           LightingFixtureScheduleDataPlacementProfile profile;
           if (
             placementByColumn == null
@@ -1687,7 +2339,20 @@ namespace ElectricalCommands
             profile = CreateDefaultDataPlacementProfile(col);
           }
 
-          ApplyDataPlacementProfile(table, row, col, profile, warnings);
+          ApplyDataPlacementProfile(table, row, targetCol, profile, warnings);
+        }
+        if (symbolColumn == 1)
+        {
+          LightingFixtureScheduleDataPlacementProfile symbolProfile;
+          if (
+            placementByColumn == null ||
+            !placementByColumn.TryGetValue(0, out symbolProfile) ||
+            symbolProfile == null
+          )
+          {
+            symbolProfile = CreateDefaultDataPlacementProfile(0);
+          }
+          ApplyDataPlacementProfile(table, row, symbolColumn, symbolProfile, warnings);
         }
       }
     }
@@ -1929,6 +2594,9 @@ namespace ElectricalCommands
     )
     {
       int maxDataColumns = Math.Min(8, table?.NumColumns ?? 8);
+      int symbolColumn = table == null || layout == null
+        ? -1
+        : ResolveLightingFixtureScheduleSymbolColumnIndex(table, layout.HeaderRow);
       var profiles = new Dictionary<int, LightingFixtureScheduleDataPlacementProfile>();
       for (int col = 0; col < maxDataColumns; col++)
       {
@@ -1937,7 +2605,8 @@ namespace ElectricalCommands
         {
           for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
           {
-            profile = TryCaptureRuntimeDataPlacementProfile(table, row, col);
+            int targetCol = GetLightingFixtureScheduleTextColumn(col, symbolColumn);
+            profile = TryCaptureRuntimeDataPlacementProfile(table, row, targetCol);
             if (profile != null)
             {
               break;
@@ -2070,10 +2739,15 @@ namespace ElectricalCommands
       }
 
       int[] preferredColumns = { 2, 0, 1, 3, 4, 5, 6, 7 };
+      int symbolColumn = ResolveLightingFixtureScheduleSymbolColumnIndex(
+        table,
+        layout.HeaderRow
+      );
       for (int row = layout.FirstDataRow; row < layout.GeneralNotesRow; row++)
       {
-        foreach (int col in preferredColumns)
+        foreach (int baseColumn in preferredColumns)
         {
+          int col = GetLightingFixtureScheduleTextColumn(baseColumn, symbolColumn);
           if (col < 0 || col >= table.NumColumns)
           {
             continue;
@@ -2236,7 +2910,10 @@ namespace ElectricalCommands
       }
 
       int row = layout.FirstDataRow;
-      int col = 2;
+      int col = GetLightingFixtureScheduleTextColumn(
+        2,
+        ResolveLightingFixtureScheduleSymbolColumnIndex(table, layout.HeaderRow)
+      );
       try
       {
         if (table.GetNumberOfContents(row, col) > 0)
@@ -2285,7 +2962,10 @@ namespace ElectricalCommands
       }
 
       int row = layout.FirstDataRow;
-      int col = 2;
+      int col = GetLightingFixtureScheduleTextColumn(
+        2,
+        ResolveLightingFixtureScheduleSymbolColumnIndex(table, layout.HeaderRow)
+      );
       try
       {
         if (table.GetNumberOfContents(row, col) > 0)
@@ -2608,9 +3288,11 @@ namespace ElectricalCommands
         return false;
       }
 
+      int symbolColumn = ResolveLightingFixtureScheduleSymbolColumnIndex(table, row);
       for (int col = 0; col < LightingFixtureScheduleHeaders.Length; col++)
       {
-        string text = NormalizeHeaderToken(GetCellPlainText(table, row, col));
+        int tableColumn = GetLightingFixtureScheduleTextColumn(col, symbolColumn);
+        string text = NormalizeHeaderToken(GetCellPlainText(table, row, tableColumn));
         if (!string.Equals(text, LightingFixtureScheduleHeaders[col], StringComparison.OrdinalIgnoreCase))
         {
           return false;
@@ -3310,6 +3992,7 @@ namespace ElectricalCommands
     public List<LightingFixtureScheduleSyncRow> Rows { get; set; }
     public string GeneralNotes { get; set; }
     public string Notes { get; set; }
+    public bool IncludeSymbolColumn { get; set; }
   }
 
   public class LightingFixtureScheduleSyncRow
@@ -3322,5 +4005,8 @@ namespace ElectricalCommands
     public string Volts { get; set; }
     public string Watts { get; set; }
     public string Notes { get; set; }
+    public string SymbolAssetPath { get; set; }
+    public string SymbolAlt { get; set; }
+    public string StarterFixtureKey { get; set; }
   }
 }

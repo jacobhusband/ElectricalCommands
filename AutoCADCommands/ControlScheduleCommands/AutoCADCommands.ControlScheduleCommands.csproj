@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Configuration>Release</Configuration>
+    <PackageId>Electrical.AutoCAD.ControlScheduleCommands</PackageId>
+    <Description>Commands for creating and editing control schedules.</Description>
+    <AssemblyName>AutoCADCommands.ControlScheduleCommands</AssemblyName>
+    <AutoCADBundleName>ElectricalCommands.ControlScheduleCommands</AutoCADBundleName>
+    <AutoCADBundleVersion>$(Version)</AutoCADBundleVersion>
+    <AutoCADBundleDescription>Creates and edits AutoCAD control schedule tables.</AutoCADBundleDescription>
+    <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>
+    <AutoCADBundleProductCode>{E66EA4AA-5933-43D6-B48A-960BEA3FFB3D}</AutoCADBundleProductCode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="ControlSchedule.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net8.0-windows' AND '$(AutoCAD2025Installed)' == 'true' ">
+    <Reference Include="AcWindows">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcWindows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AdWindows">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AdWindows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">
+    <PropertyGroup>
+      <BundleDir>$(AutoCADBundleRoot)\$(AutoCADBundleName).bundle</BundleDir>
+      <BundleContents><![CDATA[<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage SchemaVersion="1.0" AutodeskProduct="AutoCAD" ProductType="Application"
+  Name="$(AutoCADBundleName)" Description="$(AutoCADBundleDescription)" AppVersion="$(AutoCADBundleVersion)"
+  Author="$(AutoCADBundleAuthor)" ProductCode="$(AutoCADBundleProductCode)" UpgradeCode="{8D162A69-B2DA-44AF-9866-CC57C38D0043}">
+  <CompanyDetails Name="$(AutoCADBundleAuthor)" Url="www.acies.engineering" Email="jacob.h@acies.engineering" />
+  <Components Description="AutoCAD 2025+">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R25.0" />
+    <ComponentEntry AppName="$(AssemblyName)" ModuleName="Contents\net8.0-windows\$(AssemblyName).dll"
+      AppDescription="$(AutoCADBundleDescription)" LoadOnAutoCADStartup="True" LoadOnCommandInvocation="True">
+      <Commands><Command Global="*" Local="*" /></Commands>
+    </ComponentEntry>
+  </Components>
+  <Components Description="AutoCAD 2021-2024">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.0" SeriesMax="R24.9" />
+    <ComponentEntry AppName="$(AssemblyName)" ModuleName="Contents\net48\$(AssemblyName).dll"
+      AppDescription="$(AutoCADBundleDescription)" LoadOnAutoCADStartup="True" LoadOnCommandInvocation="True">
+      <Commands><Command Global="*" Local="*" /></Commands>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>]]></BundleContents>
+    </PropertyGroup>
+    <MakeDir Directories="$(BundleDir)" />
+    <WriteLinesToFile File="$(BundleDir)\PackageContents.xml" Lines="$(BundleContents)" Overwrite="true" Encoding="utf-8" />
+  </Target>
+
+  <Target Name="CopyDllsToBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <TargetSubFolder>$(AutoCADBundleRoot)\$(AutoCADBundleName).bundle\Contents\$(TargetFramework)</TargetSubFolder>
+    </PropertyGroup>
+    <MakeDir Directories="$(TargetSubFolder)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(TargetSubFolder)" />
+    <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFolder="$(TargetSubFolder)" />
+  </Target>
+</Project>

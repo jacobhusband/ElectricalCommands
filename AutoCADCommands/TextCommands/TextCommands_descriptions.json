@@ -6,7 +6,8 @@
         "TEXTSUMEXPORT": "Finds room-type text near square-footage text and exports grouped totals to T24Output.json.",
         "TEXTREPLACE": "Replaces the content of selected TEXT and MTEXT objects with a new user-specified value.",
         "TEXTINCREMENT": "Renumbers selected TEXT and MTEXT objects using a prefix, start/end range, and odd/even filtering.",
-        "TEXTADD": "Adds a specified integer value to numbers found inside selected TEXT and MTEXT objects."
+        "TEXTADD": "Adds a specified integer value to numbers found inside selected TEXT and MTEXT objects.",
+        "SWITCHCIRCUIT": "Opens a dockable palette that assigns non-repeating lowercase switch-control circuit suffixes to grouped fixture-tag MTEXT objects."
     },
     "links": {
         "TEXTCOUNT": "https://brainy-seahorse-3c5.notion.site/TEXTCOUNT-fe72b9787d2d4740a82e881a79cb785a",

@@ -61,9 +61,17 @@ ElectricalCommands.LFSCommands
 - TABLEANALYZE / TableAnalyze (AutoCADCommands\T24Commands\TableAnalyze.cs:18)
 - TBA / TableAnalyze (AutoCADCommands\T24Commands\TableAnalyze.cs:19)
 
+ElectricalCommands.ControlScheduleCommands
+- CONTROLSCHEDULE / OpenControlScheduleAlias (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:54)
+- CSCHED / OpenControlSchedule (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:44)
+- CSCHEDLOAD / LoadControlSchedule (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:124)
+- CSCHEDPLACE / PlaceControlSchedule (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:60)
+- CSCHEDUPDATE / UpdateControlSchedule (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:90)
+
 ElectricalCommands.PlotCommands
-- P22 / Plot22x34 (AutoCADCommands\PlotCommands\PlotCommands.cs:69)
-- P24 / Plot24x36 (AutoCADCommands\PlotCommands\PlotCommands.cs:63)
-- P30 / Plot30x42 (AutoCADCommands\PlotCommands\PlotCommands.cs:57)
-- PLOTMOVE / PlotAndMove (AutoCADCommands\PlotCommands\PlotCommands.cs:81)
-- QM / PlotAndMove (AutoCADCommands\PlotCommands\PlotCommands.cs:82)
+- P22 / Plot22x34 (AutoCADCommands\PlotCommands\PlotCommands.cs:76)
+- P24 / Plot24x36 (AutoCADCommands\PlotCommands\PlotCommands.cs:70)
+- P30 / Plot30x42 (AutoCADCommands\PlotCommands\PlotCommands.cs:64)
+- P36 / Plot36x48 (AutoCADCommands\PlotCommands\PlotCommands.cs:58)
+- PLOTMOVE / PlotAndMove (AutoCADCommands\PlotCommands\PlotCommands.cs:88)
+- QM / PlotAndMove (AutoCADCommands\PlotCommands\PlotCommands.cs:89)

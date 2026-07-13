@@ -11,12 +11,13 @@ namespace ElectricalCommands
     /// - P22
     /// - P24
     /// - P30
+    /// - P36
     /// - PLOTMOVE
     /// </summary>
     public class PlotCommands
     {
         /// <summary>
-        /// Core helper used by P22/P24/P30 to drive -PLOT for a specific paper size.
+        /// Core helper used by P22/P24/P30/P36 to drive -PLOT for a specific paper size.
         /// This mirrors the original CleanCADCommands implementation semantics.
         /// </summary>
         /// <param name="paperSize">Paper size string exactly as recognized by AutoCAD's "DWG to PDF.pc3".</param>
@@ -52,6 +53,12 @@ namespace ElectricalCommands
             doc.SendStringToExecute("N\n", false, false, true);                 // Hide paper space objects? No
             doc.SendStringToExecute("\n", false, false, true);                  // Save changes to page setup
             doc.SendStringToExecute("Y\n", false, false, true);                 // Write the plot to a file
+        }
+
+        [CommandMethod("P36", CommandFlags.Modal)]
+        public static void Plot36x48()
+        {
+            PlotToPdf("ARCH full bleed E (36.00 x 48.00 Inches)", "\nStarting 36x48 PDF plot sequence...");
         }
 
         [CommandMethod("P30", CommandFlags.Modal)]

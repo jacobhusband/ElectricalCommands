@@ -22,6 +22,12 @@ namespace ElectricalCommands
       LightingFixtureScheduleOpenPalette();
     }
 
+    [CommandMethod("LFSOPEN", CommandFlags.Modal)]
+    public void LightingFixtureScheduleOpen()
+    {
+      LightingFixtureScheduleOpenPalette();
+    }
+
     private static TableAnalyzeExport LoadTemplateFromEmbeddedResource(out string resourceName)
     {
       Assembly assembly = typeof(GeneralCommands).Assembly;

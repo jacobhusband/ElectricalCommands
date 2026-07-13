@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -18,12 +19,23 @@ namespace ElectricalCommands
 
     internal static string ResolveLightingFixtureScheduleDatabasePath()
     {
-      string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-      if (string.IsNullOrWhiteSpace(documentsPath))
+      string userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+      if (string.IsNullOrWhiteSpace(userProfilePath))
       {
-        documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        userProfilePath = Environment.GetEnvironmentVariable("USERPROFILE");
       }
 
+      if (string.IsNullOrWhiteSpace(userProfilePath))
+      {
+        throw new InvalidOperationException(
+          "The Windows user profile path is unavailable; the shared lighting schedule store cannot be resolved."
+        );
+      }
+
+      // Keep this aligned with ProjectManagement/main.py::_get_windows_documents_dir().
+      // SpecialFolder.MyDocuments may be redirected to OneDrive, which would split the
+      // desktop and AutoCAD clients across two different SQLite databases.
+      string documentsPath = Path.Combine(userProfilePath, "Documents");
       string appFolder = Path.Combine(documentsPath, "ProjectManagementApp");
       Directory.CreateDirectory(appFolder);
       return Path.Combine(appFolder, LightingFixtureScheduleDatabaseFileName);
@@ -148,6 +160,11 @@ namespace ElectricalCommands
           Rows = normalizedSchedule.Rows,
           GeneralNotes = normalizedSchedule.GeneralNotes,
           Notes = normalizedSchedule.Notes,
+          IncludeSymbolColumn = normalizedSchedule.IncludeSymbolColumn,
+        },
+        new JsonSerializerSettings
+        {
+          ContractResolver = new CamelCasePropertyNamesContractResolver(),
         }
       );
 
@@ -326,6 +343,7 @@ namespace ElectricalCommands
           Rows = payload.Rows ?? new List<LightingFixtureScheduleSyncRow>(),
           GeneralNotes = payload.GeneralNotes,
           Notes = payload.Notes,
+          IncludeSymbolColumn = payload.IncludeSymbolColumn,
         }
       );
 
@@ -450,6 +468,7 @@ CREATE INDEX IF NOT EXISTS idx_lighting_schedule_links_project_id
       new List<LightingFixtureScheduleSyncRow>();
     public string GeneralNotes { get; set; }
     public string Notes { get; set; }
+    public bool IncludeSymbolColumn { get; set; }
   }
 
   internal sealed class LightingFixtureScheduleSqliteConnection : IDisposable
