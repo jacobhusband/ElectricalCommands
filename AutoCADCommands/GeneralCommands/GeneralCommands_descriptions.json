@@ -7,7 +7,17 @@
         "AREALABEL": "Calculates the area of selected closed polylines and places square-foot labels at their centers.",
         "ADDNOTE": "Adds a note from the Project Management app Notes tab to an existing or new MText object.",
         "PROJECTCHECKLIST": "Opens a project-scoped checklist palette using checklist definitions from the desktop app and shared completion state for the current project.",
-        "PCL": "Alias for PROJECTCHECKLIST."
+        "PCL": "Alias for PROJECTCHECKLIST.",
+        "SETPANELLOCATION": "Stores a panel location in the current drawing for electrical drafting commands.",
+        "SPL": "Alias for SETPANELLOCATION.",
+        "SETSCALE": "Stores the current drawing scale for newly created electrical symbols and annotations.",
+        "SS": "Alias for SETSCALE.",
+        "SETPANELNAME": "Stores the panel name used by electrical drafting commands.",
+        "SPN": "Alias for SETPANELNAME.",
+        "HOMERUN": "Creates a scaled three-vertex Leader and panel-name MText using an interactive four-point workflow.",
+        "HR": "Alias for HOMERUN.",
+        "HRSETTINGS": "Opens a modeless palette for panel location, drawing scale, panel name, and home-run layer settings.",
+        "HRS": "Alias for HRSETTINGS."
     },
     "links": {
         "OBJMASK": "https://brainy-seahorse-3c5.notion.site/OBJMASK-2b13fdbb662c802fb082e4095528ec06",

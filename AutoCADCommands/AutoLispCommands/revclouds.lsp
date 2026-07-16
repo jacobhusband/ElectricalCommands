@@ -100,7 +100,7 @@
   )
 )
 
-(defun c:REV (/ input loop start_pt mode ent_before ent_data new_data rev_layer_name delta_layer_name temp_val approx_arc min_arc max_arc last_ent env_val env_arc discipline_prefix)
+(defun c:REV (/ input loop start_pt mode ent_before ent_data new_data rev_layer_name delta_layer_name temp_val approx_arc min_arc max_arc last_ent env_val env_arc discipline_prefix rev_osmode)
   ;; --- 1. Memory Setup ---
   (if (null *last_rev_val*)
     (progn
@@ -214,6 +214,7 @@
   )
 
   (setq ent_before (entlast))
+  (setq rev_osmode (getvar "OSMODE"))
 
   ;; --- CRITICAL FIX: Split Command Calls ---
   ;; 1. Initialize Modern Version
@@ -242,7 +243,12 @@
   )
 
   ;; 4. Let user finish the command interactively
-  (while (> (getvar "CMDACTIVE") 0) 
+  (while (> (getvar "CMDACTIVE") 0)
+    ;; REVCLOUD suppresses running object snaps after its first rectangular
+    ;; corner. Restore the user's setting before the opposite-corner prompt.
+    (if (and (= mode "_R") (/= (getvar "OSMODE") rev_osmode))
+      (setvar "OSMODE" rev_osmode)
+    )
     (command PAUSE)
   )
 
