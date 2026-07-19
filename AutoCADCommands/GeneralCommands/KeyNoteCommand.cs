@@ -341,32 +341,17 @@ namespace ElectricalCommands
 
     private static string PromptKnKeyValue(Editor ed)
     {
-      while (true)
+      PromptStringOptions pso = new PromptStringOptions("\nEnter keyed note value (e.g., 1, A, 2B, #3): ")
       {
-        PromptStringOptions pso = new PromptStringOptions("\nEnter keyed note number (e.g., 1, 2, 3): ")
-        {
-          AllowSpaces = false
-        };
-        PromptResult pr = ed.GetString(pso);
-        if (pr.Status != PromptStatus.OK) return null;
+        AllowSpaces = false
+      };
+      PromptResult pr = ed.GetString(pso);
+      if (pr.Status != PromptStatus.OK) return null;
 
-        string value = pr.StringResult?.Trim() ?? string.Empty;
-        if (value.Length == 0) return null;
+      string value = pr.StringResult?.Trim() ?? string.Empty;
+      if (value.Length == 0) return null;
 
-        if (IsPositiveInteger(value)) return value;
-
-        ed.WriteMessage("\nInvalid value. Enter a positive whole number such as 1, 2, or 3.");
-      }
-    }
-
-    private static bool IsPositiveInteger(string value)
-    {
-      if (string.IsNullOrEmpty(value)) return false;
-      foreach (char c in value)
-      {
-        if (c < '0' || c > '9') return false;
-      }
-      return int.TryParse(value, out int parsed) && parsed > 0;
+      return value;
     }
 
     private static double ResolveViewportScaleDenominator(Editor ed, Database db)
