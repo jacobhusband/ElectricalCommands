@@ -4,7 +4,11 @@
         "LFS": "Opens the lighting fixture schedule editor, where you can copy from an existing schedule table, place a new schedule table, and keep the linked table in sync.",
         "LFSOPEN": "Alias for LFS. Opens the lighting fixture schedule editor palette.",
         "LFSPULL": "Exports selected lighting fixture schedule table data to T24LightingFixtureSchedule.sync.json in the active DWG folder.",
-        "LFSPUSH": "Loads T24LightingFixtureSchedule.sync.json from the active DWG folder and applies it to a selected lighting fixture schedule table."
+        "LFSPUSH": "Loads T24LightingFixtureSchedule.sync.json from the active DWG folder and applies it to a selected lighting fixture schedule table.",
+        "LIGHTPLANSCAN": "Scans configured room-boundary polylines and light fixture blocks, then exports ACIESLightingPlan.snapshot.json beside the active drawing.",
+        "LPSCAN": "Alias for LIGHTPLANSCAN.",
+        "LIGHTPLANAPPLY": "Applies reviewed ACIES lighting fixture tags from ACIESLightingPlan.instructions.json and updates prior generated tags without duplication.",
+        "LPAPPLY": "Alias for LIGHTPLANAPPLY."
     },
     "links": {
         "TABLEANALYZE": "https://brainy-seahorse-3c5.notion.site/TABLEANALYZE-5450f3570a694cc48844e5250b29679a",

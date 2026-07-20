@@ -18,6 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="LightingPlanCommands.cs" />
     <Compile Include="..\T24Commands\Globals.cs" Link="Globals.cs" />
     <Compile Include="..\T24Commands\LightingFixtureSchedule.cs" Link="LightingFixtureSchedule.cs" />
     <Compile Include="..\T24Commands\LightingFixtureScheduleCentralStore.cs" Link="LightingFixtureScheduleCentralStore.cs" />
