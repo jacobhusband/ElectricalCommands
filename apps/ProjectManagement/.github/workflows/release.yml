@@ -1,0 +1,88 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Create build virtual environment
+        shell: pwsh
+        run: |
+          python -m venv .venv
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Create release .env
+        shell: pwsh
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_CLIENT_ID }}
+          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+          FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
+        run: |
+          $envFile = Join-Path $PWD ".env"
+          $entries = [ordered]@{
+            GOOGLE_API_KEY = [string]$env:GOOGLE_API_KEY
+            GOOGLE_OAUTH_CLIENT_ID = [string]$env:GOOGLE_OAUTH_CLIENT_ID
+            GOOGLE_CLIENT_SECRET = [string]$env:GOOGLE_CLIENT_SECRET
+            FIREBASE_API_KEY = [string]$env:FIREBASE_API_KEY
+            FIREBASE_AUTH_DOMAIN = [string]$env:FIREBASE_AUTH_DOMAIN
+            FIREBASE_PROJECT_ID = [string]$env:FIREBASE_PROJECT_ID
+            FIREBASE_APP_ID = [string]$env:FIREBASE_APP_ID
+            FIREBASE_STORAGE_BUCKET = [string]$env:FIREBASE_STORAGE_BUCKET
+            FIREBASE_MESSAGING_SENDER_ID = [string]$env:FIREBASE_MESSAGING_SENDER_ID
+          }
+          $lines = foreach ($entry in $entries.GetEnumerator()) {
+            $escapedValue = ($entry.Value ?? "").Replace('"', '\"')
+            "{0}=""{1}""" -f $entry.Key, $escapedValue
+          }
+          [System.IO.File]::WriteAllLines($envFile, $lines, [System.Text.UTF8Encoding]::new($false))
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./build-config/build.ps1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: acies-scheduler-setup
+          path: dist/setup/acies-scheduler-setup.exe
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/setup/acies-scheduler-setup.exe
+          generate_release_notes: true
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

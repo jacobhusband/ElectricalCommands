@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "isPlaceholder": true,
+  "source": "EnergyCodeAce Indoor Lighting Compliance Form",
+  "capturedAtUtc": "",
+  "fields": {
+    "occupancyType": [],
+    "projectScopeType": [],
+    "lightingSystemType": []
+  }
+}

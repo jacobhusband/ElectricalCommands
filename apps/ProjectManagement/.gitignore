@@ -1,0 +1,38 @@
+# .gitignore
+
+# Build output
+dist/
+build/
+
+# Environment
+.env
+
+# Logs
+*.log
+plot.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+WireSizerApplication/node_modules/
+WireSizerApplication/dist/
+project-pages-editor/node_modules/
+!project-pages-editor/dist/
+!project-pages-editor/dist/**
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.swp
+.idea/
+
+CircuitBreakerAI/temp_uploads/
+CircuitBreakerAI/ElectricalPanels/Filled_Panel_Schedules.xlsx
+
+nul

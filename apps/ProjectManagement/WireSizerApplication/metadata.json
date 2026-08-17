@@ -1,0 +1,5 @@
+{
+  "name": "ElectroCalc Pro",
+  "description": "Professional electrical wire sizing, conduit fill, and voltage drop calculator based on NEC tables.",
+  "requestFramePermissions": []
+}

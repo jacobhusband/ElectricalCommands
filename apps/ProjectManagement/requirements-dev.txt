@@ -1,0 +1,12 @@
+# Dev-only tooling (not required at runtime). Install with:
+#   .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+#
+# Used for dead-code / unused-code analysis:
+#   ruff    - unused imports/vars/redefinitions (F401, F811, F841, F823)
+#   vulture - unused functions/methods/classes/variables
+#
+# Front-end dead-code analysis was done with tools already present in the repo:
+#   @babel/parser and postcss (WireSizerApplication/node_modules), plus
+#   `npx purgecss` for unused CSS selectors.
+ruff
+vulture

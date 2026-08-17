@@ -1,0 +1,55 @@
+Check relevant codes that apply to the project based on local city, state, and national codes. (CEC 90.2, 90.4)
+
+Check if the tenant space has existing mechanical units on the roof that are not powered from tenant electrical panels. (CEC 430.102, 440.14)
+
+Check for unmentioned items that could need power (interior signage). (CEC 600.6)
+
+Check for occ sensor on ceiling instead of wall in storage room. (Title 24, Part 6 Section 130.1(c)1)
+
+Check for dedicated service receptacle within 25ft of electrical panels. (CEC 210.63(B)(2), 110.26(E))
+
+Check for junction box indicated as wall mount for hand dryers. (CEC 314.23, 314.29)
+
+Check for adequate space for electrical panels, relocate to BOH corridors as necessary, avoid storage rooms, IT server racks. (CEC 110.26(A), 110.26(E))
+
+Check for food waste disposer for all sinks with outlet under counter and switch above (confirm with plumbing as it is not a requirement). (CEC 422.16(B)(1), 422.31(B))
+
+Check for furniture systems and include note to "verify point of connection for furniture systems". (CEC 605)
+
+Check for controlled receptacles. Areas include: office, lobby, kitchen in office, printer/copy room, conference room, meeting room. Modular furniture workstations need at least one controlled receptacle per workstation. For every uncontrolled receptacle, there must be a controlled receptacle located within 6ft of it. Split-wires outlets are allowed with one outlet being always on and one outlet being controlled. All controlled receptacles must automatically shutoff within 20-minutes of the space being vacant via an occupancy sensor or turn off via an automatic time-switch. Additionally, all controlled receptacle must be marked with a specific symbol indicating they are controlled. Life safety systems, healthcare systems, UPS systems are typically exempt. (Title 24, Part 6 Section 130.5(d))
+
+Check for tamper proof receptacles. Provide TR receptacles in areas where children may be present such as: business offices, lobbies and waiting areas, theaters, auditoriums, gyms, bowling alleys, bus stations, airports, train stations. Exceptions include: receptacles over 5.5ft in mounting height, receptacle behind large appliances that are not easily accessible. All tamper resistant outlets are to be marked with a "TR" on the face of the outlet. (CEC 406.12)
+
+Check for rooftop mechanical units shown on RCP, ensure they are "dashed" in appearance and noted to go on the roof along with rooftop receptacle. (CEC 210.63(A), 440.14)
+
+Check for return or supply air system over 2000CFM for duct smoke requirement. If 3 800CFM units share 1 air system, then it counts as 2400CFM and needs 1 duct smoke. Any mechanical units 2000CFM or over should get duct smoke. Confirm with mechanical. (Title 24, Part 2 (CBC) Section 907.2.12.1.2)
+
+Check for hand dryer specification, if not add note to confirm exact breaker size with manufacturer. (CEC 110.3(B))
+
+Check for kAIC rating shown on single line main switchboard. (CEC 110.9, 110.10)
+
+Check for >4000W in space needing demand response. Provide necessary software and device(s) to automatically reducing the lighting power by at least 15% upon receiving a demand response signal. All demand responsive controls shall be certified as OpenADR 2.0a or OpenADR 2.0b Virtual End Node. All receptacles that are required to be controlled receptacles must be capable of shutting off in response to a demand response signal. (Title 24, Part 6 Section 110.12(a), Section 110.12(c), Section 110.12(e))
+
+Check for GFCI protection at required nonresidential receptacle locations (kitchens, outdoor, rooftops, within 6 ft of sinks, etc.). (CEC 210.8(B))
+
+Check meeting rooms for required receptacle outlets, including floor outlets when room size thresholds are met. (CEC 210.65)
+
+Check voltage drop requirements and calculations for feeders and branch circuits (<=5% combined). (Title 24, Part 6 Section 130.5(c))
+
+Check AIC ratings for panels and transformers on single line. (CEC 110.9, 110.10)
+
+Check for daylight harvesting in daylit zones. Provide daylight sensor & room controller for automatic dimming of light fixtures. Primary zone exempt at 75-watts, secondary at 85-watts. Check for indoor mall or awning blocking light for other possible exemptions. (Title 24, Part 6 Section 130.1(d))
+
+Check for dimming in all rooms that are BOTH >100sqft AND >0.5W/sqft.
+
+Check for occupancy sensors which are required in offices, conference & meeting rooms, classrooms, restrooms, multipurpose rooms, warehouses, library aisles, corridors & stairwells.
+
+Check for time-switch controls which are allowed in lobbies, retail sales floors, commercial kitchens, auditoriums & theaters, and large multipurpose rooms.
+
+Check for 2-hour bypass switch in each room controlled by automatic time controlled on/off. Provide 1 bypass switch per 5000sqft of room size. Placement should be next to the normal room switch or a part of the same control device.
+
+Check for timeclock to indoor light fixtures that has the following features: manual override up to 2-hours, battery or internal memory capable of storing schedule for at least 7 days if power goes out, and programmable holiday "SHUT-OFF" for at least 1 year in advance.
+
+Check for astronomical timeclock, photosensor located on the roof, and contactors with signage, exterior / outdoor lights, pole lights, etc. (old school). Alternatively, provide a lighting control panel with built in astronomical timeclock capabilities, digital relays with 0-10V dimming, and vacancy sensors to be compliant with the 50% minimum to 90% maximum vacancy sensor requirements. Light fixtures that require motion sensors must be dim within 15-minutes of vacancy. Exemptions: <40W fixtures, facade lighting, >25ft mounting height fixtures. (Section 130.2(c)2.B)
+
+Check for spaces that don't require multilevel controls such as: rooms under 100sqft, restrooms, rooms with only one luminaire.

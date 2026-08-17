@@ -1,0 +1,919 @@
+--- PAGE 1 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page1of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     GENERALINFORMATION                                                                                      
+                                                                                                             
+      01                ProjectName AthertonEAA                                                              
+      02                   RunTitle Title24Analysis                                                          
+      03               ProjectLocation 207AthertonAve                                                        
+      04                     City Atherton              05              StandardsVersion 2025                
+                                                                                                             
+      06                   Zipcode 94027                07              SoftwareVersion EnergyPro10.1        
+      08                 ClimateZone 3                  09      FrontOrientation(deg/Cardinal) 270           
+      10                BuildingType Singlefamily       11          NumberofDwellingUnits 1                  
+      12                ProjectScope Additionand/orAlteration 13      NumberofBedrooms 6                     
+                                                                                                             
+      14        AdditionCond.FloorArea(ft2) 4616        15              NumberofStories 2                    
+      16        ExistingCond.FloorArea(ft2) 12347       17        FenestrationAverageU-factor 0.35           
+      18          TotalCond.FloorArea(ft2) 16963        19           GlazingPercentage(%) 21.69%             
+                                                                                                             
+      20             ADUBedroomCount n/a                21        ADUConditionedFloorArea n/a                
+      22                  FuelType Naturalgas           23              NoDwellingUnit: No                   
+                                                                                                             
+     COMPLIANCERESULTS                                                                                       
+     BuildingComplieswithComputerPerformance                                                                 
+     Thisbuildingincorporatesfeaturesthatrequirefieldtestingand/orverificationbyacertifiedECCraterunderthesupervisionofaCEC-approvedECCprovider.
+     ThisbuildingincorporatesoneormoreSpecialFeaturesshownbelow                                              
+                                                                                                             
+     REQUIREDSPECIALFEATURES                                                                                 
+                                                                                                             
+     Thefollowingarefeaturesthatmustbeinstalledasconditionformeetingthemodeledenergyperformanceforthiscomputeranalysis.
+     •   Ceilinghashighlevelofinsulation                                                                     
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 2 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page2of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     ECCFEATURESUMMARY                                                                                       
+                                                                                                             
+     Thefollowingisasummaryofthefeaturesthatmustbefield-verifiedbyacertifiedECCRaterasaconditionformeetingthemodeledenergyperformanceforthiscomputeranalysis.Additional
+     detailisprovidedinthebuildingtablesbelow.RegisteredCF2RsandCF3RsarerequiredtobecompletedintheECCRegistry
+     •   Indoorairqualityventilation                                                                         
+     •   Kitchenrangehood                                                                                    
+     •   VerifiedEER/EER2                                                                                    
+     •   VerifiedSEER/SEER2                                                                                  
+     •   VerifiedHSPF2                                                                                       
+     •   Verifiedheatpumpratedheatingcapacity                                                                
+     ComplianceSummary                                                                                       
+                                     LongTermSystemCost(LSC)1         SourceEnergyUse     PeakCooling**      
+                                                                                                             
+                              Efficiency2($/ft2-yr) Total3($/ft2-yr)  Total3(kBtu/ft2-yr) Electricity(kWh)   
+                                                                                                             
+      StandardDesign             11.35                n/a                 n/a                n/a             
+                                                                                                             
+      ProposedDesign                                                                                         
+                                 11.13                n/a                 n/a                n/a             
+                                                                                                             
+      ComplianceMargins                                                                                      
+                                  0.22                n/a                 n/a                n/a             
+                                  Pass                                                                       
+                                                  RESULT*:Complies                                           
+                                                                                                             
+      1Long-termSystemCost(LSC)isa30-yearpresentvaluecosttoCalifornia'senergysystem.LSCisnotapredictedutilitybill.
+      2Efficiencymeasuresincludeenergyefficientimprovementssuchasbetterbuildingenvelopeandmoreefficientmechanicalequipment
+      3Totalincludesthesumofefficiencymeasures,solarphotovoltaic(PV)measuresandbatterystoragemeasures        
+      *BuildingcomplieswhenProposedDesignisequaltoorlessthanStandardDesigninallapplicablecompliancecategories
+      **Peakcoolingtargetrepresents120%ofthestandarddesignbuildingpeakcoolingenergyuse.                      
+      StandardDesignPVCapacity:0.00kWdc                                                                      
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 3 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page3of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     LSCANDSOURCEENERGYCOMPLIANCERESULTSFORPERFORMANCECOMPONENTS                                             
+                                                                                                             
+                                                                                      Compliance Compliance  
+         EnergyUse                                                                                           
+                    StandardDesignSource StandardDesignLSC1($/ft2 ProposedDesignSource ProposedDesignLSC1($/ft2
+                                                                                      MarginSource MarginLSC1
+                     Energy(kBtu/ft2-yr)  -yr)        Energy(kBtu/ft2-yr)  -yr)                              
+                                                                                      (kBtu/ft2-yr) ($/ft2-yr)
+        SpaceHeating      0               9.66             0               9.04          0        0.62       
+        SpaceCooling      0               0.01             0               0.06          0        -0.05      
+        IAQVentilation    0               0.6              0               0.6           0         0         
+        WaterHeating      0               1.08             0               1.43          0        -0.35      
+           Self                                                                                              
+      Utilization/Flexibility n/a         n/a              n/a              0            n/a       0         
+          Credit                                                                                             
+                                                                                                             
+      EfficiencyCompliance                                                                                   
+                          0               11.35            0               11.13         0        0.22       
+          Total                                                                                              
+       PhotovoltaicsAnd                                                                                      
+                          n/a             n/a              n/a              0            n/a       0         
+          Battery                                                                                            
+         Flexibility      n/a             n/a              n/a             n/a           n/a      n/a        
+        IndoorLighting    0               0.37             0               0.37          n/a       0         
+       Appl.&Cooking      0               0.42             0               0.42          n/a       0         
+                                                                                                             
+         PlugLoads        0               1.25             0               1.25          n/a       0         
+       OutdoorLighting    0               0.1              0               0.1           n/a       0         
+                                                                                                             
+      TOTALCOMPLIANCE     0               13.49            0               13.27        0.22                 
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 4 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page4of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     ENERGYUSEINTENSITY                                                                                      
+                                                                                                             
+                           StandardDesign(kBtu/ft2-yr) ProposedDesign(kBtu/ft2-yr) Margin(kBtu/ft2-yr) MarginPercentage
+                                                                                                             
+            GrossEUI1             6.19                6.19                0                   0              
+                                                                                                             
+             NetEUI2              6.19                6.19                0                   0              
+      Notes                                                                                                  
+       1.GrossEUIisEnergyUseTotal(notincludingPV)/TotalBuildingArea.                                         
+       2.NetEUIisEnergyUseTotal(includingPV)/TotalBuildingArea.                                              
+                                                                                                             
+     BUILDING-FEATURESINFORMATION                                                                            
+                                                                                                             
+             01              02            03           04           05            06            07          
+                                      NumberofDwelling                        NumberofVentilation NumberofWater
+          ProjectName ConditionedFloorArea(ft2)    NumberofBedrooms NumberofZones                            
+                                          Units                                CoolingSystems HeatingSystems 
+          AthertonEAA       16963          1            6            4             0             1           
+     ZONEINFORMATION                                                                                         
+           01             02            03            04            05            06             07          
+         ZoneName       ZoneType   HVACSystemName ZoneFloorArea(ft2) Avg.CeilingHeight WaterHeatingSystem1 Status
+                                                                                                             
+         Second_Ex     Conditioned     HVAC1         5610           9           DHWSys1     ExistingUnchanged
+                                                                                                             
+          First_Ex     Conditioned     HVAC1         6737           10          DHWSys1     ExistingUnchanged
+         Second_Add    Conditioned     HVAC1         1855           9           DHWSys1         New          
+                                                                                                             
+          First_Add    Conditioned     HVAC1         2761           10          DHWSys1         New          
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 5 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page5of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     OPAQUESURFACESSUMMARY                                                                                   
+                                                                                                             
+         01       02        03        04     05      06       07       08        09       10       11        
+                                                            Windowand                           VerifiedExisting
+        Name     Zone     Construction Azimuth Orientation GrossArea(ft2) Tilt(deg) WallExceptions Status    
+                                                           DoorArea(ft2)                         Condition   
+                        DefaultWallPriorto                                                                   
+       FrontWall Second_Ex           270    Front    620      44       90       none     Existing  No        
+                            197                                                                              
+                        DefaultWallPriorto                                                                   
+       LeftWall Second_Ex             0     Left     420     125.5     90       none     Existing  No        
+                            197                                                                              
+                        DefaultWallPriorto                                                                   
+       RearWall Second_Ex             90    Back     650      189      90       none     Existing  No        
+                            197                                                                              
+                        DefaultWallPriorto                                                                   
+       RightWall Second_Ex           180    Right   1030      180      90       none     Existing  No        
+                            197                                                                              
+                        DefaultWallPriorto                                                                   
+       FrontWall2 First_Ex           270    Front    600     422.5     90       none     Existing  No        
+                            197                                                                              
+                        DefaultWallPriorto                                                                   
+       LeftWall2 First_Ex             0     Left     190      25       90       none     Existing  No        
+                            197                                                                              
+                        DefaultWallPriorto                                                                   
+       RearWall2 First_Ex             90    Back    1140      174      90       none     Existing  No        
+                            197                                                                              
+                        DefaultWallPriorto                                                                   
+       RightWall2 First_Ex           180    Right    750      83       90       none     Existing  No        
+                            197                                                                              
+       FrontWall3 Second_Add R-21Wall 270   Front    820     153.5     90      Extension New       n/a       
+       LeftWall3 Second_Add R-21Wall  0     Left     770      117      90       none     New       n/a       
+       RearWall3 Second_Add R-21Wall  90    Back     840     118.5     90       none     New       n/a       
+       RightWall3 Second_Add R-21Wall 180   Right    330      17       90       none     New       n/a       
+       FrontWall4 First_Add R-21Wall 270    Front   1130     675.5     90      Extension New       n/a       
+       LeftWall4 First_Add R-21Wall   0     Left    1200      376      90       none     New       n/a       
+       RearWall4 First_Add R-21Wall   90    Back     580      376      90       none     New       n/a       
+       RightWall4 First_Add R-21Wall 180    Right    960     217.5     90       none     New       n/a       
+               Second_Ex>>Sec                                                                                
+      InteriorSurface      R-0Wall   n/a     n/a     100       0       n/a      n/a      Existing  No        
+                ond_Add                                                                                      
+      InteriorSurface First_Ex>>First_                                                                       
+                           R-0Wall   n/a     n/a     100       0       n/a      n/a      Existing  No        
+         2        Add                                                                                        
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 6 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page6of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     OPAQUESURFACESSUMMARY                                                                                   
+         01       02        03        04     05      06       07       08        09       10       11        
+                                                            Windowand                           VerifiedExisting
+        Name     Zone     Construction Azimuth Orientation GrossArea(ft2) Tilt(deg) WallExceptions Status    
+                                                           DoorArea(ft2)                         Condition   
+        Roof2   Second_Ex R-38RoofAttic n/a  n/a    5610      n/a      n/a      n/a      Altered   No        
+        Roof3    First_Ex R-38RoofAttic n/a  n/a    1127      n/a      n/a      n/a      Altered   No        
+        Roof4   Second_Add R-38RoofAttic n/a n/a    1855      n/a      n/a      n/a      New       n/a       
+        Roof5   First_Add R-38RoofAttic n/a  n/a     520      n/a      n/a      n/a      New       n/a       
+                          DefaultFloor                                                                       
+       RaisedFloor First_Ex          n/a     n/a    6737      n/a      n/a      n/a      Existing  No        
+                          Crawlspace                                                                         
+                           R-19Floor                                                                         
+      RaisedFloor2 First_Add         n/a     n/a    2761      n/a      n/a      n/a      New       n/a       
+                          Crawlspace                                                                         
+      InteriorSurface     R-0FloorNo                                                                         
+                Second_Ex            n/a     n/a    5610      n/a      n/a      n/a      Existing  No        
+         3                Crawlspace                                                                         
+      InteriorSurface     R-0FloorNo                                                                         
+                Second_Add           n/a     n/a    1855      n/a      n/a      n/a      New       n/a       
+         4                Crawlspace                                                                         
+     OPAQUESURFACES-CATHEDRALCEILINGS                                                                        
+         01      02      03      04       05      06      07      08       09      10      11      12        
+                                                                        CRRCRated CRRCRated       Verified   
+                                                       SkylightArea RoofRise(xin                             
+        Name    Zone  Construction Azimuth Orientation Area(ft2)          Roof    Roof    Status  Existing   
+                                                          (ft2)   12)                                        
+                                                                        Reflectance Emittance     Condition  
+                       R-38Roof                                                                              
+        Roof   First_Add          0      Left    386.1    386     12       0.1    0.85     New     n/a       
+                        Attic1                                                                               
+     ATTIC                                                                                                   
+         01        02        03        04        05        06        07        08a       09        10        
+                                             CRRCRatedRoof CRRCRatedRoof   AboveRoofDeck       VerifiedExisting
+        Name     Construction Type RoofRise(xin12)                RadiantBarrier        Status               
+                                               Reflectance Emittance          AirGap             Condition   
+                   Attic                                                                                     
+      AtticSecond_Ex       Ventilated  12        0.1      0.85       No        No      Existing    No        
+                RoofSecond_Ex                                                                                
+       AtticFirst_Ex AtticRoofFirst_Ex Ventilated 12 0.1  0.85       No        No      Existing    No        
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 7 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page7of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     ATTIC                                                                                                   
+         01        02        03        04        05        06        07        08a       09        10        
+                                                                                                             
+                                             CRRCRatedRoof CRRCRatedRoof   AboveRoofDeck       VerifiedExisting
+        Name     Construction Type RoofRise(xin12)                RadiantBarrier        Status               
+                                               Reflectance Emittance          AirGap             Condition   
+                   Attic                                                                                     
+      AtticSecond_Add      Ventilated  12        0.1      0.85       No        No       New       n/a        
+                RoofSecond_Add                                                                               
+                   Attic                                                                                     
+      AtticFirst_Add       Ventilated  12        0.1      0.85       No        No       New       n/a        
+                RoofFirst_Add                                                                                
+     FENESTRATION/GLAZING                                                                                    
+        01      02     03      04      05     06      07      08     09      10      11     12      13       
+                                                                                                  Verified   
+                                                                            Rating Exceptionto               
+       Name    Type   Surface Orientation Azimuth Mult. Area(ft2) U-factor SHGC            Status Existing   
+                                                                            Source 150.0(q)*                 
+                                                                                                  Condition  
+       W202A  Window FrontWall Front  270      1      11     0.27    0.35   NFRC            New     NA       
+       W202A2 Window FrontWall Front  270      1      11     0.27    0.35   NFRC            New     NA       
+       W202A3 Window FrontWall Front  270      1      11     0.27    0.35   NFRC            New     NA       
+       W208   Window FrontWall Front  270      1      5.5    0.27    0.35   NFRC           Altered  No       
+       W2082  Window FrontWall Front  270      1      5.5    0.27    0.35   NFRC           Altered  No       
+       W210   Window  LeftWall Left    0       1      9.5    0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W2102  Window  LeftWall Left    0       1      9.5    0.27    0.35   NFRC            New     NA       
+       W211A  Window  LeftWall Left    0       1      24     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W211B  Window  LeftWall Left    0       1      12     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W212   Window  LeftWall Left    0       1      24     0.27    0.35   NFRC            New     NA       
+       W202A4 Window  LeftWall Left    0       1      11     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W202B  Window  LeftWall Left    0       1      23     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 8 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page8of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     FENESTRATION/GLAZING                                                                                    
+        01      02     03      04      05     06      07      08     09      10      11     12      13       
+                                                                                                             
+                                                                                                  Verified   
+                                                                            Rating Exceptionto               
+       Name    Type   Surface Orientation Azimuth Mult. Area(ft2) U-factor SHGC            Status Existing   
+                                                                            Source 150.0(q)*                 
+                                                                                                  Condition  
+       WE13B  Window  LeftWall Left    0       1      12.5   0.27    0.35   NFRC           Altered  No       
+       WE12B  Window  RearWall Back    90      1      9.5    0.27    0.35   NFRC           Altered  No       
+       WE12A  Window  RearWall Back    90      1      9      0.27    0.35   NFRC           Altered  No       
+      WE12A2  Window  RearWall Back    90      1      9      0.27    0.35   NFRC           Altered  No       
+       WE12   Window  RearWall Back    90      1      22.5   0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+       WE122  Window  RearWall Back    90      1      22.5   0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+       WE13A  Window  RearWall Back    90      1      47.5   0.27    0.35   NFRC           Altered  No       
+      WE13AA  Window  RearWall Back    90      1      21.5   0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+       WE14B  Window  RearWall Back    90      1      19     0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+       WE17A  Window  RearWall Back    90      1      9      0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+       WE17B  Window  RearWall Back    90      1      19.5   0.27    0.35   NFRC           Altered  No       
+       W211A2 Window  RightWall Right 180      1      24     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W211A3 Window  RightWall Right 180      1      24     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W2103  Window  RightWall Right 180      1      9.5    0.27    0.35   NFRC            New     NA       
+       W2104  Window  RightWall Right 180      1      9.5    0.27    0.35   NFRC            New     NA       
+                                                                                                             
+      WE13B2  Window  RightWall Right 180      1      12.5   0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+      WE13AB  Window  RightWall Right 180      1      15     0.27    0.35   NFRC           Altered  No       
+      WE13AB2 Window  RightWall Right 180      1      15     0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 9 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page9of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     FENESTRATION/GLAZING                                                                                    
+        01      02     03      04      05     06      07      08     09      10      11     12      13       
+                                                                                                             
+                                                                                                  Verified   
+                                                                            Rating Exceptionto               
+       Name    Type   Surface Orientation Azimuth Mult. Area(ft2) U-factor SHGC            Status Existing   
+                                                                            Source 150.0(q)*                 
+                                                                                                  Condition  
+       WE13C  Window  RightWall Right 180      1      14.5   0.27    0.35   NFRC           Altered  No       
+       WE14   Window  RightWall Right 180      1      29.5   0.27    0.35   NFRC           Altered  No       
+       WE18   Window  RightWall Right 180      1      19.5   0.27    0.35   NFRC           Altered  No       
+       WE20   Window  RightWall Right 180      1      7      0.27    0.35   NFRC           Altered  No       
+       W101   Window FrontWall2 Front 270      1      54     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W1012  Window FrontWall2 Front 270      1      54     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       D101B  Window FrontWall2 Front 270      1      54     0.35    0.4    NFRC            New     NA       
+       D101B2 Window FrontWall2 Front 270      1      54     0.35    0.4    NFRC            New     NA       
+                                                                                                             
+       D101B3 Window FrontWall2 Front 270      1      54     0.35    0.4    NFRC            New     NA       
+                                                                                                             
+       WE-01  Window FrontWall2 Front 270      1      30.5   0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+       WE-012 Window FrontWall2 Front 270      1      30.5   0.27    0.35   NFRC           Altered  No       
+       WE-013 Window FrontWall2 Front 270      1      30.5   0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+       WE-014 Window FrontWall2 Front 270      1      30.5   0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+       WE-015 Window FrontWall2 Front 270      1      30.5   0.27    0.35   NFRC           Altered  No       
+       WE-05B Window LeftWall2 Left    0       1      25     0.27    0.35   NFRC           Altered  No       
+                                                                                                             
+                                                                            Table                            
+      Window_Ex Window RearWall2 Back  90      1      39     0.58    0.65                  Existing No       
+                                                                            110.6-B                          
+       D107B  Window RearWall2 Back    90      1      85     0.35    0.4    NFRC           Altered  No       
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 10 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page10of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     FENESTRATION/GLAZING                                                                                    
+        01      02     03      04      05     06      07      08     09      10      11     12      13       
+                                                                                                             
+                                                                                                  Verified   
+                                                                            Rating Exceptionto               
+       Name    Type   Surface Orientation Azimuth Mult. Area(ft2) U-factor SHGC            Status Existing   
+                                                                            Source 150.0(q)*                 
+                                                                                                  Condition  
+       WE-05A Window RearWall2 Back    90      1      50     0.27    0.35   NFRC           Altered  No       
+      WE-05B2 Window RightWall2 Right 180      1      25     0.27    0.35   NFRC           Altered  No       
+      WE-05A2 Window RightWall2 Right 180      1      51     0.27    0.35   NFRC           Altered  No       
+       WE-06A Window RightWall2 Right 180      1      7      0.27    0.35   NFRC           Altered  No       
+       W213B  Window FrontWall3 Front 270      1      6      0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W206   Window FrontWall3 Front 270      1      95.5   0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W207   Window FrontWall3 Front 270      1      23     0.27    0.35   NFRC            New     NA       
+       W2072  Window FrontWall3 Front 270      1      23     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W213B2 Window FrontWall3 Front 270      1      6      0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W213A  Window LeftWall3 Left    0       1      24     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       D201A  Window LeftWall3 Left    0       1      82     0.35    0.4    NFRC            New     NA       
+       W204B  Window LeftWall3 Left    0       1      11     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W204A  Window RearWall3 Back    90      1      47     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W201   Window RearWall3 Back    90      1      71.5   0.27    0.35   NFRC            New     NA       
+       W213B3 Window RightWall3 Right 180      1      6      0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W204B2 Window RightWall3 Right 180      1      11     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       D105A  Window FrontWall4 Front 270      1      434    0.55    0.4    NFRC            New     NA       
+       W106   Window FrontWall4 Front 270      1      30     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 11 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page11of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     FENESTRATION/GLAZING                                                                                    
+        01      02     03      04      05     06      07      08     09      10      11     12      13       
+                                                                                                             
+                                                                                                  Verified   
+                                                                            Rating Exceptionto               
+       Name    Type   Surface Orientation Azimuth Mult. Area(ft2) U-factor SHGC            Status Existing   
+                                                                            Source 150.0(q)*                 
+                                                                                                  Condition  
+       W1062  Window FrontWall4 Front 270      1      30     0.27    0.35   NFRC            New     NA       
+       W1063  Window FrontWall4 Front 270      1      30     0.27    0.35   NFRC            New     NA       
+       W1064  Window FrontWall4 Front 270      1      30     0.27    0.35   NFRC            New     NA       
+       W1065  Window FrontWall4 Front 270      1      30     0.27    0.35   NFRC            New     NA       
+       D107A  Window FrontWall4 Front 270      1      54     0.35    0.4    NFRC            New     NA       
+                                                                                                             
+       W110D  Window FrontWall4 Front 270      1      25     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W110C  Window FrontWall4 Front 270      1      12.5   0.27    0.35   NFRC            New     NA       
+       D110A  Window LeftWall4 Left    0       1      45     0.35    0.4    NFRC            New     NA       
+                                                                                                             
+       W110A  Window LeftWall4 Left    0       1      18     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W110B  Window LeftWall4 Left    0       1      45     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W110B2 Window LeftWall4 Left    0       1      45     0.27    0.35   NFRC            New     NA       
+       W110B3 Window LeftWall4 Left    0       1      45     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W103A  Window LeftWall4 Left    0       1      25     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W104C  Window LeftWall4 Left    0       1      45     0.27    0.35   NFRC            New     NA       
+       W1013  Window LeftWall4 Left    0       1      54     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       D101B4 Window LeftWall4 Left    0       1      54     0.35    0.4    NFRC            New     NA       
+                                                                                                             
+       W110C2 Window RearWall4 Back    90      1      12.5   0.27    0.35   NFRC            New     NA       
+       W110C3 Window RearWall4 Back    90      1      12.5   0.27    0.35   NFRC            New     NA       
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 12 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page12of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     FENESTRATION/GLAZING                                                                                    
+        01      02     03      04      05     06      07      08     09      10      11     12      13       
+                                                                                                             
+                                                                                                  Verified   
+                                                                            Rating Exceptionto               
+       Name    Type   Surface Orientation Azimuth Mult. Area(ft2) U-factor SHGC            Status Existing   
+                                                                            Source 150.0(q)*                 
+                                                                                                  Condition  
+      W110D2  Window RearWall4 Back    90      1      25     0.27    0.35   NFRC            New     NA       
+       W102   Window RearWall4 Back    90      1      12.5   0.27    0.35   NFRC            New     NA       
+       W1022  Window RearWall4 Back    90      1      12.5   0.27    0.35   NFRC            New     NA       
+       W103B  Window RearWall4 Back    90      1      51.5   0.27    0.35   NFRC            New     NA       
+       W104A  Window RearWall4 Back    90      1      54     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W104A2 Window RearWall4 Back    90      1      54     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W104B  Window RearWall4 Back    90      1      27     0.27    0.35   NFRC            New     NA       
+       W104B2 Window RearWall4 Back    90      1      27     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W104C2 Window RearWall4 Back    90      1      45     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       D104   Window RearWall4 Back    90      1      42.5   0.35    0.4    NFRC            New     NA       
+                                                                                                             
+       D106A  Window RightWall4 Right 180      1      37     0.35    0.4    NFRC            New     NA       
+       D110A2 Window RightWall4 Right 180      1      45     0.35    0.4    NFRC            New     NA       
+                                                                                                             
+       W110C4 Window RightWall4 Right 180      1      12.5   0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W110C5 Window RightWall4 Right 180      1      12.5   0.27    0.35   NFRC            New     NA       
+       W110E  Window RightWall4 Right 180      1      14     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W110E2 Window RightWall4 Right 180      1      14     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+       W110C6 Window RightWall4 Right 180      1      12.5   0.27    0.35   NFRC            New     NA       
+       W103A2 Window RightWall4 Right 180      1      25     0.27    0.35   NFRC            New     NA       
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 13 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page13of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     FENESTRATION/GLAZING                                                                                    
+        01      02     03      04      05     06      07      08     09      10      11     12      13       
+                                                                                                             
+                                                                                                  Verified   
+                                                                            Rating Exceptionto               
+       Name    Type   Surface Orientation Azimuth Mult. Area(ft2) U-factor SHGC            Status Existing   
+                                                                            Source 150.0(q)*                 
+                                                                                                  Condition  
+       W104C3 Window RightWall4 Right 180      1      45     0.27    0.35   NFRC            New     NA       
+       Skylight Skylight Roof  Left    0       1      386    0.55    0.3    NFRC            New     NA       
+      *ProjectincludesfenestrationnotsubjecttomaximumU-factorrequirementperException1/Exception2/Exception3toSection150.0(q).
+                    TotalNorthFacingFenestration     1029.5                                                  
+                    TotalEastFacingFenestration      857.5                                                   
+                                                                                                             
+                    TotalSouthFacingFenestration     497.5                                                   
+                                                                                                             
+                    TotalWestFacingFenestration      1295.5                                                  
+                                                                                                             
+     OPAQUESURFACECONSTRUCTIONS                                                                              
+            01           02          03             04          05        06      07       08        09      
+                                                                                                             
+                                                                      Interior/Exterior            Non-Std   
+                                                              TotalCavity                                    
+       ConstructionName SurfaceType ConstructionType Framing           Continuous U-factor AssemblyLayers Spray
+                                                               R-value                                       
+                                                                        R-value                     Foam     
+                                                                                         InsideFinish:       
+                                                                                        GypsumBoard          
+                                                                                       Cavity/Frame:no       
+      DefaultWallPriorto197 ExteriorWalls WoodFramedWall 2x6@16in.O.C. R-0 None/None 0.347                   
+                                                                                         insul./2x6          
+                                                                                        ExteriorFinish:3     
+                                                                                         CoatStucco          
+                                                                                         InsideFinish:       
+                                                                                        GypsumBoard          
+                                                                                       Cavity/Frame:R-21     
+          R-21Wall    ExteriorWalls WoodFramedWall 2x6@16in.O.C. R-21  None/None 0.069                       
+                                                                                           /2x6              
+                                                                                        ExteriorFinish:3     
+                                                                                         CoatStucco          
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 14 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page14of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     OPAQUESURFACECONSTRUCTIONS                                                                              
+            01           02          03             04          05        06      07       08        09      
+                                                                      Interior/Exterior            Non-Std   
+                                                              TotalCavity                                    
+       ConstructionName SurfaceType ConstructionType Framing           Continuous U-factor AssemblyLayers Spray
+                                                               R-value                                       
+                                                                        R-value                     Foam     
+                                                                                       Roofing:LightRoof     
+                                                                                        (AsphaltShingle)     
+                                                                                       RoofDeck:Wood         
+                                                                                      Siding/sheathing/dec   
+        R-38RoofAttic1 CathedralCeilings WoodFramedCeiling 2x4@24in.O.C. R-38 None/None 0.036 king           
+                                                                                       Cavity/Frame:R-38     
+                                                                                           /2x4              
+                                                                                         InsideFinish:       
+                                                                                        GypsumBoard          
+                                                                                         InsideFinish:       
+                                                                                        GypsumBoard          
+                                                                                       Cavity/Frame:no       
+          R-0Wall     InteriorWalls WoodFramedWall 2x4@16in.O.C. R-0   None/None 0.277                       
+                                                                                         insul./2x4          
+                                                                                       OtherSideFinish:      
+                                                                                        GypsumBoard          
+                                                                                       Roofing:LightRoof     
+                                                                                        (AsphaltShingle)     
+                                                                                       RoofDeck:Wood         
+       AtticRoofSecond_Ex AtticRoofs WoodFramedCeiling 2x4@24in.O.C. R-0 None/0  0.644 Siding/sheathing/dec  
+                                                                                           king              
+                                                                                       Cavity/Frame:no       
+                                                                                         insul./2x4          
+                                                                                       Roofing:LightRoof     
+                                                                                        (AsphaltShingle)     
+                                                                                       RoofDeck:Wood         
+        AtticRoofFirst_Ex AtticRoofs WoodFramedCeiling 2x4@24in.O.C. R-0 None/0  0.644 Siding/sheathing/dec  
+                                                                                           king              
+                                                                                       Cavity/Frame:no       
+                                                                                         insul./2x4          
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 15 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page15of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     OPAQUESURFACECONSTRUCTIONS                                                                              
+            01           02          03             04          05        06      07       08        09      
+                                                                      Interior/Exterior            Non-Std   
+                                                              TotalCavity                                    
+       ConstructionName SurfaceType ConstructionType Framing           Continuous U-factor AssemblyLayers Spray
+                                                               R-value                                       
+                                                                        R-value                     Foam     
+                                                                                       Roofing:LightRoof     
+                                                                                        (AsphaltShingle)     
+                                                                                       RoofDeck:Wood         
+       AtticRoofSecond_Add AtticRoofs WoodFramedCeiling 2x4@24in.O.C. R-0 None/0 0.644 Siding/sheathing/dec  
+                                                                                           king              
+                                                                                       Cavity/Frame:no       
+                                                                                         insul./2x4          
+                                                                                       Roofing:LightRoof     
+                                                                                        (AsphaltShingle)     
+                                                                                       RoofDeck:Wood         
+       AtticRoofFirst_Add AtticRoofs WoodFramedCeiling 2x4@24in.O.C. R-0 None/0  0.644 Siding/sheathing/dec  
+                                                                                           king              
+                                                                                       Cavity/Frame:no       
+                                                                                         insul./2x4          
+                                                                                        FloorSurface:        
+                                                                                          Carpeted           
+                                                                                       FloorDeck:Wood        
+                       FloorsOver                                                                            
+      DefaultFloorCrawlspace     WoodFramedFloor 2x12@16in.O.C. R-0    None/None 0.216 Siding/sheathing/dec  
+                       Crawlspace                                                                            
+                                                                                           king              
+                                                                                       Cavity/Frame:no       
+                                                                                         insul./2x12         
+                                                                                        FloorSurface:        
+                                                                                          Carpeted           
+                                                                                       FloorDeck:Wood        
+                       FloorsOver                                                                            
+       R-19FloorCrawlspace       WoodFramedFloor 2x10@16in.O.C. R-19   None/None 0.046 Siding/sheathing/dec  
+                       Crawlspace                                                                            
+                                                                                           king              
+                                                                                       Cavity/Frame:R-19     
+                                                                                          /2x10              
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 16 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page16of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     OPAQUESURFACECONSTRUCTIONS                                                                              
+            01           02          03             04          05        06      07       08        09      
+                                                                      Interior/Exterior            Non-Std   
+                                                              TotalCavity                                    
+       ConstructionName SurfaceType ConstructionType Framing           Continuous U-factor AssemblyLayers Spray
+                                                               R-value                                       
+                                                                        R-value                     Foam     
+                                                                                       OverCeilingJoists:    
+                                                                                         R-28.9insul.        
+                                                                                       Cavity/Frame:R-9.1    
+        R-38RoofAttic Ceilings(belowattic) WoodFramedCeiling 2x4@24in.O.C. R-38 None/None 0.025              
+                                                                                           /2x4              
+                                                                                         InsideFinish:       
+                                                                                        GypsumBoard          
+                                                                                        FloorSurface:        
+                                                                                          Carpeted           
+                                                                                       FloorDeck:Wood        
+                                                                                      Siding/sheathing/dec   
+      R-0FloorNoCrawlspace InteriorFloors WoodFramedFloor 2x12@16in.O.C. R-0 None/None 0.196 king            
+                                                                                       Cavity/Frame:no       
+                                                                                         insul./2x12         
+                                                                                       CeilingBelowFinish:   
+                                                                                        GypsumBoard          
+     WATERHEATINGSYSTEMS                                                                                     
+         01      02      03       04     05      06      07       08      09       10      11      12        
+                                                                                          Verified ExistingWater
+                       Distribution WaterHeater Numberof SolarHeating Compact ECC WaterHeater                
+        Name  SystemType                                                          Status  Existing Heating   
+                         Type    Name    Units System  Distribution Verification Name(#)                     
+                                                                                         Condition System    
+              DomesticHot      DHWHeater                                DHWHeater                            
+       DHWSys1          Standard          3     n/a     None     n/a              New      NA      n/a       
+              Water(DHW)          1                                       1(3)                               
+                                                                                                             
+                                                                                                             
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 17 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page17of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     WATERHEATERS                                                                                            
+                                                                                                             
+        01    02      03     04    05    06     07    08    09     10    11     12     13     14    15       
+                                                                  Tank  Standby                              
+             Heating                    Heating             Input              1stHr.              Verified  
+                             #of TankVol.            Rated       Insulation Lossor                           
+       Name Element TankType           Efficiency Efficiency Ratingor         Ratingor TankLocation Status Existing
+                            Units (gal)             InputType     R-value Recovery                           
+             Type                        Type               Pilot             FlowRate             Condition 
+                                                                 (Int/Ext) Eff                               
+       DHW          Consumer                                                                                 
+              Gas            3     0     UEF   0.81  Btu/Hr 200000 0     n/a   n/a     n/a    New   n/a      
+      Heater1      Instantaneous                                                                             
+     HVAC-HEATPUMPS                                                                                          
+       01     02    03    04    05    06    06b    07    08    09     10    11    12    13    14     15      
+                                     Heating                  Cooling                                        
+                                                                                FanPower           Verified  
+       Name Sy T s y t p e e m N of u U m n b i e ts r E H ff e ic a i t e i n n c g y H F S 2 P / F C / O H P SP Cap47 Cap17 Backup E C ff o ic o ie li n n c g y SEE R R 2 /SEE EER C / E E E E R R2/ A T i a r r f g lo e w t (Wa M tts } /CF V S a p ri e a e b d le Status C E o x n i d st i i t n io g n
+                         Type                           Type                                                 
+       Heat Multi-split                                                                                      
+                                                       EER2/SEER                                             
+       Pump  HP-    3    HSPF2  10    40000 26000              20     13    0     0          Altered No      
+                                                         2                                                   
+      System1 ductless                                                                                       
+     INDOORAIRQUALITY(IAQ)FANS                                                                               
+           01          02          03           04          05           06          07          08          
+                                                       IncludesHeat/Energy IAQRecovery IncludesFault         
+        DwellingUnit Airflow(CFM) FanEfficacy(W/CFM) IAQFanType                                 Status       
+                                                          Recovery? Effectiveness-ASRE IndicatorDisplay?     
+       SFamIAQVentRpt  498         0.35       Exhaust       No         n/a/n/a       No                      
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
+
+--- PAGE 18 ---
+                                                                                                             
+                                                                                                             
+                                                                                                             
+     CERTIFICATEOFCOMPLIANCE-RESIDENTIALPERFORMANCECOMPLIANCEMETHOD                             CF1R-PRF-01-E
+     ProjectName:AthertonEAA                           CalculationDate/Time:2026-06-21T05:46:48-07:00 (Page18of18)
+     CalculationDescription:Title24Analysis            InputFileName:BuildingMR1.ribd25x                     
+                                                                                                             
+     DOCUMENTATIONAUTHOR'SDECLARATIONSTATEMENT                                                               
+     1.IcertifythatthisCertificateofCompliancedocumentationisaccurateandcomplete.                            
+     DocumentationAuthorName:                          DocumentationAuthorSignature:                         
+     John Tao                                                                                                
+                                                                                                             
+     Company:                                          SignatureDate:                                        
+     Basaltic, Inc                                     06/21/2026                                            
+     Address:                                          CEA/AEA/ECCCertificationIdentification(ifapplicable): 
+     2615 MacArthur Blvd                                                                                     
+     City/State/Zip:                                   Phone:                                                
+     Oakland, CA 94602                                 (510) 967-1299                                        
+     RESPONSIBLEPERSON'SDECLARATIONSTATEMENT                                                                 
+                                                                                                             
+     Icertifythefollowingunderpenaltyofperjury,underthelawsoftheStateofCalifornia:                           
+       1.  TheinformationprovidedonthisCertificateofComplianceistrueandcorrect.                              
+       2.  IameligibleunderDivision3oftheBusinessandProfessionsCodetoacceptresponsibilityforthebuildingdesignorsystemdesignidentifiedonthisCertificateofCompliance(responsibledesigner).
+       3.  Theenergyfeaturesandperformancespecifications,materials,components,andmanufactureddevicesforthebuildingdesignorsystemdesignidentifiedonthisCertificateofComplianceconformtothe
+           requirementsofTitle24,Part1andPart6oftheCaliforniaCodeofRegulations.                              
+       4.  ThebuildingdesignfeaturesorsystemdesignfeaturesidentifiedonthisCertificateofComplianceareconsistentwiththeinformationprovidedonotherapplicablecompliancedocuments,worksheets,
+           calculations,plansandspecificationssubmittedtotheenforcementagencyforapprovalwiththisbuildingpermitapplication.
+       5.  IunderstandthataregisteredcopyofthisCertificateofComplianceshallbemadeavailablewiththebuildingpermit(s)issuedforthebuildingandshallbemadeavailabletotheenforcementagencyforall
+           applicableinspections.Iwilltakethenecessarystepstofulfillthisrequirement.                         
+       6.  IunderstandthataregisteredcopyofthisCertificateofComplianceisrequiredtobeincludedwiththedocumentationthebuilderprovidestothebuildingowneratoccupancy.Iwilltakethenecessarystepsto
+           fulfillthisrequirement.                                                                           
+     ResponsibleDesignerName:                          ResponsibleDesignerSignature:                         
+     Joseph Mak                                                                                              
+     Company:                                          DateSigned:                                           
+     LADC Construction Inc                             06/21/2026                                            
+     Address:                                          License:                                              
+     2380 Qume Dr. Ste E                               1050698                                               
+     City/State/Zip:                                   Phone:                                                
+     San Jose, CA 95131                                (408) 642-1628                                        
+                                                                                                             
+       Digitally signed by California Home Energy Efficiency Rating Services (CHEERS). This digital signature is provided in order to secure the content of this
+       registered document, and in no way implies Registration Provider responsibility for the accuracy of the information.
+                                                                                                             
+      RegistrationNumber: 426-P010185667A-000-000-0000000-0000 RegistrationDate/Time: 0 6/21/2026 05:51 ECCProvider: CHEERS
+     NOTICE: This document has been generated by California Home Energy Efficiency Rating Services (CHEERS) using information uploaded by third parties not affiliated with or related to CHEERS. Therefore, CHEERS is not responsible for, and
+     cannot guarantee, the accuracy or completeness of the information contained in this document.           
+      CABuildingEnergyEfficiencyStandards-2025Single-FamilyCompliance ReportVersion:2025.0.000 ReportGenerated:2026-06-21 05:47:46
+                                                  SchemaVersion:rev20250101                                  
