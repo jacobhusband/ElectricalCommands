@@ -1,0 +1,26 @@
+{
+  "folders": [
+    {
+      "name": "ACIES-Tools (Root)",
+      "path": "."
+    },
+    {
+      "name": "ElectricalCommands (AutoCAD Plugin)",
+      "path": "apps/ElectricalCommands"
+    },
+    {
+      "name": "ProjectManagement (Web/App)",
+      "path": "apps/ProjectManagement"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.git": true,
+      "**/.DS_Store": true,
+      "**/__pycache__": true,
+      "**/*.pyc": true
+    },
+    "dotnet.dotnetPath": "C:\\Users\\JacobH\\OneDrive - ACIES Engineering\\Documents\\dotnet-sdk\\dotnet.exe",
+    "python.defaultInterpreterPath": "${workspaceFolder:ProjectManagement (Web/App)}/.venv/Scripts/python.exe"
+  }
+}
