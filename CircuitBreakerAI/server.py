@@ -488,7 +488,7 @@ async def analyze_panel_endpoint(
         enforce_rate_limit()
 
         response = client.models.generate_content(
-            model="gemini-3.5-flash",
+            model="gemini-3.6-flash",
             contents=[prompt, *gemini_images],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json", response_schema=PanelData),
@@ -648,7 +648,7 @@ async def analyze_panel_stream_endpoint(
             enforce_rate_limit()
 
             response = client.models.generate_content(
-                model="gemini-3.5-flash",
+                model="gemini-3.6-flash",
                 contents=[prompt, *gemini_images],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json", response_schema=PanelData),

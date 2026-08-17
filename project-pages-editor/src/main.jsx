@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Node, mergeAttributes } from "@tiptap/core";
+import { Extension, Node, mergeAttributes } from "@tiptap/core";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Color from "@tiptap/extension-color";
 import { Details, DetailsContent, DetailsSummary } from "@tiptap/extension-details";
@@ -86,6 +88,38 @@ function stripTransientPageHtml(html) {
     link.setAttribute("contenteditable", "false");
   });
   return rootEl.innerHTML;
+}
+
+const PAGE_EMAIL_DROP_BLOCK_SELECTOR = "p, h1, h2, h3, li, blockquote, td, th, pre";
+
+// Only claim drops that carry real payload. Internal ProseMirror drags (moving a
+// selection) and plain link drops must keep falling through to the default handling.
+function looksLikeExternalEmailDrop(dataTransfer) {
+  const types = Array.from(dataTransfer?.types || []).map((type) => String(type).toLowerCase());
+  if (types.includes("files")) return true;
+  return types.some(
+    (type) => type.startsWith("filegroupdescriptor") || type.startsWith("renprivate")
+  );
+}
+
+function clearEmailDropTarget(view) {
+  const marked = view?.dom?.querySelectorAll?.(".is-email-drop-target");
+  if (!marked) return;
+  Array.from(marked).forEach((element) => element.classList.remove("is-email-drop-target"));
+}
+
+function setEmailDropTarget(view, pos) {
+  clearEmailDropTarget(view);
+  if (!view || !Number.isInteger(pos) || pos < 0 || pos > view.state.doc.content.size) return;
+  let domAt = null;
+  try {
+    domAt = view.domAtPos(pos);
+  } catch (_) {
+    return;
+  }
+  const node = domAt?.node?.nodeType === 1 ? domAt.node : domAt?.node?.parentElement;
+  const block = node?.closest?.(PAGE_EMAIL_DROP_BLOCK_SELECTOR);
+  if (block && view.dom.contains(block)) block.classList.add("is-email-drop-target");
 }
 
 function getActiveBlockRect(editor, selector) {
@@ -202,6 +236,93 @@ const PageLink = Node.create({
   addCommands() {
     return {
       insertPageLink:
+        (attrs) =>
+        ({ chain }) =>
+          chain().insertContent({ type: this.name, attrs }).run(),
+    };
+  },
+});
+
+// Mirrors the host's emailRef shape (normalizeEmailRef in script.js) flattened onto
+// data-* attributes: a page is persisted as one HTML blob, so there is nowhere else
+// for the reference to live.
+const PAGE_EMAIL_ATTRS = [
+  ["raw", "data-email-raw"],
+  ["url", "data-email-url"],
+  ["label", "data-email-label"],
+  ["source", "data-email-source"],
+  ["messageId", "data-email-message-id"],
+  ["internetMessageId", "data-email-internet-id"],
+  ["savedAt", "data-email-saved-at"],
+];
+
+function readPageEmailAttrs(element) {
+  const attrs = {};
+  PAGE_EMAIL_ATTRS.forEach(([key, attribute]) => {
+    attrs[key] = element?.getAttribute?.(attribute) || "";
+  });
+  return attrs;
+}
+
+const PageEmail = Node.create({
+  name: "pageEmail",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: false,
+
+  addAttributes() {
+    const attributes = {};
+    PAGE_EMAIL_ATTRS.forEach(([key, attribute]) => {
+      attributes[key] = {
+        default: "",
+        parseHTML: (element) => element.getAttribute(attribute) || "",
+      };
+    });
+    return attributes;
+  },
+
+  parseHTML() {
+    return [{ tag: "span.page-email[data-email-raw]" }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    const dataAttrs = { class: "page-email", contenteditable: "false" };
+    PAGE_EMAIL_ATTRS.forEach(([key, attribute]) => {
+      dataAttrs[attribute] = HTMLAttributes[key] || "";
+    });
+    const label = HTMLAttributes.label || "Email";
+    return [
+      "span",
+      mergeAttributes(dataAttrs),
+      ["span", { class: "page-email-icon", "aria-hidden": "true" }, "@"],
+      [
+        "button",
+        {
+          type: "button",
+          class: "page-email-label",
+          "data-email-action": "open",
+          title: `Open ${label}`,
+        },
+        label,
+      ],
+      [
+        "button",
+        {
+          type: "button",
+          class: "page-email-action page-email-remove",
+          "data-email-action": "remove",
+          title: "Remove email",
+          "aria-label": "Remove email",
+        },
+        "x",
+      ],
+    ];
+  },
+
+  addCommands() {
+    return {
+      insertPageEmail:
         (attrs) =>
         ({ chain }) =>
           chain().insertContent({ type: this.name, attrs }).run(),
@@ -364,6 +485,118 @@ const PageCallout = Node.create({
   },
 });
 
+const IMPORTANT_BLOCK_TYPES = ["paragraph", "heading"];
+const pageImportantPluginKey = new PluginKey("pageImportant");
+
+function findImportantBlock($from) {
+  for (let depth = $from.depth; depth >= 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (IMPORTANT_BLOCK_TYPES.includes(node.type.name)) {
+      return { node, pos: $from.before(depth) };
+    }
+  }
+  return null;
+}
+
+function buildImportantFlagDom(view, getPos) {
+  const flag = document.createElement("span");
+  flag.className = "page-important-flag";
+  flag.setAttribute("contenteditable", "false");
+  flag.setAttribute("role", "button");
+  flag.setAttribute("tabindex", "-1");
+  flag.setAttribute("title", "Important - click to clear");
+  flag.setAttribute("aria-label", "Important - click to clear");
+  flag.textContent = "!";
+  flag.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const pos = typeof getPos === "function" ? getPos() : null;
+    if (pos == null) return;
+    const $pos = view.state.doc.resolve(pos);
+    const blockPos = $pos.before($pos.depth);
+    view.dispatch(view.state.tr.setNodeAttribute(blockPos, "important", false));
+    view.focus();
+  });
+  return flag;
+}
+
+const PageImportant = Extension.create({
+  name: "pageImportant",
+
+  addGlobalAttributes() {
+    return [
+      {
+        types: IMPORTANT_BLOCK_TYPES,
+        attributes: {
+          important: {
+            default: false,
+            keepOnSplit: false,
+            parseHTML: (element) => element.getAttribute("data-important") === "true",
+            renderHTML: (attributes) =>
+              attributes.important
+                ? { "data-important": "true", class: "page-important" }
+                : {},
+          },
+        },
+      },
+    ];
+  },
+
+  addCommands() {
+    return {
+      setImportant:
+        (value) =>
+        ({ state, tr, dispatch }) => {
+          const block = findImportantBlock(state.selection.$from);
+          if (!block) return false;
+          if (dispatch) tr.setNodeAttribute(block.pos, "important", !!value);
+          return true;
+        },
+      toggleImportant:
+        () =>
+        ({ state, tr, dispatch }) => {
+          const block = findImportantBlock(state.selection.$from);
+          if (!block) return false;
+          if (dispatch) {
+            tr.setNodeAttribute(block.pos, "important", !block.node.attrs.important);
+          }
+          return true;
+        },
+    };
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      "Mod-Alt-i": () => this.editor.commands.toggleImportant(),
+    };
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: pageImportantPluginKey,
+        props: {
+          decorations(state) {
+            const decorations = [];
+            state.doc.descendants((node, pos) => {
+              if (!node.isTextblock || !node.attrs?.important) return;
+              decorations.push(
+                Decoration.widget(pos + 1, buildImportantFlagDom, {
+                  side: -1,
+                  key: "page-important-flag",
+                  ignoreSelection: true,
+                  stopEvent: () => true,
+                })
+              );
+            });
+            return decorations.length ? DecorationSet.create(state.doc, decorations) : null;
+          },
+        },
+      }),
+    ];
+  },
+});
+
 const TEXT_COLORS = [
   { label: "Default", value: null },
   { label: "Gray", value: "#9b9a97" },
@@ -400,6 +633,7 @@ const SLASH_COMMANDS = [
   { id: "todo", label: "Todo", shortcut: "[]", group: "block" },
   { id: "quote", label: "Quote", shortcut: ">", group: "block" },
   { id: "callout", label: "Callout", shortcut: "!", group: "block" },
+  { id: "important", label: "Important", shortcut: "!!", group: "block", projectOnly: true },
   { id: "toggle", label: "Toggle", shortcut: ">v", group: "block" },
   { id: "table", label: "Table", shortcut: "3x3", group: "block" },
   { id: "code", label: "Code block", shortcut: "```", group: "block" },
@@ -412,7 +646,9 @@ const SLASH_COMMANDS = [
   { id: "highlight", label: "Highlight", shortcut: "==", group: "inline" },
   { id: "image", label: "Image", shortcut: "Img", group: "media" },
   { id: "excel", label: "Excel workbook", shortcut: "XLSX", group: "media" },
+  { id: "email", label: "Email", shortcut: "@", group: "media" },
   { id: "page", label: "Page", shortcut: "+", group: "page", projectOnly: true },
+  { id: "canvaspage", label: "Canvas page", shortcut: "<>", group: "page", projectOnly: true },
   { id: "pageref", label: "Link to page", shortcut: "[[", group: "page" },
 ];
 
@@ -494,9 +730,11 @@ function PageEditor({ context, options }) {
       DetailsSummary,
       DetailsContent,
       PageCallout,
+      PageImportant,
       PageImage,
       PageLink,
       PageWorkbook,
+      PageEmail,
     ],
     content: context.html || "",
     editorProps: {
@@ -600,10 +838,39 @@ function PageEditor({ context, options }) {
         const files = Array.from(event.dataTransfer?.files || []).filter((file) =>
           String(file.type || "").toLowerCase().startsWith("image/")
         );
-        if (!files.length) return false;
+        if (files.length) {
+          event.preventDefault();
+          clearEmailDropTarget(view);
+          void insertImageFiles(files);
+          return true;
+        }
+        if (!context.onAttachEmailDrop || !looksLikeExternalEmailDrop(event.dataTransfer)) {
+          clearEmailDropTarget(view);
+          return false;
+        }
+        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
         event.preventDefault();
-        void insertImageFiles(files);
+        clearEmailDropTarget(view);
+        // The DataTransfer is dead the moment this handler returns, so the host has to
+        // read it now. onAttachEmailDrop captures synchronously and resolves afterwards.
+        void attachDroppedEmail(context.onAttachEmailDrop(event), coords ? coords.pos : null);
         return true;
+      },
+      handleDOMEvents: {
+        dragover(view, event) {
+          if (!context.onAttachEmailDrop || !looksLikeExternalEmailDrop(event.dataTransfer)) {
+            return false;
+          }
+          if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+          const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+          setEmailDropTarget(view, coords ? coords.pos : null);
+          return false;
+        },
+        dragleave(view, event) {
+          if (event.relatedTarget && view.dom.contains(event.relatedTarget)) return false;
+          clearEmailDropTarget(view);
+          return false;
+        },
       },
     },
     onUpdate({ editor: activeEditor }) {
@@ -709,6 +976,16 @@ function PageEditor({ context, options }) {
     requestAnimationFrame(() => {
       void hydrateImages();
       void hydrateWorkbooks();
+      if (context.focusImportant) {
+        const target = editor.view.dom.querySelector('[data-important="true"]');
+        if (target) {
+          // Bail before focus("end"), which would scroll straight back to the bottom.
+          target.scrollIntoView({ block: "center", behavior: "auto" });
+          target.classList.add("is-important-focused");
+          setTimeout(() => target.classList.remove("is-important-focused"), 1600);
+          return;
+        }
+      }
       editor.commands.focus("end");
     });
   }, [context.documentKey, editor]);
@@ -827,6 +1104,7 @@ function PageEditor({ context, options }) {
     else if (command.id === "todo") chain.toggleTaskList().run();
     else if (command.id === "quote") chain.toggleBlockquote().run();
     else if (command.id === "callout") chain.setCallout().run();
+    else if (command.id === "important") chain.toggleImportant().run();
     else if (command.id === "toggle") chain.setDetails().run();
     else if (command.id === "table") chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
     else if (command.id === "code") chain.toggleCodeBlock().run();
@@ -853,9 +1131,15 @@ function PageEditor({ context, options }) {
     } else if (command.id === "excel") {
       chain.run();
       setWorkbookDialog({ ...createWorkbookDialogState(), open: true });
+    } else if (command.id === "email") {
+      chain.run();
+      void attachEmailFromPicker();
     } else if (command.id === "page") {
       chain.run();
       context.onCreateSubpage?.();
+    } else if (command.id === "canvaspage") {
+      chain.run();
+      context.onCreateSubpage?.("canvas");
     } else if (command.id === "pageref") {
       chain.insertContent("[[").run();
     }
@@ -915,6 +1199,56 @@ function PageEditor({ context, options }) {
         console.warn("Page image insert failed:", error);
       }
     }
+  }
+
+  function insertPageEmailAtPos(emailRef, pos) {
+    if (!editor || !emailRef) return;
+    const attrs = {};
+    PAGE_EMAIL_ATTRS.forEach(([key]) => {
+      attrs[key] = String(emailRef[key] || "");
+    });
+    if (!attrs.raw && !attrs.url) return;
+    if (!attrs.label) attrs.label = "Email";
+
+    const doc = editor.state.doc;
+    let insertAt = doc.content.size;
+    if (Number.isInteger(pos) && pos >= 0 && pos <= doc.content.size) {
+      const $pos = doc.resolve(pos);
+      let depth = $pos.depth;
+      while (depth > 0 && !$pos.node(depth).isTextblock) depth -= 1;
+      // Append to the end of the hovered line: dropping "on" a line should never
+      // split a word at the pointer.
+      insertAt = depth > 0 ? $pos.end(depth) : pos;
+    }
+    editor.chain().focus().insertContentAt(insertAt, { type: "pageEmail", attrs }).run();
+  }
+
+  async function resolveAndInsertEmail(pending, pos) {
+    let result = null;
+    try {
+      result = await pending;
+    } catch (error) {
+      context.onToast?.(error?.message || "Could not attach the email.");
+      return;
+    }
+    if (!result || result.status !== "success" || !result.emailRef) {
+      if (result?.message) context.onToast?.(result.message);
+      return;
+    }
+    insertPageEmailAtPos(result.emailRef, pos);
+  }
+
+  function attachDroppedEmail(pending, pos) {
+    return resolveAndInsertEmail(pending, pos);
+  }
+
+  function attachEmailFromPicker() {
+    if (!context.onPickEmail) {
+      context.onToast?.("Email attaching is unavailable.");
+      return Promise.resolve();
+    }
+    const pos = editor?.state.selection.$from.pos ?? null;
+    return resolveAndInsertEmail(context.onPickEmail(), pos);
   }
 
   function closeWorkbookDialog() {
@@ -1018,6 +1352,73 @@ function PageEditor({ context, options }) {
   }
 
   async function handleEditorClick(event) {
+    const emailAction = event.target.closest?.("[data-email-action]");
+    if (emailAction) {
+      event.preventDefault();
+      event.stopPropagation();
+      const chip = emailAction.closest(".page-email[data-email-raw]");
+      if (!chip) return;
+      const attrs = readPageEmailAttrs(chip);
+      const label = attrs.label || "this email";
+
+      if (emailAction.dataset.emailAction === "open") {
+        try {
+          const result = await context.onOpenEmail?.(attrs);
+          if (result && result.status && result.status !== "success") {
+            chip.classList.add("is-unavailable");
+            context.onToast?.(result.message || "Could not open the email.");
+          } else {
+            chip.classList.remove("is-unavailable");
+          }
+        } catch (error) {
+          chip.classList.add("is-unavailable");
+          context.onToast?.(error?.message || "Could not open the email.");
+        }
+        return;
+      }
+
+      if (emailAction.dataset.emailAction === "remove") {
+        const managed = attrs.source === "saved-file";
+        const confirmation = managed
+          ? `Remove "${label}"?\n\nThe saved copy of the message will be deleted.`
+          : `Remove "${label}"?`;
+        if (!window.confirm(confirmation)) return;
+        emailAction.disabled = true;
+        try {
+          const result = await context.onDeleteEmail?.(attrs);
+          if (result && result.status && result.status !== "success") {
+            context.onToast?.(result.message || "Could not remove the email.");
+            emailAction.disabled = false;
+            return;
+          }
+          let emailPos = null;
+          let emailNode = null;
+          editor?.state.doc.descendants((node, pos) => {
+            if (emailNode) return false;
+            if (node.type.name === "pageEmail" && node.attrs.raw === attrs.raw) {
+              emailPos = pos;
+              emailNode = node;
+              return false;
+            }
+            return true;
+          });
+          if (Number.isInteger(emailPos) && emailNode) {
+            editor.view.dispatch(
+              editor.state.tr
+                .delete(emailPos, emailPos + emailNode.nodeSize)
+                // Undo must not resurrect a chip whose saved .msg is already gone.
+                .setMeta("addToHistory", false)
+            );
+            editor.commands.focus();
+          }
+        } catch (error) {
+          context.onToast?.(error?.message || "Could not remove the email.");
+          emailAction.disabled = false;
+        }
+        return;
+      }
+    }
+
     const workbookAction = event.target.closest?.("[data-workbook-action]");
     if (workbookAction) {
       event.preventDefault();
@@ -1161,6 +1562,14 @@ function PageEditor({ context, options }) {
             onClick={() => context.onCreateSubpage?.()}
           >
             + Add subpage
+          </button>
+          <button
+            className="page-child-link page-child-link-add"
+            type="button"
+            title="Freeform canvas for connecting ideas"
+            onClick={() => context.onCreateSubpage?.("canvas")}
+          >
+            + Add canvas
           </button>
         </div>
       )}

@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -579,6 +580,7 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
     def test_analyze_panel_schedule_images_uses_shared_heic_image_opener(self):
         opened_paths = []
         fake_images = []
+        generate_content_calls = []
 
         class FakeImage:
             def __init__(self, path):
@@ -599,6 +601,7 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
 
         class FakeModels:
             def generate_content(self, **kwargs):
+                generate_content_calls.append(kwargs)
                 return types.SimpleNamespace(parsed=types.SimpleNamespace(panel_name=""), text="")
 
         fake_client = types.SimpleNamespace(models=FakeModels())
@@ -640,6 +643,7 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
             ["breaker_top.HEIC", "directory_bottom.HEIC"],
             opened_paths,
         )
+        self.assertEqual("gemini-3.6-flash", generate_content_calls[0]["model"])
         self.assertTrue(all(image.closed for image in fake_images))
 
     def test_run_panel_schedule_background_returns_job_id_and_seeds_running_status(self):
@@ -776,6 +780,442 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
         self.assertEqual(
             {"status": "not_found", "jobId": "missing_job"},
             missing_status,
+        )
+
+
+class CanvasPanelSelectionTests(unittest.TestCase):
+    """Canvas image selection -> Panel Schedule AI input mapping."""
+
+    def setUp(self):
+        self.api = Api.__new__(Api)
+
+    def _write(self, directory, name, payload=b"binary"):
+        path = Path(directory) / name
+        path.write_bytes(payload)
+        return str(path)
+
+    def _stub_resolver(self, mapping):
+        return lambda asset_path: mapping.get(asset_path, "")
+
+    def _image_role(self, image_index, role, confidence="high", reason="looks like it"):
+        return types.SimpleNamespace(
+            image_index=image_index,
+            role=role,
+            confidence=confidence,
+            reason=reason,
+        )
+
+    def _classification(self, panel_name, images, notes="because"):
+        return types.SimpleNamespace(
+            panel_name=panel_name,
+            images=images,
+            notes=notes,
+        )
+
+    def _entry(self, node_id, status="ok"):
+        return {
+            "nodeId": node_id,
+            "assetPath": node_id,
+            "absPath": node_id if status == "ok" else "",
+            "fileName": node_id,
+            "status": status,
+            "message": "" if status == "ok" else "Image file not found.",
+        }
+
+    def _coerce(self, roles, extra=None):
+        """Runs the coercion over one usable image per role in `roles`."""
+        usable = [self._entry(f"n{i}") for i in range(len(roles))]
+        resolved = usable + list(extra or [])
+        parsed = self._classification(
+            "MDP", [self._image_role(i, role) for i, role in enumerate(roles)]
+        )
+        return self.api._coerce_canvas_panel_classification(parsed, resolved, usable)
+
+    def test_resolve_canvas_panel_selection_images_flags_missing_and_svg(self):
+        with tempfile.TemporaryDirectory(prefix="acies-canvas-panel-") as temp_dir:
+            png_path = self._write(temp_dir, "breakers.png")
+            svg_path = self._write(temp_dir, "diagram.svg")
+            mapping = {
+                "page_assets/o/breakers.png": png_path,
+                "page_assets/o/diagram.svg": svg_path,
+            }
+            with patch.object(
+                self.api, "_resolve_page_asset_path", side_effect=self._stub_resolver(mapping)
+            ):
+                resolved = self.api._resolve_canvas_panel_selection_images(
+                    [
+                        {"nodeId": "n1", "assetPath": "page_assets/o/breakers.png"},
+                        {"nodeId": "n2", "assetPath": "page_assets/o/diagram.svg"},
+                        {"nodeId": "n3", "assetPath": "page_assets/o/gone.png"},
+                    ]
+                )
+
+        self.assertEqual(["ok", "unsupported", "missing"], [e["status"] for e in resolved])
+        self.assertEqual(png_path, resolved[0]["absPath"])
+        self.assertEqual("", resolved[1]["absPath"])
+        self.assertIn("SVG", resolved[1]["message"])
+        self.assertEqual("Image file not found.", resolved[2]["message"])
+
+    def test_resolve_canvas_panel_selection_images_truncates_large_selections(self):
+        with tempfile.TemporaryDirectory(prefix="acies-canvas-panel-") as temp_dir:
+            count = main.CANVAS_PANEL_CLASSIFY_MAX_IMAGES + 2
+            mapping = {}
+            images = []
+            for index in range(count):
+                asset = f"page_assets/o/img{index}.png"
+                mapping[asset] = self._write(temp_dir, f"img{index}.png")
+                images.append({"nodeId": f"n{index}", "assetPath": asset})
+            with patch.object(
+                self.api, "_resolve_page_asset_path", side_effect=self._stub_resolver(mapping)
+            ):
+                resolved = self.api._resolve_canvas_panel_selection_images(images)
+
+        self.assertEqual(count, len(resolved))
+        usable = [e for e in resolved if e["status"] == "ok"]
+        self.assertEqual(main.CANVAS_PANEL_CLASSIFY_MAX_IMAGES, len(usable))
+        self.assertIn("first", resolved[-1]["message"])
+
+    def test_classify_canvas_panel_selection_requires_api_key(self):
+        with tempfile.TemporaryDirectory(prefix="acies-canvas-panel-") as temp_dir:
+            mapping = {"page_assets/o/a.png": self._write(temp_dir, "a.png")}
+            with patch.object(
+                self.api, "_resolve_page_asset_path", side_effect=self._stub_resolver(mapping)
+            ), patch.object(self.api, "_resolve_panel_schedule_api_key", return_value=""):
+                result = self.api.classify_canvas_panel_selection(
+                    "proj_1", [{"nodeId": "n1", "assetPath": "page_assets/o/a.png"}]
+                )
+
+        self.assertEqual("error", result["status"])
+        self.assertIn("GOOGLE_API_KEY", result["message"])
+
+    def test_classify_canvas_panel_selection_returns_roles_and_abs_paths(self):
+        with tempfile.TemporaryDirectory(prefix="acies-canvas-panel-") as temp_dir:
+            breaker_path = self._write(temp_dir, "breaker.jpg")
+            directory_path = self._write(temp_dir, "directory.jpg")
+            mapping = {
+                "page_assets/o/breaker.jpg": breaker_path,
+                "page_assets/o/directory.jpg": directory_path,
+            }
+            parsed = self._classification(
+                "  mdp  ",
+                [self._image_role(0, "breaker"), self._image_role(1, "field_directory")],
+            )
+            with patch.object(
+                self.api, "_resolve_page_asset_path", side_effect=self._stub_resolver(mapping)
+            ), patch.object(
+                self.api,
+                "_classify_canvas_panel_images",
+                side_effect=lambda usable, notes: (parsed, usable),
+            ):
+                result = self.api.classify_canvas_panel_selection(
+                    "proj_1",
+                    [
+                        {"nodeId": "n1", "assetPath": "page_assets/o/breaker.jpg"},
+                        {"nodeId": "n2", "assetPath": "page_assets/o/directory.jpg"},
+                    ],
+                    ["Panel is MDP"],
+                )
+
+        self.assertEqual("success", result["status"])
+        self.assertEqual("MDP", result["panelName"])
+        self.assertEqual("field_photos", result["inputMode"])
+        self.assertEqual("", result["blocking"])
+        self.assertEqual(
+            ["breaker", "field_directory"], [i["role"] for i in result["images"]]
+        )
+        self.assertEqual(breaker_path, result["images"][0]["absPath"])
+        self.assertEqual("high", result["images"][0]["confidence"])
+
+    def test_a_printed_as_built_wins_over_breaker_photos(self):
+        """The regression this split fixes: breakers present used to force field mode."""
+        result = self._coerce(["breaker", "as_built_schedule"])
+
+        self.assertEqual("existing_directory", result["inputMode"])
+        self.assertEqual("", result["blocking"])
+
+    def test_breakers_plus_a_field_card_read_the_breakers(self):
+        result = self._coerce(["breaker", "field_directory"])
+
+        self.assertEqual("field_photos", result["inputMode"])
+        self.assertEqual("", result["blocking"])
+
+    def test_directory_only_selections_are_transcribed(self):
+        for roles in (["as_built_schedule"], ["field_directory"]):
+            with self.subTest(roles=roles):
+                result = self._coerce(roles)
+                self.assertEqual("existing_directory", result["inputMode"])
+                self.assertEqual("", result["blocking"])
+
+    def test_classification_blocks_when_no_directory_images(self):
+        result = self._coerce(["breaker"])
+
+        self.assertEqual("field_photos", result["inputMode"])
+        self.assertEqual("needs_directory", result["blocking"])
+        self.assertTrue(result["blockingMessage"])
+
+    def test_classification_blocks_when_everything_is_ignored(self):
+        result = self._coerce(["ignore"])
+
+        self.assertEqual("no_usable_images", result["blocking"])
+        self.assertTrue(result["blockingMessage"])
+
+    def test_classification_ignores_unusable_images_and_unknown_indexes(self):
+        parsed = self._classification(
+            "",
+            [
+                self._image_role(0, "breaker"),
+                self._image_role(9, "as_built_schedule"),
+                self._image_role(1, "not-a-role"),
+            ],
+        )
+        usable = self._entry("n1")
+        broken = self._entry("n2", status="missing")
+        result = self.api._coerce_canvas_panel_classification(
+            parsed, [usable, broken], [usable]
+        )
+
+        self.assertEqual("breaker", result["images"][0]["role"])
+        self.assertEqual("ignore", result["images"][1]["role"])
+        # The out-of-range as_built_schedule must not flip the mode.
+        self.assertEqual("field_photos", result["inputMode"])
+        self.assertEqual("needs_directory", result["blocking"])
+        self.assertEqual("PANEL", result["panelName"])
+
+    def test_derive_input_mode_covers_every_combination(self):
+        cases = {
+            (0, 0, 0): ("field_photos", "no_usable_images"),
+            (1, 0, 0): ("field_photos", "needs_directory"),
+            (0, 1, 0): ("existing_directory", ""),
+            (0, 0, 1): ("existing_directory", ""),
+            (1, 1, 0): ("existing_directory", ""),
+            (1, 0, 1): ("field_photos", ""),
+            (1, 1, 1): ("existing_directory", ""),
+            (0, 1, 1): ("existing_directory", ""),
+        }
+        for (breaker, as_built, field_dir), expected in cases.items():
+            with self.subTest(breaker=breaker, as_built=as_built, field_dir=field_dir):
+                mode, blocking, _ = self.api._derive_canvas_panel_input_mode(
+                    {
+                        "breaker": breaker,
+                        "as_built_schedule": as_built,
+                        "field_directory": field_dir,
+                    }
+                )
+                self.assertEqual(expected, (mode, blocking))
+
+    def test_classify_canvas_panel_selection_errors_when_nothing_usable(self):
+        with tempfile.TemporaryDirectory(prefix="acies-canvas-panel-") as temp_dir:
+            mapping = {"page_assets/o/a.svg": self._write(temp_dir, "a.svg")}
+            with patch.object(
+                self.api, "_resolve_page_asset_path", side_effect=self._stub_resolver(mapping)
+            ), patch.object(
+                self.api,
+                "_classify_canvas_panel_images",
+                side_effect=AssertionError("must not call the AI"),
+            ):
+                result = self.api.classify_canvas_panel_selection(
+                    "proj_1", [{"nodeId": "n1", "assetPath": "page_assets/o/a.svg"}]
+                )
+
+        self.assertEqual("error", result["status"])
+        self.assertIn("None of the selected images could be read", result["message"])
+
+    def test_classify_canvas_panel_selection_requires_images(self):
+        result = self.api.classify_canvas_panel_selection("proj_1", [])
+        self.assertEqual("error", result["status"])
+        self.assertEqual("Select at least one image.", result["message"])
+
+    def test_classification_prompt_includes_notes_and_role_definitions(self):
+        prompt = self.api._build_canvas_panel_classification_prompt(3, ["Panel is MDP"])
+
+        self.assertIn("0 through 2", prompt)
+        self.assertIn("- Panel is MDP", prompt)
+        self.assertIn('"breaker"', prompt)
+        self.assertIn('"as_built_schedule"', prompt)
+        self.assertIn('"field_directory"', prompt)
+
+        empty = self.api._build_canvas_panel_classification_prompt(1, [])
+        self.assertIn("(no notes provided)", empty)
+
+    def test_prompt_gives_concrete_as_built_versus_field_card_discriminators(self):
+        prompt = self.api._build_canvas_panel_classification_prompt(2, [])
+
+        # Handwriting is the decisive tell, and it is stated as a hard rule.
+        self.assertIn(
+            'Handwriting anywhere in the circuit rows means "field_directory"', prompt
+        )
+        self.assertIn('NEVER an "as_built_schedule"', prompt)
+        # The printed-document tells.
+        self.assertIn("kVA or VA load column", prompt)
+        self.assertIn("AIC", prompt)
+        # The model must not be asked to pick the tool mode any more.
+        self.assertNotIn("INPUT MODE", prompt)
+        self.assertIn("that is worked out from the roles you assign", prompt)
+
+    def test_normalize_canvas_panel_notes_trims_and_caps(self):
+        notes = self.api._normalize_canvas_panel_notes(
+            ["  spaced   out  ", "", None, "x" * 900]
+        )
+
+        self.assertEqual("spaced out", notes[0])
+        self.assertEqual(main.CANVAS_PANEL_CLASSIFY_MAX_NOTE_CHARS, len(notes[1]))
+        self.assertEqual(2, len(notes))
+
+    def test_resolve_canvas_panel_schedule_output_is_stable_and_creates_nothing(self):
+        with tempfile.TemporaryDirectory(prefix="acies-canvas-panel-") as temp_dir:
+            with patch.object(
+                main,
+                "get_app_data_path",
+                side_effect=lambda name: os.path.join(temp_dir, name),
+            ):
+                first = self.api.resolve_canvas_panel_schedule_output("MDP")
+                second = self.api.resolve_canvas_panel_schedule_output(
+                    "LP-1", first["folderToken"]
+                )
+
+            self.assertEqual("success", first["status"])
+            self.assertEqual(first["outputFolder"], second["outputFolder"])
+            self.assertTrue(first["outputPath"].endswith("MDP.xlsx"))
+            self.assertTrue(second["outputPath"].endswith("LP-1.xlsx"))
+            self.assertFalse(os.path.exists(first["outputFolder"]))
+
+    def test_resolve_canvas_panel_schedule_output_sanitizes_the_panel_name(self):
+        with tempfile.TemporaryDirectory(prefix="acies-canvas-panel-") as temp_dir:
+            with patch.object(
+                main,
+                "get_app_data_path",
+                side_effect=lambda name: os.path.join(temp_dir, name),
+            ):
+                result = self.api.resolve_canvas_panel_schedule_output('panel a/b: "main"')
+
+        file_name = os.path.basename(result["outputPath"])
+        self.assertEqual("PANEL A B MAIN.xlsx", file_name)
+        self.assertNotIn("/", file_name)
+        self.assertNotIn('"', file_name)
+
+    def test_background_classification_reports_findings_through_a_job_record(self):
+        finished = threading.Event()
+        payload = {
+            "status": "success",
+            "panelName": "MDP",
+            "inputMode": "field_photos",
+            "blocking": "",
+            "blockingMessage": "",
+            "summary": "",
+            "images": [],
+        }
+        pushed = {}
+
+        class FakeWindow:
+            def evaluate_js(self, script):
+                pushed["script"] = script
+                finished.set()
+
+        with patch.object(main.webview, "windows", [FakeWindow()], create=True), patch.object(
+            self.api, "classify_canvas_panel_selection", return_value=payload
+        ):
+            started = self.api.run_canvas_panel_classification_background(
+                "proj_1", [{"nodeId": "n1", "assetPath": "page_assets/o/a.png"}]
+            )
+            self.assertEqual("started", started["status"])
+            job_id = started["jobId"]
+            self.assertTrue(finished.wait(5), "worker thread did not finish")
+
+        record = self.api.get_canvas_panel_classification_status(job_id)
+        self.assertEqual("success", record["status"])
+        self.assertEqual(payload, record["result"])
+        self.assertTrue(record["finishedAt"])
+        self.assertIn("window.handleCanvasPanelClassificationResult(", pushed["script"])
+        self.assertEqual(
+            {"status": "not_found", "jobId": "missing"},
+            self.api.get_canvas_panel_classification_status("missing"),
+        )
+
+    def test_background_classification_records_failures(self):
+        finished = threading.Event()
+
+        class FakeWindow:
+            def evaluate_js(self, script):
+                finished.set()
+
+        with patch.object(main.webview, "windows", [FakeWindow()], create=True), patch.object(
+            self.api,
+            "classify_canvas_panel_selection",
+            side_effect=RuntimeError("gemini exploded"),
+        ):
+            started = self.api.run_canvas_panel_classification_background("proj_1", [])
+            job_id = started["jobId"]
+            self.assertTrue(finished.wait(5), "worker thread did not finish")
+
+        record = self.api.get_canvas_panel_classification_status(job_id)
+        self.assertEqual("error", record["status"])
+        self.assertEqual("gemini exploded", record["message"])
+        # The guard is released so the next selection can be analyzed.
+        self.assertFalse(self.api._canvas_panel_classify_job_running)
+
+    def test_background_classification_refuses_a_second_concurrent_job(self):
+        self.api._canvas_panel_classify_job_running = True
+        try:
+            result = self.api.run_canvas_panel_classification_background("proj_1", [])
+        finally:
+            self.api._canvas_panel_classify_job_running = False
+
+        self.assertEqual("error", result["status"])
+        self.assertIn("previous selection", result["message"])
+
+    def test_classification_does_not_consume_the_shared_rate_limit(self):
+        with tempfile.TemporaryDirectory(prefix="acies-canvas-panel-") as temp_dir:
+            image_path = self._write(temp_dir, "a.png")
+            parsed = self._classification(
+                "MDP", [self._image_role(0, "as_built_schedule")]
+            )
+            captured = {}
+
+            def fake_generate_content(**kwargs):
+                captured["model"] = kwargs.get("model")
+                return types.SimpleNamespace(parsed=parsed, text="")
+
+            fake_client = types.SimpleNamespace(
+                models=types.SimpleNamespace(generate_content=fake_generate_content)
+            )
+
+            with patch.object(main, "cb_enforce_rate_limit") as rate_limit, patch.object(
+                main.genai, "Client", create=True, return_value=fake_client
+            ), patch.object(
+                main.types, "HttpOptions", create=True, side_effect=lambda **kw: None
+            ), patch.object(
+                main.types,
+                "GenerateContentConfig",
+                create=True,
+                side_effect=lambda **kw: None,
+            ), patch.object(
+                main, "_open_panel_schedule_image", return_value=types.SimpleNamespace(
+                    close=lambda: None
+                )
+            ) as open_image, patch.object(
+                self.api, "_resolve_panel_schedule_api_key", return_value="key"
+            ), patch.object(
+                self.api, "_ensure_aiohttp", return_value=None
+            ):
+                usable = [
+                    {
+                        "nodeId": "n1",
+                        "assetPath": "page_assets/o/a.png",
+                        "absPath": image_path,
+                        "fileName": "a.png",
+                        "status": "ok",
+                        "message": "",
+                    }
+                ]
+                result, loaded = self.api._classify_canvas_panel_images(usable, [])
+
+        rate_limit.assert_not_called()
+        self.assertIs(parsed, result)
+        self.assertEqual(1, len(loaded))
+        self.assertEqual("gemini-3.6-flash", captured["model"])
+        self.assertEqual(
+            main.CANVAS_PANEL_CLASSIFY_MAX_IMAGE_EDGE,
+            open_image.call_args.kwargs["max_edge"],
         )
 
 

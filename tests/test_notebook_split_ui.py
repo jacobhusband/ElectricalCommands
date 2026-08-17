@@ -86,7 +86,7 @@ class NotebookSplitUiTests(unittest.TestCase):
         self.assertIn("function renderChecklistsView()", script)
         self.assertIn("function hasActiveChecklistSelection()", script)
         self.assertIn("function createTabDeleteIcon(", script)
-        self.assertIn("function promptCreateGlobalPage()", script)
+        self.assertIn("function promptCreateGlobalPage(kind = \"\")", script)
 
     def test_script_wires_per_page_search_and_help(self):
         script = SCRIPT_JS_PATH.read_text(encoding="utf-8")

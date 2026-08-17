@@ -114,6 +114,7 @@ class CloudSyncHelperTests(unittest.TestCase):
             settings["workflowCadDefaults"],
         )
         self.assertTrue(settings["publishDwgOptions"]["stripPdfLayers"])
+        self.assertTrue(settings["publishDwgOptions"]["refreshExcelOleLinks"])
 
     def test_sanitize_user_settings_preserves_valid_unconfigured_active_discipline(self):
         payload = main_module.build_default_user_settings()
@@ -167,6 +168,7 @@ class CloudSyncHelperTests(unittest.TestCase):
         self.assertFalse(sanitized["publishDwgOptions"]["autoDetectPaperSize"])
         self.assertEqual(85, sanitized["publishDwgOptions"]["shrinkPercent"])
         self.assertTrue(sanitized["publishDwgOptions"]["stripPdfLayers"])
+        self.assertTrue(sanitized["publishDwgOptions"]["refreshExcelOleLinks"])
 
     def test_build_google_auth_record_preserves_id_token(self):
         existing_auth = {"idToken": "existing-id-token", "refreshToken": "refresh-token"}

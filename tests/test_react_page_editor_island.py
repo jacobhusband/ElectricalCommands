@@ -26,9 +26,12 @@ class ReactPageEditorIslandTests(unittest.TestCase):
             "project-pages-editor/dist/project-pages-editor.js",
             html,
         )
+        # The bundle must be parsed before script.js so window.ProjectPagesEditor
+        # exists by the time the host mounts it. Cache-busters change per release,
+        # so match the tag rather than a pinned version.
         self.assertLess(
             html.index("project-pages-editor/dist/project-pages-editor.js"),
-            html.index("script.js?v=20260427-card-order"),
+            html.index('<script src="script.js?v='),
         )
 
     def test_script_bridges_existing_page_state_to_react_editor(self):

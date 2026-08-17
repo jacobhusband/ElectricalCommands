@@ -185,6 +185,23 @@ class _ProjectPagePdfHtmlRenderer(HTMLParser):
                 self._blocked_depth = 1
             return
 
+        if (
+            source_tag == "span"
+            and "page-email" in attr_map.get("class", "").split()
+        ):
+            label = str(attr_map.get("data-email-label") or "").strip()
+            if not label:
+                raw = str(attr_map.get("data-email-raw") or "").replace("\\", "/")
+                label = raw.rsplit("/", 1)[-1] if raw else "Email"
+            self._output.append(
+                '<span class="pdf-email"><b>Email:</b> '
+                f'{html.escape(label, quote=False)}</span>'
+            )
+            # Blocks the chip's icon and action buttons from reaching the PDF.
+            if not self_closing:
+                self._blocked_depth = 1
+            return
+
         if source_tag == "input":
             return
         if source_tag in {"button", "label"}:
@@ -316,6 +333,14 @@ class _ProjectPagePdfHtmlRenderer(HTMLParser):
                 '<div class="pdf-callout-label">NOTE</div>'
             )
 
+        # Lines flagged with /important in the editor. The literal glyph keeps
+        # them legible regardless of how much CSS Story honours.
+        if (
+            source_tag in {"p", "h1", "h2", "h3", "h4", "h5", "h6"}
+            and attr_map.get("data-important", "").lower() == "true"
+        ):
+            self._output.append('<b class="pdf-important-flag">! </b>')
+
     def handle_starttag(self, tag, attrs):
         self._start_tag(tag, attrs)
 
@@ -401,7 +426,7 @@ def _open_local_pil_image(path):
 PANEL_SCHEDULE_MAX_IMAGE_EDGE = 2048
 
 
-def _open_panel_schedule_image(path):
+def _open_panel_schedule_image(path, max_edge=PANEL_SCHEDULE_MAX_IMAGE_EDGE):
     img = _open_local_pil_image(path)
     try:
         img = ImageOps.exif_transpose(img)
@@ -413,7 +438,7 @@ def _open_panel_schedule_image(path):
         getattr(PILImage, 'LANCZOS', getattr(PILImage, 'BICUBIC', 3))
     )
     img.thumbnail(
-        (PANEL_SCHEDULE_MAX_IMAGE_EDGE, PANEL_SCHEDULE_MAX_IMAGE_EDGE),
+        (max_edge, max_edge),
         resampling,
     )
     return img
@@ -478,6 +503,7 @@ OUTLOOK_SCAN_SOURCE_DESKTOP = "desktop-outlook"
 OUTLOOK_MAPI_INBOX_FOLDER_ID = 6
 OUTLOOK_MAPI_PR_INTERNET_MESSAGE_ID = "http://schemas.microsoft.com/mapi/proptag/0x1035001F"
 OUTLOOK_MAPI_PR_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001F"
+OUTLOOK_SAVE_AS_MSG = 3  # olMSG
 OUTLOOK_SCAN_DEDUPE_SKIP_REASON_THREAD = (
     "Removed from the AI batch because this reply only repeated thread history already seen in newer emails."
 )
@@ -613,6 +639,8 @@ WORKFLOW_TOOL_REGISTRY = {
              'type': 'int', 'default': 100, 'min': 25, 'max': 200},
             {'key': 'stripPdfLayers', 'label': 'Remove PDF layers',
              'type': 'bool', 'default': True},
+            {'key': 'refreshExcelOleLinks', 'label': 'Refresh linked Excel OLE and save DWGs',
+             'type': 'bool', 'default': True},
         ],
         'requiredInputs': [
             {'key': 'dwgFiles', 'type': 'dwgFiles', 'label': 'DWG files',
@@ -718,7 +746,8 @@ def build_default_user_settings():
         'publishDwgOptions': {
             'autoDetectPaperSize': True,
             'shrinkPercent': 100,
-            'stripPdfLayers': True
+            'stripPdfLayers': True,
+            'refreshExcelOleLinks': True
         },
         'manageLayersOptions': {
             'scanAllLayers': True,
@@ -957,6 +986,25 @@ def parse_due_str(s):
     except:
         pass
     return None
+
+
+def get_effective_due_str(deliverable):
+    """The date that drives scheduling, mirroring JS getEffectiveDueStr.
+
+    The internal date wins; a deliverable carrying only a hard deadline falls
+    back to it so it is not skipped by date-driven sweeps and exports.
+    """
+    if not isinstance(deliverable, dict):
+        return ''
+    internal = str(deliverable.get('due') or '').strip()
+    return internal or str(deliverable.get('hardDue') or '').strip()
+
+
+def get_hard_due_str(deliverable):
+    """The hard, must-finish deadline. Empty when the date can be pushed."""
+    if not isinstance(deliverable, dict):
+        return ''
+    return str(deliverable.get('hardDue') or '').strip()
 
 
 def sync_status_arrays(task):
@@ -1358,12 +1406,6 @@ LIGHTING_PLAN_DB_FILE = get_app_data_path("lighting_plans.db")
 LIGHTING_PLAN_SNAPSHOT_FILE = "ACIESLightingPlan.snapshot.json"
 LIGHTING_PLAN_INSTRUCTIONS_FILE = "ACIESLightingPlan.instructions.json"
 PROJECT_CHECKLIST_DB_FILE = get_app_data_path("project_checklists.db")
-EMAIL_CAPTURE_DB_FILE = get_app_data_path("email_capture.db")
-EMAIL_CAPTURE_SCHEMA_VERSION = 1
-EMAIL_CAPTURE_FIRST_SCAN_DAYS = 7
-EMAIL_CAPTURE_MAX_WINDOW_DAYS = 14
-EMAIL_CAPTURE_SCAN_OVERLAP_MINUTES = 60
-EMAIL_CAPTURE_MAX_MESSAGES_PER_SCAN = 600
 SYNC_TRACKED_FILES = {
     "settings": SETTINGS_FILE,
     "tasks": TASKS_FILE,
@@ -2827,6 +2869,50 @@ class PanelData(BaseModel):
         ..., description="List of detected breakers")
 
 
+# --- Canvas selection -> Panel Schedule AI helpers ---
+CANVAS_PANEL_SCHEDULES_DIRNAME = "canvas_panel_schedules"
+CANVAS_PANEL_CLASSIFY_MAX_IMAGE_EDGE = 1024
+CANVAS_PANEL_CLASSIFY_MAX_IMAGES = 12
+CANVAS_PANEL_CLASSIFY_MAX_NOTES = 20
+CANVAS_PANEL_CLASSIFY_MAX_NOTE_CHARS = 500
+CANVAS_PANEL_UNSUPPORTED_IMAGE_EXTS = {".svg", ".svgz"}
+# A printed as-built schedule and the handwritten card inside the panel door are both
+# "a table of circuits", but they drive opposite behavior downstream: the as-built gets
+# transcribed verbatim, the field card is only a label aid while kVA is estimated off
+# the breakers. They are separate roles so the model never has to pick a tool mode.
+CANVAS_PANEL_IMAGE_ROLES = ("breaker", "as_built_schedule", "field_directory", "ignore")
+CANVAS_PANEL_DIRECTORY_ROLES = ("as_built_schedule", "field_directory")
+CANVAS_PANEL_CONFIDENCE_LEVELS = ("high", "medium", "low")
+
+
+class CanvasPanelImageRole(BaseModel):
+    image_index: int = Field(
+        ..., description="Zero-based index of the image, in the order provided")
+    role: str = Field(
+        ...,
+        description=(
+            "One of 'breaker' (photo of physical breakers), 'as_built_schedule' "
+            "(printed/typed panel schedule document), 'field_directory' "
+            "(handwritten circuit card from the panel door), or 'ignore'"
+        ),
+    )
+    confidence: str = Field(
+        "medium", description="One of 'high', 'medium', 'low'")
+    reason: str = Field(
+        "",
+        description="Short phrase (under 120 chars) naming the visual evidence used",
+    )
+
+
+class CanvasPanelClassification(BaseModel):
+    panel_name: str = Field(
+        ..., description="Panel designation such as 'MDP' or 'LP-1', or '' when unknown")
+    images: List[CanvasPanelImageRole] = Field(
+        ..., description="One entry per provided image, same order")
+    notes: str = Field(
+        "", description="One or two sentences explaining the role decisions")
+
+
 def cb_enforce_rate_limit():
     global _cb_api_call_timestamps
     now = time.time()
@@ -3097,344 +3183,6 @@ def cb_update_excel_workbook(panel_data: PanelData, workbook_path: str, use_extr
 # --- API Class ---
 
 
-def _open_email_capture_db():
-    conn = sqlite3.connect(EMAIL_CAPTURE_DB_FILE, timeout=5)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS email_capture_meta (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL DEFAULT ''
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS captured_emails (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            entry_id TEXT NOT NULL DEFAULT '',
-            internet_message_id TEXT NOT NULL DEFAULT '',
-            conversation_id TEXT NOT NULL DEFAULT '',
-            subject TEXT NOT NULL DEFAULT '',
-            sender_name TEXT NOT NULL DEFAULT '',
-            sender_address TEXT NOT NULL DEFAULT '',
-            received_at_utc TEXT NOT NULL DEFAULT '',
-            body_preview TEXT NOT NULL DEFAULT '',
-            to_recipients_json TEXT NOT NULL DEFAULT '[]',
-            cc_recipients_json TEXT NOT NULL DEFAULT '[]',
-            directedness TEXT NOT NULL DEFAULT 'unknown',
-            ai_status TEXT NOT NULL DEFAULT 'pending',
-            ai_project_json TEXT NOT NULL DEFAULT '',
-            ai_suggestion_json TEXT NOT NULL DEFAULT '',
-            ai_skip_reason TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'new',
-            status_changed_at_utc TEXT NOT NULL DEFAULT '',
-            accepted_project_id TEXT NOT NULL DEFAULT '',
-            accepted_deliverable_id TEXT NOT NULL DEFAULT '',
-            first_seen_at_utc TEXT NOT NULL,
-            last_scan_at_utc TEXT NOT NULL DEFAULT ''
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_captured_emails_imid
-            ON captured_emails(internet_message_id) WHERE internet_message_id <> '';
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_captured_emails_status ON captured_emails(status);"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_captured_emails_received ON captured_emails(received_at_utc);"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_captured_emails_conversation ON captured_emails(conversation_id);"
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS follow_ups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            kind TEXT NOT NULL DEFAULT 'email',
-            captured_email_id INTEGER,
-            project_id TEXT NOT NULL DEFAULT '',
-            deliverable_id TEXT NOT NULL DEFAULT '',
-            title TEXT NOT NULL DEFAULT '',
-            note TEXT NOT NULL DEFAULT '',
-            waiting_on TEXT NOT NULL DEFAULT '',
-            due_date TEXT NOT NULL DEFAULT '',
-            snoozed_until TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'open',
-            created_at_utc TEXT NOT NULL,
-            resolved_at_utc TEXT NOT NULL DEFAULT '',
-            FOREIGN KEY(captured_email_id) REFERENCES captured_emails(id) ON DELETE SET NULL
-        );
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_follow_ups_status ON follow_ups(status);"
-    )
-    row = conn.execute(
-        "SELECT value FROM email_capture_meta WHERE key = 'schema_version'"
-    ).fetchone()
-    if row is None:
-        conn.execute(
-            "INSERT INTO email_capture_meta (key, value) VALUES ('schema_version', ?)",
-            (str(EMAIL_CAPTURE_SCHEMA_VERSION),),
-        )
-    conn.commit()
-    return conn
-
-
-def _get_email_capture_meta(conn, key, default=""):
-    row = conn.execute(
-        "SELECT value FROM email_capture_meta WHERE key = ?",
-        (str(key or ""),),
-    ).fetchone()
-    if row is None:
-        return default
-    return str(row["value"] or "")
-
-
-def _set_email_capture_meta(conn, key, value):
-    conn.execute(
-        """
-        INSERT INTO email_capture_meta (key, value) VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        """,
-        (str(key or ""), str(value or "")),
-    )
-
-
-def _parse_email_capture_json(raw, fallback):
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError):
-        return fallback
-    if fallback is None:
-        return parsed
-    return parsed if isinstance(parsed, type(fallback)) else fallback
-
-
-def _normalize_captured_email_record(row):
-    if row is None:
-        return None
-    return {
-        "id": int(row["id"]),
-        "entryId": str(row["entry_id"] or "").strip(),
-        "internetMessageId": str(row["internet_message_id"] or "").strip(),
-        "conversationId": str(row["conversation_id"] or "").strip(),
-        "subject": str(row["subject"] or "").strip(),
-        "senderName": str(row["sender_name"] or "").strip(),
-        "senderAddress": str(row["sender_address"] or "").strip(),
-        "receivedAtUtc": str(row["received_at_utc"] or "").strip(),
-        "bodyPreview": str(row["body_preview"] or ""),
-        "toRecipients": _parse_email_capture_json(row["to_recipients_json"], []),
-        "ccRecipients": _parse_email_capture_json(row["cc_recipients_json"], []),
-        "directedness": str(row["directedness"] or "unknown"),
-        "aiStatus": str(row["ai_status"] or "pending"),
-        "aiProject": _parse_email_capture_json(row["ai_project_json"], None),
-        "aiSuggestion": _parse_email_capture_json(row["ai_suggestion_json"], None),
-        "aiSkipReason": str(row["ai_skip_reason"] or ""),
-        "status": str(row["status"] or "new"),
-        "statusChangedAtUtc": str(row["status_changed_at_utc"] or ""),
-        "acceptedProjectId": str(row["accepted_project_id"] or ""),
-        "acceptedDeliverableId": str(row["accepted_deliverable_id"] or ""),
-        "firstSeenAtUtc": str(row["first_seen_at_utc"] or ""),
-        "lastScanAtUtc": str(row["last_scan_at_utc"] or ""),
-    }
-
-
-def _normalize_follow_up_record(row):
-    if row is None:
-        return None
-    record = {
-        "id": int(row["id"]),
-        "kind": str(row["kind"] or "email"),
-        "capturedEmailId": row["captured_email_id"],
-        "projectId": str(row["project_id"] or ""),
-        "deliverableId": str(row["deliverable_id"] or ""),
-        "title": str(row["title"] or "").strip(),
-        "note": str(row["note"] or ""),
-        "waitingOn": str(row["waiting_on"] or "").strip(),
-        "dueDate": str(row["due_date"] or "").strip(),
-        "snoozedUntil": str(row["snoozed_until"] or "").strip(),
-        "status": str(row["status"] or "open"),
-        "createdAtUtc": str(row["created_at_utc"] or ""),
-        "resolvedAtUtc": str(row["resolved_at_utc"] or ""),
-    }
-    keys = row.keys() if hasattr(row, "keys") else []
-    if "email_subject" in keys:
-        record["emailSubject"] = str(row["email_subject"] or "").strip()
-    if "email_entry_id" in keys:
-        record["emailEntryId"] = str(row["email_entry_id"] or "").strip()
-    if "email_sender_name" in keys:
-        record["emailSenderName"] = str(row["email_sender_name"] or "").strip()
-    return record
-
-
-def _normalize_email_capture_recipient_list(raw_list):
-    recipients = []
-    if not isinstance(raw_list, list):
-        return recipients
-    for entry in raw_list:
-        if isinstance(entry, dict):
-            name = str(entry.get("name") or "").strip()
-            address = str(entry.get("address") or "").strip()
-        else:
-            name = ""
-            address = str(entry or "").strip()
-        if name or address:
-            recipients.append({"name": name, "address": address})
-    return recipients
-
-
-def _classify_email_directedness(summary, owner_identity):
-    """Pure classification: 'to' | 'named' | 'cc' | 'unknown'.
-
-    owner_identity = {"addresses": [...], "names": [...]}
-    """
-    summary = summary if isinstance(summary, dict) else {}
-    identity = owner_identity if isinstance(owner_identity, dict) else {}
-    addresses = {
-        str(address or "").strip().lower()
-        for address in identity.get("addresses") or []
-        if str(address or "").strip()
-    }
-    names = [
-        str(name or "").strip()
-        for name in identity.get("names") or []
-        if str(name or "").strip()
-    ]
-    names_lower = {name.lower() for name in names}
-
-    def _recipient_matches(recipient):
-        address = str(recipient.get("address") or "").strip().lower()
-        name = str(recipient.get("name") or "").strip().lower()
-        if address and address in addresses:
-            return True
-        if name and name in names_lower:
-            return True
-        return False
-
-    to_recipients = _normalize_email_capture_recipient_list(summary.get("toRecipients"))
-    cc_recipients = _normalize_email_capture_recipient_list(summary.get("ccRecipients"))
-
-    if any(_recipient_matches(recipient) for recipient in to_recipients):
-        return "to"
-
-    body_head = str(summary.get("bodyPreview") or "")[:1200]
-    if body_head:
-        name_patterns = set()
-        for name in names:
-            if len(name) >= 3:
-                name_patterns.add(name)
-            first_token = name.split()[0] if name.split() else ""
-            if len(first_token) >= 3:
-                name_patterns.add(first_token)
-        for pattern in name_patterns:
-            if re.search(r"\b" + re.escape(pattern) + r"\b", body_head, re.IGNORECASE):
-                return "named"
-
-    if any(_recipient_matches(recipient) for recipient in cc_recipients):
-        return "cc"
-    return "unknown"
-
-
-def _upsert_captured_email(conn, summary, directedness, now_iso):
-    """Insert or refresh a captured email row. Returns 'inserted' or 'updated'.
-
-    Dedupe: internet_message_id first, entry_id fallback. Never regresses
-    status or ai_status on re-see; refreshes entry_id (EntryIDs change when
-    messages move folders) and last_scan_at_utc.
-    """
-    summary = summary if isinstance(summary, dict) else {}
-    entry_id = str(summary.get("id") or "").strip()
-    internet_message_id = str(summary.get("internetMessageId") or "").strip()
-    sender = summary.get("from") if isinstance(summary.get("from"), dict) else {}
-    to_recipients = _normalize_email_capture_recipient_list(summary.get("toRecipients"))
-    cc_recipients = _normalize_email_capture_recipient_list(summary.get("ccRecipients"))
-
-    existing = None
-    if internet_message_id:
-        existing = conn.execute(
-            "SELECT id FROM captured_emails WHERE internet_message_id = ?",
-            (internet_message_id,),
-        ).fetchone()
-    if existing is None and entry_id:
-        existing = conn.execute(
-            "SELECT id FROM captured_emails WHERE entry_id = ? AND entry_id <> ''",
-            (entry_id,),
-        ).fetchone()
-
-    if existing is not None:
-        conn.execute(
-            """
-            UPDATE captured_emails
-            SET entry_id = ?, last_scan_at_utc = ?
-            WHERE id = ?
-            """,
-            (entry_id, str(now_iso or ""), int(existing["id"])),
-        )
-        return "updated"
-
-    conn.execute(
-        """
-        INSERT INTO captured_emails (
-            entry_id, internet_message_id, conversation_id, subject,
-            sender_name, sender_address, received_at_utc, body_preview,
-            to_recipients_json, cc_recipients_json, directedness,
-            first_seen_at_utc, last_scan_at_utc
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            entry_id,
-            internet_message_id,
-            str(summary.get("conversationId") or "").strip(),
-            str(summary.get("subject") or "").strip(),
-            str(sender.get("name") or "").strip(),
-            str(sender.get("address") or "").strip(),
-            str(summary.get("receivedDateTime") or "").strip(),
-            str(summary.get("bodyPreview") or ""),
-            json.dumps(to_recipients, ensure_ascii=True),
-            json.dumps(cc_recipients, ensure_ascii=True),
-            str(directedness or "unknown"),
-            str(now_iso or ""),
-            str(now_iso or ""),
-        ),
-    )
-    return "inserted"
-
-
-def _captured_email_row_to_summary(record):
-    """Rebuild an Outlook-scan message summary dict from a normalized record."""
-    record = record if isinstance(record, dict) else {}
-    return {
-        "id": str(record.get("entryId") or ""),
-        "subject": str(record.get("subject") or ""),
-        "bodyPreview": str(record.get("bodyPreview") or ""),
-        "receivedDateTime": str(record.get("receivedAtUtc") or ""),
-        "webLink": "",
-        "internetMessageId": str(record.get("internetMessageId") or ""),
-        "conversationId": str(record.get("conversationId") or ""),
-        "hasAttachments": False,
-        "source": OUTLOOK_SCAN_SOURCE_DESKTOP,
-        "from": {
-            "name": str(record.get("senderName") or ""),
-            "address": str(record.get("senderAddress") or ""),
-        },
-        "toRecipients": record.get("toRecipients") or [],
-        "ccRecipients": record.get("ccRecipients") or [],
-    }
-
-
-def _follow_up_effective_due(record):
-    record = record if isinstance(record, dict) else {}
-    return str(record.get("snoozedUntil") or "").strip() or str(record.get("dueDate") or "").strip()
-
-
 class Api:
     # --- FIX: Removed self.window from __init__ to prevent circular reference ---
     def __init__(self):
@@ -3462,8 +3210,6 @@ class Api:
         self._panel_schedule_thread = None
         self._panel_schedule_job_record = None
         self._panel_schedule_job_lock = threading.Lock()
-        self._email_capture_scan_running = False
-        self._email_capture_scan_lock = threading.Lock()
         if self.test_mode:
             logging.info(
                 "Api initialized in ACIES_TEST_MODE. CAD tools run in deterministic validation mode.")
@@ -3868,7 +3614,7 @@ class Api:
 
         def script_runner():
             try:
-                print(f"DEBUG THREAD: Starting script for {tool_id}")
+                print(f"DEBUG THREAD: Starting script for {tool_id!a}")
                 startupinfo = None
                 if sys.platform == "win32":
                     startupinfo = subprocess.STARTUPINFO()
@@ -3914,7 +3660,11 @@ class Api:
                 last_progress_error = ""
                 for line in iter(process.stdout.readline, ''):
                     line = line.strip()
-                    print(f"DEBUG THREAD OUTPUT: {line}")
+                    # PowerShell/AutoCAD output can contain replacement characters
+                    # that a bundled Windows app's legacy stdout codec cannot encode.
+                    # This output is diagnostic only, so escape non-ASCII characters
+                    # before printing rather than aborting the CAD worker thread.
+                    print(f"DEBUG THREAD OUTPUT: {line!a}")
                     if line.startswith("PROGRESS:"):
                         message = line[len("PROGRESS:"):].strip()
                         if message.startswith("TRACE"):
@@ -3971,7 +3721,7 @@ class Api:
                     })
 
             except Exception as e:
-                print(f"DEBUG THREAD ERROR: {e}")
+                print(f"DEBUG THREAD ERROR: {e!a}")
                 import traceback
                 traceback.print_exc()
                 logging.error(f"Failed to execute script for {tool_id}: {e}")
@@ -5097,6 +4847,99 @@ class Api:
             logging.error(f"Error opening Desktop Outlook message: {exc}")
             return {"status": "error", "message": str(exc)}
 
+    def save_active_outlook_selection(self, context=None):
+        """Saves the message currently selected in Outlook as a managed .msg copy.
+
+        WebView2 does not surface Outlook's virtual-file drag payload
+        (CF_FILEGROUPDESCRIPTORW) through dataTransfer, so when a drop yields no
+        readable data the front end falls back to asking Outlook directly: the
+        message being dragged is by definition the selected one.
+        """
+        context_data = context or {}
+        if isinstance(context_data, str):
+            try:
+                context_data = json.loads(context_data)
+            except Exception:
+                context_data = {}
+        if not isinstance(context_data, dict):
+            context_data = {}
+
+        try:
+            def _read_selection():
+                application, _ = self._get_desktop_outlook_namespace()
+                explorer = application.ActiveExplorer()
+                if explorer is None:
+                    raise RuntimeError("Outlook has no active window.")
+                selection = explorer.Selection
+                if selection is None or int(getattr(selection, "Count", 0) or 0) < 1:
+                    raise RuntimeError("No message is selected in Outlook.")
+                mail_item = selection.Item(1)
+
+                subject = str(getattr(mail_item, "Subject", "") or "").strip()
+                entry_id = str(getattr(mail_item, "EntryID", "") or "").strip()
+                internet_message_id = self._get_desktop_outlook_internet_message_id(mail_item)
+
+                file_stem = self._sanitize_email_path_component(subject, 'email')
+                project_hint = self._sanitize_email_path_component(
+                    context_data.get('projectId') or context_data.get('projectName'),
+                    'project'
+                )
+                deliverable_hint = self._sanitize_email_path_component(
+                    context_data.get('deliverableId') or context_data.get('deliverableName'),
+                    'deliverable'
+                )
+
+                email_root = self._get_email_links_root()
+                target_dir = os.path.abspath(
+                    os.path.join(email_root, project_hint, deliverable_hint)
+                )
+                if not self._is_within_directory(email_root, target_dir):
+                    raise RuntimeError("Invalid destination path.")
+
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                unique = uuid.uuid4().hex[:8]
+                output_path = os.path.abspath(
+                    os.path.join(target_dir, f"{timestamp}_{unique}_{file_stem}.msg")
+                )
+                if not self._is_within_directory(email_root, output_path):
+                    raise RuntimeError("Invalid output path.")
+
+                saved_at = datetime.datetime.now().isoformat()
+                label = subject or f"{file_stem}.msg"
+                try:
+                    os.makedirs(target_dir, exist_ok=True)
+                    mail_item.SaveAs(output_path, OUTLOOK_SAVE_AS_MSG)
+                except Exception as save_error:
+                    # A portable copy is preferable, but an EntryID reference still
+                    # opens correctly through open_outlook_desktop_message.
+                    logging.warning(f"Could not save Outlook selection as .msg: {save_error}")
+                    if not entry_id:
+                        raise
+                    return {
+                        'raw': entry_id,
+                        'url': '',
+                        'label': label,
+                        'source': 'outlook-desktop',
+                        'savedAt': saved_at,
+                        'messageId': entry_id,
+                        'internetMessageId': internet_message_id,
+                    }
+
+                return {
+                    'raw': output_path,
+                    'url': Path(output_path).as_uri(),
+                    'label': label,
+                    'source': 'saved-file',
+                    'savedAt': saved_at,
+                    'messageId': entry_id,
+                    'internetMessageId': internet_message_id,
+                }
+
+            return {'status': 'success', 'emailRef': self._run_with_outlook_com(_read_selection)}
+        except Exception as exc:
+            logging.error(f"Error saving active Outlook selection: {exc}")
+            return {'status': 'error', 'message': str(exc)}
+
     def _outlook_message_candidate_score(self, message_summary):
         summary = message_summary if isinstance(message_summary, dict) else {}
         subject = str(summary.get("subject") or "")
@@ -5619,18 +5462,20 @@ class Api:
                     continue
                 name = str(raw_deliverable.get("name") or "").strip()
                 due = str(raw_deliverable.get("due") or "").strip()
+                hard_due = get_hard_due_str(raw_deliverable)
                 status = str(raw_deliverable.get("status") or "").strip()
-                if not (name or due or status):
+                if not (name or due or hard_due or status):
                     continue
                 deliverables.append({
                     "name": name,
                     "due": due,
+                    "hardDue": hard_due,
                     "status": status,
                 })
             deliverables.sort(
                 key=lambda deliverable: (
-                    1 if parse_due_str(deliverable.get("due")) is None else 0,
-                    parse_due_str(deliverable.get("due")) or datetime.datetime.max,
+                    1 if parse_due_str(get_effective_due_str(deliverable)) is None else 0,
+                    parse_due_str(get_effective_due_str(deliverable)) or datetime.datetime.max,
                     str(deliverable.get("name") or "").lower(),
                 )
             )
@@ -5691,12 +5536,13 @@ class Api:
                     "projectPath": str(project.get("path") or "").strip(),
                     "deliverable": str(deliverable.get("name") or "").strip(),
                     "due": str(deliverable.get("due") or "").strip(),
+                    "hardDue": get_hard_due_str(deliverable),
                     "status": str(deliverable.get("status") or "").strip(),
                 })
         flat_deliverables.sort(
             key=lambda deliverable: (
-                1 if parse_due_str(deliverable.get("due")) is None else 0,
-                parse_due_str(deliverable.get("due")) or datetime.datetime.max,
+                1 if parse_due_str(get_effective_due_str(deliverable)) is None else 0,
+                parse_due_str(get_effective_due_str(deliverable)) or datetime.datetime.max,
                 str(deliverable.get("projectId") or "").lower(),
                 str(deliverable.get("projectName") or "").lower(),
                 str(deliverable.get("deliverable") or "").lower(),
@@ -6460,729 +6306,6 @@ CURRENT_DELIVERABLES_IN_PERIOD:
                 source=source,
                 scan_date=scan_date,
             )
-
-    # --- Email capture inbox & follow-ups ---
-
-    def _notify_email_capture_progress(self, payload):
-        try:
-            if not webview.windows:
-                return
-            payload_json = json.dumps(payload or {}, ensure_ascii=True)
-            webview.windows[0].evaluate_js(
-                f"window.updateEmailCaptureProgress({payload_json})"
-            )
-        except Exception as exc:
-            logging.debug(f"_notify_email_capture_progress failed: {exc}")
-
-    def _send_email_capture_progress(self, stage, message="", **kwargs):
-        payload = {
-            "stage": str(stage or "").strip(),
-            "message": str(message or "").strip(),
-        }
-        for key, value in (kwargs or {}).items():
-            if value is None:
-                continue
-            payload[key] = value
-        if "active" not in payload:
-            payload["active"] = payload["stage"] not in {"done", "error", "skipped"}
-        self._notify_email_capture_progress(payload)
-
-    def _resolve_outlook_current_user_smtp(self):
-        def _read_identity():
-            _, namespace = self._get_desktop_outlook_namespace()
-            current_user = getattr(namespace, "CurrentUser", None)
-            address_entry = getattr(current_user, "AddressEntry", None)
-            if address_entry is None:
-                return ""
-            try:
-                exchange_user = address_entry.GetExchangeUser()
-            except Exception:
-                exchange_user = None
-            if exchange_user is not None:
-                address = str(getattr(exchange_user, "PrimarySmtpAddress", "") or "").strip()
-                if address:
-                    return address
-            return str(getattr(address_entry, "Address", "") or "").strip()
-
-        try:
-            return str(self._run_with_outlook_com(_read_identity) or "").strip()
-        except Exception:
-            return ""
-
-    def _get_email_capture_owner_identity(self, cached_smtp=""):
-        addresses = []
-        names = []
-        try:
-            settings = self.get_user_settings()
-        except Exception:
-            settings = {}
-        if not isinstance(settings, dict):
-            settings = {}
-        user_name = str(settings.get("userName") or "").strip()
-        if user_name:
-            names.append(user_name)
-        google_auth = settings.get("googleAuth")
-        if isinstance(google_auth, dict):
-            google_email = str(google_auth.get("email") or "").strip()
-            if google_email:
-                addresses.append(google_email)
-        smtp = str(cached_smtp or "").strip()
-        if smtp:
-            addresses.append(smtp)
-        return {"addresses": addresses, "names": names}
-
-    def _resolve_email_capture_scan_window(self, conn):
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
-        watermark_raw = _get_email_capture_meta(conn, "last_scan_completed_at_utc")
-        watermark = parse_utc_iso(watermark_raw)
-        if watermark is None:
-            start_utc = now_utc - datetime.timedelta(days=EMAIL_CAPTURE_FIRST_SCAN_DAYS)
-        else:
-            start_utc = watermark - datetime.timedelta(
-                minutes=EMAIL_CAPTURE_SCAN_OVERLAP_MINUTES
-            )
-        earliest_allowed = now_utc - datetime.timedelta(days=EMAIL_CAPTURE_MAX_WINDOW_DAYS)
-        if start_utc < earliest_allowed:
-            start_utc = earliest_allowed
-        return start_utc, now_utc
-
-    def run_email_capture_scan(self, payload, api_key="", user_name="", discipline=None):
-        try:
-            request_payload = payload or {}
-            if isinstance(request_payload, str):
-                request_payload = json.loads(request_payload)
-            if not isinstance(request_payload, dict):
-                request_payload = {}
-        except json.JSONDecodeError:
-            return {"status": "error", "message": "Invalid email capture scan payload."}
-
-        mode = str(request_payload.get("mode") or "manual").strip().lower()
-        if mode not in {"auto", "manual"}:
-            mode = "manual"
-        project_context = self._normalize_outlook_scan_project_context(
-            request_payload.get("projectContext")
-        )
-
-        with self._email_capture_scan_lock:
-            if self._email_capture_scan_running:
-                return {"status": "skipped", "reason": "scan-in-progress"}
-            self._email_capture_scan_running = True
-
-        try:
-            return self._run_email_capture_scan_locked(
-                mode, project_context, api_key, user_name, discipline
-            )
-        except Exception as exc:
-            logging.error(f"Email capture scan failed: {exc}")
-            self._send_email_capture_progress("error", str(exc), mode=mode)
-            return {"status": "error", "message": str(exc), "mode": mode}
-        finally:
-            with self._email_capture_scan_lock:
-                self._email_capture_scan_running = False
-
-    def _run_email_capture_scan_locked(self, mode, project_context, api_key, user_name, discipline):
-        desktop_available, desktop_reason = self._get_desktop_outlook_availability()
-        if not desktop_available:
-            message = desktop_reason or "Desktop Outlook is unavailable on this machine."
-            conn = _open_email_capture_db()
-            try:
-                _set_email_capture_meta(conn, "last_scan_status", "unavailable")
-                _set_email_capture_meta(
-                    conn,
-                    "last_scan_summary_json",
-                    json.dumps({"status": "error", "message": message}, ensure_ascii=True),
-                )
-                conn.commit()
-            finally:
-                conn.close()
-            self._send_email_capture_progress("error", message, mode=mode)
-            return {"status": "error", "message": message, "mode": mode}
-
-        self._send_email_capture_progress(
-            "listing", "Checking Outlook for new emails...", mode=mode
-        )
-
-        conn = _open_email_capture_db()
-        try:
-            start_utc, end_utc = self._resolve_email_capture_scan_window(conn)
-
-            cached_smtp = _get_email_capture_meta(conn, "owner_smtp_address")
-            if not cached_smtp:
-                cached_smtp = self._resolve_outlook_current_user_smtp()
-                if cached_smtp:
-                    _set_email_capture_meta(conn, "owner_smtp_address", cached_smtp)
-                    conn.commit()
-            owner_identity = self._get_email_capture_owner_identity(cached_smtp)
-
-            message_summaries, has_more = self._list_desktop_outlook_inbox_messages(
-                limit=EMAIL_CAPTURE_MAX_MESSAGES_PER_SCAN,
-                start_utc=start_utc,
-                end_utc=end_utc,
-            )
-
-            now_iso = utc_now_iso()
-            new_count = 0
-            cc_count = 0
-            for summary in message_summaries:
-                directedness = _classify_email_directedness(summary, owner_identity)
-                outcome = _upsert_captured_email(conn, summary, directedness, now_iso)
-                if outcome == "inserted":
-                    new_count += 1
-                    if directedness in ("cc", "unknown"):
-                        cc_count += 1
-
-            _set_email_capture_meta(conn, "last_scan_completed_at_utc", now_iso)
-            _set_email_capture_meta(conn, "last_scan_status", "success")
-            conn.commit()
-
-            self._send_email_capture_progress(
-                "capturing",
-                f"Captured {new_count} new email{'s' if new_count != 1 else ''}.",
-                mode=mode,
-                newCount=new_count,
-            )
-
-            pending_rows = conn.execute(
-                """
-                SELECT * FROM captured_emails
-                WHERE ai_status = 'pending' AND status = 'new'
-                ORDER BY received_at_utc DESC
-                LIMIT ?
-                """,
-                (OUTLOOK_SCAN_AI_LIMIT,),
-            ).fetchall()
-            pending_records = [_normalize_captured_email_record(row) for row in pending_rows]
-        finally:
-            conn.close()
-
-        matched_count = 0
-        ai_error = ""
-        try:
-            resolved_api_key = self._resolve_google_ai_api_key(api_key)
-        except Exception:
-            resolved_api_key = ""
-
-        if pending_records and resolved_api_key:
-            try:
-                matched_count = self._run_email_capture_ai_stage(
-                    pending_records,
-                    project_context,
-                    resolved_api_key,
-                    user_name,
-                    discipline,
-                    mode,
-                )
-            except Exception as exc:
-                logging.error(f"Email capture AI stage failed: {exc}")
-                ai_error = str(exc)
-
-        conn = _open_email_capture_db()
-        try:
-            pending_ai_count = conn.execute(
-                "SELECT COUNT(*) FROM captured_emails WHERE ai_status = 'pending' AND status = 'new'"
-            ).fetchone()[0]
-            result = {
-                "status": "success",
-                "mode": mode,
-                "newCount": new_count,
-                "ccCount": cc_count,
-                "matchedCount": matched_count,
-                "pendingAiCount": int(pending_ai_count or 0),
-                "truncated": bool(has_more),
-                "windowStartUtc": start_utc.isoformat().replace("+00:00", "Z"),
-                "windowEndUtc": end_utc.isoformat().replace("+00:00", "Z"),
-            }
-            if ai_error:
-                result["aiError"] = ai_error
-            _set_email_capture_meta(
-                conn, "last_scan_summary_json", json.dumps(result, ensure_ascii=True)
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        completion_message = (
-            f"Email scan complete. {new_count} new email{'s' if new_count != 1 else ''} captured."
-        )
-        self._send_email_capture_progress(
-            "done",
-            completion_message,
-            mode=mode,
-            newCount=new_count,
-            matchedCount=matched_count,
-        )
-        return result
-
-    def _run_email_capture_ai_stage(
-        self, pending_records, project_context, api_key, user_name, discipline, mode
-    ):
-        summaries = [_captured_email_row_to_summary(record) for record in pending_records]
-        record_ids_by_entry = {
-            str(record.get("entryId") or ""): int(record.get("id"))
-            for record in pending_records
-            if str(record.get("entryId") or "")
-        }
-
-        analysis = self._analyze_outlook_scan_batch(
-            summaries,
-            lambda summary: self._get_desktop_outlook_message_body_text(summary.get("id")),
-            project_context,
-            api_key,
-            user_name,
-            discipline,
-            "week",
-            OUTLOOK_SCAN_SOURCE_DESKTOP,
-            has_more=False,
-            progress_sender=self._send_email_capture_progress,
-        )
-
-        retryable_skip_reasons = {
-            OUTLOOK_SCAN_PROMPT_SKIP_REASON,
-            OUTLOOK_SCAN_RETRY_SKIP_REASON,
-        }
-        matched_count = 0
-        conn = _open_email_capture_db()
-        try:
-            for suggestion in analysis.get("suggestions") or []:
-                project_json = json.dumps(suggestion.get("project") or {}, ensure_ascii=True)
-                suggestion_json = json.dumps(
-                    suggestion.get("deliverable") or {}, ensure_ascii=True
-                )
-                for entry_id in suggestion.get("supportingMessageIds") or []:
-                    record_id = record_ids_by_entry.get(str(entry_id or ""))
-                    if record_id is None:
-                        continue
-                    cursor = conn.execute(
-                        """
-                        UPDATE captured_emails
-                        SET ai_status = 'matched', ai_project_json = ?, ai_suggestion_json = ?
-                        WHERE id = ? AND ai_status = 'pending'
-                        """,
-                        (project_json, suggestion_json, record_id),
-                    )
-                    if cursor.rowcount:
-                        matched_count += 1
-
-            for skipped in analysis.get("skippedMessages") or []:
-                message = skipped.get("message") if isinstance(skipped, dict) else {}
-                reason = str(skipped.get("reason") or "") if isinstance(skipped, dict) else ""
-                entry_id = str((message or {}).get("id") or "")
-                record_id = record_ids_by_entry.get(entry_id)
-                if record_id is None or reason in retryable_skip_reasons:
-                    continue
-                conn.execute(
-                    """
-                    UPDATE captured_emails
-                    SET ai_status = 'skipped', ai_skip_reason = ?
-                    WHERE id = ? AND ai_status = 'pending'
-                    """,
-                    (reason, record_id),
-                )
-
-            batch_ids = list(record_ids_by_entry.values())
-            if batch_ids:
-                skipped_entry_ids = {
-                    str(((skipped or {}).get("message") or {}).get("id") or "")
-                    for skipped in analysis.get("skippedMessages") or []
-                    if isinstance(skipped, dict)
-                    and str(skipped.get("reason") or "") in retryable_skip_reasons
-                }
-                retryable_ids = {
-                    record_ids_by_entry[entry_id]
-                    for entry_id in skipped_entry_ids
-                    if entry_id in record_ids_by_entry
-                }
-                no_match_ids = [
-                    record_id for record_id in batch_ids if record_id not in retryable_ids
-                ]
-                if no_match_ids:
-                    placeholders = ",".join("?" for _ in no_match_ids)
-                    conn.execute(
-                        f"""
-                        UPDATE captured_emails
-                        SET ai_status = 'no_match'
-                        WHERE id IN ({placeholders}) AND ai_status = 'pending'
-                        """,
-                        no_match_ids,
-                    )
-            conn.commit()
-        finally:
-            conn.close()
-        return matched_count
-
-    def list_captured_emails(self, payload=None):
-        request = payload if isinstance(payload, dict) else {}
-        status_filter = str(request.get("status") or "new").strip().lower()
-        if status_filter not in {"new", "accepted", "dismissed", "all"}:
-            status_filter = "new"
-        directedness_filter = str(request.get("directedness") or "all").strip().lower()
-        try:
-            limit = max(1, min(int(request.get("limit") or 200), 500))
-        except (TypeError, ValueError):
-            limit = 200
-        try:
-            offset = max(0, int(request.get("offset") or 0))
-        except (TypeError, ValueError):
-            offset = 0
-
-        conditions = []
-        params = []
-        if status_filter != "all":
-            conditions.append("status = ?")
-            params.append(status_filter)
-        if directedness_filter == "directed":
-            conditions.append("directedness IN ('to', 'named')")
-        elif directedness_filter == "cc":
-            conditions.append("directedness IN ('cc', 'unknown')")
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-        try:
-            conn = _open_email_capture_db()
-            try:
-                rows = conn.execute(
-                    f"""
-                    SELECT * FROM captured_emails
-                    {where_clause}
-                    ORDER BY received_at_utc DESC
-                    LIMIT ? OFFSET ?
-                    """,
-                    (*params, limit, offset),
-                ).fetchall()
-                counts_row = conn.execute(
-                    """
-                    SELECT
-                        SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) AS new_count,
-                        SUM(CASE WHEN status = 'new' AND directedness IN ('to', 'named')
-                            THEN 1 ELSE 0 END) AS new_directed,
-                        SUM(CASE WHEN status = 'new' AND directedness IN ('cc', 'unknown')
-                            THEN 1 ELSE 0 END) AS new_cc,
-                        SUM(CASE WHEN status = 'new' AND ai_status = 'pending'
-                            THEN 1 ELSE 0 END) AS pending_ai
-                    FROM captured_emails
-                    """
-                ).fetchone()
-                return {
-                    "status": "success",
-                    "items": [_normalize_captured_email_record(row) for row in rows],
-                    "counts": {
-                        "new": int(counts_row["new_count"] or 0),
-                        "newDirected": int(counts_row["new_directed"] or 0),
-                        "newCc": int(counts_row["new_cc"] or 0),
-                        "pendingAi": int(counts_row["pending_ai"] or 0),
-                    },
-                }
-            finally:
-                conn.close()
-        except Exception as exc:
-            logging.error(f"Error listing captured emails: {exc}")
-            return {"status": "error", "message": str(exc)}
-
-    def update_captured_email_status(self, payload):
-        request = payload if isinstance(payload, dict) else {}
-        try:
-            record_id = int(request.get("id"))
-        except (TypeError, ValueError):
-            return {"status": "error", "message": "Missing captured email id."}
-        new_status = str(request.get("status") or "").strip().lower()
-        allowed_transitions = {
-            ("new", "accepted"),
-            ("new", "dismissed"),
-            ("dismissed", "new"),
-        }
-
-        try:
-            conn = _open_email_capture_db()
-            try:
-                row = conn.execute(
-                    "SELECT * FROM captured_emails WHERE id = ?",
-                    (record_id,),
-                ).fetchone()
-                if row is None:
-                    return {"status": "error", "message": "Captured email not found."}
-                current_status = str(row["status"] or "new")
-                if (current_status, new_status) not in allowed_transitions:
-                    return {
-                        "status": "error",
-                        "message": f"Cannot change email status from '{current_status}' to '{new_status}'.",
-                    }
-                conn.execute(
-                    """
-                    UPDATE captured_emails
-                    SET status = ?, status_changed_at_utc = ?,
-                        accepted_project_id = ?, accepted_deliverable_id = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        new_status,
-                        utc_now_iso(),
-                        str(request.get("acceptedProjectId") or "").strip(),
-                        str(request.get("acceptedDeliverableId") or "").strip(),
-                        record_id,
-                    ),
-                )
-                conn.commit()
-                updated = conn.execute(
-                    "SELECT * FROM captured_emails WHERE id = ?",
-                    (record_id,),
-                ).fetchone()
-                return {
-                    "status": "success",
-                    "item": _normalize_captured_email_record(updated),
-                }
-            finally:
-                conn.close()
-        except Exception as exc:
-            logging.error(f"Error updating captured email status: {exc}")
-            return {"status": "error", "message": str(exc)}
-
-    def _normalize_follow_up_date(self, value):
-        raw = str(value or "").strip()
-        if not raw:
-            return ""
-        try:
-            return datetime.date.fromisoformat(raw).isoformat()
-        except ValueError:
-            return ""
-
-    def create_follow_up(self, payload):
-        request = payload if isinstance(payload, dict) else {}
-        kind = str(request.get("kind") or "email").strip().lower()
-        if kind not in {"email", "deliverable", "custom"}:
-            kind = "email"
-        captured_email_id = request.get("capturedEmailId")
-        try:
-            captured_email_id = int(captured_email_id) if captured_email_id is not None else None
-        except (TypeError, ValueError):
-            captured_email_id = None
-        title = str(request.get("title") or "").strip()
-
-        try:
-            conn = _open_email_capture_db()
-            try:
-                if captured_email_id is not None:
-                    email_row = conn.execute(
-                        "SELECT subject FROM captured_emails WHERE id = ?",
-                        (captured_email_id,),
-                    ).fetchone()
-                    if email_row is None:
-                        return {"status": "error", "message": "Captured email not found."}
-                    if not title:
-                        title = str(email_row["subject"] or "").strip()
-                if not title:
-                    return {"status": "error", "message": "Follow-up needs a title."}
-                cursor = conn.execute(
-                    """
-                    INSERT INTO follow_ups (
-                        kind, captured_email_id, project_id, deliverable_id,
-                        title, note, waiting_on, due_date, created_at_utc
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        kind,
-                        captured_email_id,
-                        str(request.get("projectId") or "").strip(),
-                        str(request.get("deliverableId") or "").strip(),
-                        title,
-                        str(request.get("note") or "").strip(),
-                        str(request.get("waitingOn") or "").strip(),
-                        self._normalize_follow_up_date(request.get("dueDate")),
-                        utc_now_iso(),
-                    ),
-                )
-                conn.commit()
-                row = conn.execute(
-                    "SELECT * FROM follow_ups WHERE id = ?",
-                    (cursor.lastrowid,),
-                ).fetchone()
-                return {"status": "success", "item": _normalize_follow_up_record(row)}
-            finally:
-                conn.close()
-        except Exception as exc:
-            logging.error(f"Error creating follow-up: {exc}")
-            return {"status": "error", "message": str(exc)}
-
-    def list_follow_ups(self, payload=None):
-        request = payload if isinstance(payload, dict) else {}
-        status_filter = str(request.get("status") or "open").strip().lower()
-        if status_filter not in {"open", "resolved", "all"}:
-            status_filter = "open"
-
-        conditions = ""
-        params = []
-        if status_filter != "all":
-            conditions = "WHERE f.status = ?"
-            params.append(status_filter)
-
-        try:
-            conn = _open_email_capture_db()
-            try:
-                rows = conn.execute(
-                    f"""
-                    SELECT f.*,
-                        e.subject AS email_subject,
-                        e.entry_id AS email_entry_id,
-                        e.sender_name AS email_sender_name
-                    FROM follow_ups f
-                    LEFT JOIN captured_emails e ON e.id = f.captured_email_id
-                    {conditions}
-                    ORDER BY f.created_at_utc DESC
-                    """,
-                    params,
-                ).fetchall()
-                items = [_normalize_follow_up_record(row) for row in rows]
-                items.sort(
-                    key=lambda item: (
-                        item["status"] != "open",
-                        _follow_up_effective_due(item) == "",
-                        _follow_up_effective_due(item),
-                        item["createdAtUtc"],
-                    )
-                )
-                return {"status": "success", "items": items}
-            finally:
-                conn.close()
-        except Exception as exc:
-            logging.error(f"Error listing follow-ups: {exc}")
-            return {"status": "error", "message": str(exc)}
-
-    def update_follow_up(self, payload):
-        request = payload if isinstance(payload, dict) else {}
-        try:
-            follow_up_id = int(request.get("id"))
-        except (TypeError, ValueError):
-            return {"status": "error", "message": "Missing follow-up id."}
-        action = str(request.get("action") or "").strip().lower()
-
-        try:
-            conn = _open_email_capture_db()
-            try:
-                row = conn.execute(
-                    "SELECT * FROM follow_ups WHERE id = ?",
-                    (follow_up_id,),
-                ).fetchone()
-                if row is None:
-                    return {"status": "error", "message": "Follow-up not found."}
-
-                if action == "resolve":
-                    conn.execute(
-                        "UPDATE follow_ups SET status = 'resolved', resolved_at_utc = ? WHERE id = ?",
-                        (utc_now_iso(), follow_up_id),
-                    )
-                elif action == "reopen":
-                    conn.execute(
-                        "UPDATE follow_ups SET status = 'open', resolved_at_utc = '' WHERE id = ?",
-                        (follow_up_id,),
-                    )
-                elif action == "snooze":
-                    try:
-                        days = max(1, int(request.get("days") or 3))
-                    except (TypeError, ValueError):
-                        days = 3
-                    snoozed_until = (
-                        datetime.date.today() + datetime.timedelta(days=days)
-                    ).isoformat()
-                    conn.execute(
-                        "UPDATE follow_ups SET snoozed_until = ? WHERE id = ?",
-                        (snoozed_until, follow_up_id),
-                    )
-                else:
-                    updates = []
-                    params = []
-                    if "title" in request:
-                        title = str(request.get("title") or "").strip()
-                        if not title:
-                            return {"status": "error", "message": "Follow-up needs a title."}
-                        updates.append("title = ?")
-                        params.append(title)
-                    if "note" in request:
-                        updates.append("note = ?")
-                        params.append(str(request.get("note") or "").strip())
-                    if "waitingOn" in request:
-                        updates.append("waiting_on = ?")
-                        params.append(str(request.get("waitingOn") or "").strip())
-                    if "dueDate" in request:
-                        updates.append("due_date = ?")
-                        params.append(self._normalize_follow_up_date(request.get("dueDate")))
-                        updates.append("snoozed_until = ''")
-                    if not updates:
-                        return {"status": "error", "message": "No follow-up changes provided."}
-                    params.append(follow_up_id)
-                    conn.execute(
-                        f"UPDATE follow_ups SET {', '.join(updates)} WHERE id = ?",
-                        params,
-                    )
-                conn.commit()
-                updated = conn.execute(
-                    "SELECT * FROM follow_ups WHERE id = ?",
-                    (follow_up_id,),
-                ).fetchone()
-                return {"status": "success", "item": _normalize_follow_up_record(updated)}
-            finally:
-                conn.close()
-        except Exception as exc:
-            logging.error(f"Error updating follow-up: {exc}")
-            return {"status": "error", "message": str(exc)}
-
-    def get_email_capture_badge_counts(self):
-        try:
-            conn = _open_email_capture_db()
-            try:
-                email_counts = conn.execute(
-                    """
-                    SELECT
-                        SUM(CASE WHEN status = 'new' AND directedness IN ('to', 'named')
-                            THEN 1 ELSE 0 END) AS new_directed,
-                        SUM(CASE WHEN status = 'new' AND directedness IN ('cc', 'unknown')
-                            THEN 1 ELSE 0 END) AS new_cc
-                    FROM captured_emails
-                    """
-                ).fetchone()
-                follow_up_rows = conn.execute(
-                    "SELECT * FROM follow_ups WHERE status = 'open'"
-                ).fetchall()
-            finally:
-                conn.close()
-            today = datetime.date.today().isoformat()
-            open_follow_ups = len(follow_up_rows)
-            overdue = 0
-            for row in follow_up_rows:
-                effective_due = _follow_up_effective_due(_normalize_follow_up_record(row))
-                if effective_due and effective_due < today:
-                    overdue += 1
-            return {
-                "status": "success",
-                "newDirected": int(email_counts["new_directed"] or 0),
-                "newCc": int(email_counts["new_cc"] or 0),
-                "openFollowUps": open_follow_ups,
-                "overdueFollowUps": overdue,
-            }
-        except Exception as exc:
-            logging.error(f"Error loading email capture badge counts: {exc}")
-            return {"status": "error", "message": str(exc)}
-
-    def get_email_capture_scan_state(self):
-        try:
-            conn = _open_email_capture_db()
-            try:
-                last_scan = _get_email_capture_meta(conn, "last_scan_completed_at_utc")
-                last_status = _get_email_capture_meta(conn, "last_scan_status")
-                summary = _parse_email_capture_json(
-                    _get_email_capture_meta(conn, "last_scan_summary_json"), None
-                )
-            finally:
-                conn.close()
-            with self._email_capture_scan_lock:
-                running = self._email_capture_scan_running
-            return {
-                "status": "success",
-                "running": running,
-                "lastScanCompletedAtUtc": last_scan,
-                "lastScanStatus": last_status,
-                "lastScanSummary": summary if isinstance(summary, dict) else None,
-            }
-        except Exception as exc:
-            logging.error(f"Error loading email capture scan state: {exc}")
-            return {"status": "error", "message": str(exc)}
 
     def get_installed_autocad_versions(self):
         """Scans for installed AutoCAD versions in the typical directory."""
@@ -9922,6 +9045,14 @@ Return ONLY the JSON object.
                 letter-spacing: 0.7px;
                 margin-bottom: 2px;
             }
+            .page-important {
+                background: #fffbeb;
+                border-left: 3px solid #f59e0b;
+                padding: 2px 6px;
+            }
+            .pdf-important-flag {
+                color: #b45309;
+            }
             .page-toggle {
                 border-left: 2px solid #cbd5e1;
                 margin: 9px 0;
@@ -10235,7 +9366,7 @@ Return ONLY the JSON object.
                 deliverables = task.get('deliverables')
                 if isinstance(deliverables, list):
                     for deliverable in deliverables:
-                        due_str = deliverable.get('due', '')
+                        due_str = get_effective_due_str(deliverable)
                         if due_str:
                             due_date = parse_due_str(due_str)
                             if due_date and due_date.date() < today:
@@ -10275,7 +9406,7 @@ Return ONLY the JSON object.
                 deliverables = task.get('deliverables')
                 if isinstance(deliverables, list):
                     for deliverable in deliverables:
-                        due_str = deliverable.get('due', '')
+                        due_str = get_effective_due_str(deliverable)
                         if due_str:
                             due_date = parse_due_str(due_str)
                             if due_date and due_date.date() < today:
@@ -10402,6 +9533,86 @@ Return ONLY the JSON object.
             logging.error(f"Error opening Notepad text export: {e}")
             return {'status': 'error', 'message': str(e)}
 
+    def _normalize_deliverable_summary_payload(self, value):
+        """Coerces an AI status briefing payload into a safe dict, or None."""
+        if not value:
+            return None
+        if isinstance(value, str):
+            headline = ''
+            paragraphs = [value.strip()] if value.strip() else []
+        elif isinstance(value, dict):
+            headline = str(value.get('headline') or '').strip()[:1200]
+            raw_paragraphs = value.get('paragraphs')
+            if isinstance(raw_paragraphs, str):
+                raw_paragraphs = [raw_paragraphs]
+            if not isinstance(raw_paragraphs, list):
+                raw_paragraphs = []
+            paragraphs = []
+            for raw in raw_paragraphs[:12]:
+                text = str(raw or '').strip()[:1200]
+                if text:
+                    paragraphs.append(text)
+        else:
+            return None
+
+        if not headline and not paragraphs:
+            # An empty briefing should produce no sheet at all rather than a blank one.
+            return None
+
+        meta = value if isinstance(value, dict) else {}
+        return {
+            'headline': headline,
+            'paragraphs': paragraphs,
+            'generatedAt': str(meta.get('generatedAt') or '').strip(),
+            'scope': str(meta.get('scope') or '').strip(),
+            'deliverableCount': meta.get('deliverableCount'),
+        }
+
+    def _write_deliverable_summary_sheet(self, workbook, summary, deliverable_count):
+        """Appends a prose 'Status Summary' sheet after the Deliverables sheet."""
+        sheet = workbook.create_sheet("Status Summary")
+        wrap = openpyxl.styles.Alignment(wrap_text=True, vertical="top")
+        column_width = 110
+
+        def _write(row, text, font=None):
+            cell = sheet.cell(row=row, column=1, value=text)
+            cell.alignment = wrap
+            if font is not None:
+                cell.font = font
+            # Excel does not auto-fit heights for programmatically wrapped cells.
+            lines = max(1, math.ceil(len(str(text or '')) / column_width))
+            sheet.row_dimensions[row].height = max(15, lines * 15)
+            return cell
+
+        _write(1, "AI Status Briefing", openpyxl.styles.Font(bold=True, size=14))
+
+        meta_bits = []
+        if summary.get('generatedAt'):
+            meta_bits.append(f"Generated {summary['generatedAt']}")
+        scope = summary.get('scope')
+        if scope:
+            meta_bits.append(
+                "scope: incomplete deliverables" if scope == 'incomplete' else f"scope: {scope}"
+            )
+        count = summary.get('deliverableCount')
+        if not isinstance(count, int):
+            count = deliverable_count
+        meta_bits.append(f"{count} deliverable{'' if count == 1 else 's'}")
+        _write(
+            2,
+            " · ".join(meta_bits),
+            openpyxl.styles.Font(italic=True, color="808080"),
+        )
+
+        if summary.get('headline'):
+            _write(4, summary['headline'], openpyxl.styles.Font(bold=True))
+
+        for offset, paragraph in enumerate(summary.get('paragraphs') or []):
+            _write(6 + offset, paragraph)
+
+        sheet.column_dimensions['A'].width = column_width
+        return sheet
+
     def export_deliverables_excel(self, data):
         """Exports selected deliverables to a basic Excel workbook."""
         try:
@@ -10415,6 +9626,8 @@ Return ONLY the JSON object.
             if not isinstance(raw_entries, list):
                 return {'status': 'error', 'message': 'Deliverable entries are required.'}
 
+            summary = self._normalize_deliverable_summary_payload(payload.get('summary'))
+
             cleaned_entries = []
             for raw_entry in raw_entries:
                 if not isinstance(raw_entry, dict):
@@ -10422,6 +9635,11 @@ Return ONLY the JSON object.
 
                 due_raw = str(raw_entry.get('due') or '').strip()
                 due_value = parse_due_str(due_raw)
+                hard_due_raw = get_hard_due_str(raw_entry)
+                hard_due_value = parse_due_str(hard_due_raw)
+                # Sort on the effective date so hard-only deliverables are not
+                # bunched with the undated ones.
+                sort_value = due_value or hard_due_value
                 deliverable_name = str(raw_entry.get('deliverableName') or '').strip()
                 cleaned_entries.append({
                     'projectId': str(raw_entry.get('projectId') or '').strip(),
@@ -10429,15 +9647,19 @@ Return ONLY the JSON object.
                     'deliverableName': deliverable_name or 'Untitled Deliverable',
                     'due': due_raw,
                     'dueValue': due_value.date() if due_value else None,
+                    'hardDue': hard_due_raw,
+                    'hardDueValue': hard_due_value.date() if hard_due_value else None,
+                    'sortValue': sort_value.date() if sort_value else None,
                     'statusText': str(raw_entry.get('statusText') or '').strip() or 'None',
+                    'projectPath': str(raw_entry.get('projectPath') or '').strip(),
                 })
 
             if not cleaned_entries:
                 return {'status': 'error', 'message': 'Select at least one deliverable to export.'}
 
             cleaned_entries.sort(key=lambda entry: (
-                0 if entry['dueValue'] else 1,
-                -(entry['dueValue'].toordinal()) if entry['dueValue'] else 0,
+                0 if entry['sortValue'] else 1,
+                -(entry['sortValue'].toordinal()) if entry['sortValue'] else 0,
                 entry['projectId'].lower(),
                 entry['projectName'].lower(),
                 entry['deliverableName'].lower(),
@@ -10468,7 +9690,15 @@ Return ONLY the JSON object.
             worksheet = workbook.active
             worksheet.title = "Deliverables"
 
-            headers = ("Project ID", "Project Name", "Deliverable", "Due Date", "Status")
+            headers = (
+                "Project ID",
+                "Project Name",
+                "Deliverable",
+                "Internal Due",
+                "Hard Deadline",
+                "Status",
+                "Project Path",
+            )
             worksheet.append(headers)
             for header_cell in worksheet[1]:
                 header_cell.font = openpyxl.styles.Font(bold=True)
@@ -10484,7 +9714,15 @@ Return ONLY the JSON object.
                 )
                 if entry['dueValue']:
                     due_cell.number_format = "mm/dd/yyyy"
-                worksheet.cell(row=row_index, column=5, value=entry['statusText'])
+                hard_due_cell = worksheet.cell(
+                    row=row_index,
+                    column=5,
+                    value=entry['hardDueValue'] or entry['hardDue'],
+                )
+                if entry['hardDueValue']:
+                    hard_due_cell.number_format = "mm/dd/yyyy"
+                worksheet.cell(row=row_index, column=6, value=entry['statusText'])
+                worksheet.cell(row=row_index, column=7, value=entry['projectPath'])
 
             worksheet.freeze_panes = "A2"
             worksheet.auto_filter.ref = worksheet.dimensions
@@ -10494,10 +9732,16 @@ Return ONLY the JSON object.
                 2: 28,
                 3: 32,
                 4: 14,
-                5: 18,
+                5: 16,
+                6: 18,
+                7: 62,
             }.items():
                 column_letter = openpyxl.utils.get_column_letter(column_index)
                 worksheet.column_dimensions[column_letter].width = width
+
+            if summary:
+                # create_sheet appends, so "Deliverables" stays index 0 and active.
+                self._write_deliverable_summary_sheet(workbook, summary, len(cleaned_entries))
 
             workbook.save(file_path)
             workbook.close()
@@ -10513,6 +9757,237 @@ Return ONLY the JSON object.
         except Exception as e:
             logging.error(f"Error exporting deliverables to Excel: {e}")
             return {'status': 'error', 'message': str(e)}
+
+    DELIVERABLE_SUMMARY_BUCKET_LABELS = {
+        'missedHardDeadline': 'MISSED HARD DEADLINE',
+        'overdue': 'PAST INTERNAL DUE DATE',
+        'dueThisWeek': 'DUE THIS WEEK',
+        'upcoming': 'UPCOMING',
+        'undated': 'NO DUE DATE SET',
+    }
+
+    def _build_deliverable_status_summary_prompt(self, payload):
+        """Builds the Gemini prompt for a deliverable status briefing.
+
+        Pure function of the payload - no I/O - so it can be unit tested directly.
+        """
+        data = payload if isinstance(payload, dict) else {}
+        today = str(data.get('today') or '').strip() or 'today'
+        scope = str(data.get('scope') or '').strip()
+        scope_text = (
+            'all incomplete deliverables'
+            if scope == 'incomplete'
+            else 'all deliverables'
+        )
+        raw_buckets = data.get('buckets')
+        if not isinstance(raw_buckets, list):
+            raw_buckets = []
+
+        listed = 0
+        sections = []
+        for raw_bucket in raw_buckets:
+            if not isinstance(raw_bucket, dict):
+                continue
+            deliverables = raw_bucket.get('deliverables')
+            if not isinstance(deliverables, list) or not deliverables:
+                continue
+            key = str(raw_bucket.get('bucket') or '').strip()
+            label = self.DELIVERABLE_SUMMARY_BUCKET_LABELS.get(key, key.upper() or 'OTHER')
+            total = raw_bucket.get('totalCount')
+            if not isinstance(total, int):
+                total = len(deliverables)
+            lines = [f"=== {label} ({len(deliverables)} of {total} listed) ==="]
+            for item in deliverables:
+                if not isinstance(item, dict):
+                    continue
+                listed += 1
+                project_id = str(item.get('projectId') or '').strip() or 'no id'
+                project_name = str(item.get('projectName') or '').strip() or 'Untitled Project'
+                name = str(item.get('deliverableName') or '').strip() or 'Untitled Deliverable'
+                due = str(item.get('due') or '').strip() or 'none'
+                hard_due = str(item.get('hardDue') or '').strip() or 'none'
+                status_text = str(item.get('statusText') or '').strip() or 'None'
+                lines.append(
+                    f"- [{project_id}] {project_name} | {name} | "
+                    f"internal due {due} | hard due {hard_due} | status {status_text}"
+                )
+            sections.append("\n".join(lines))
+
+        deliverable_count = data.get('deliverableCount')
+        if not isinstance(deliverable_count, int):
+            deliverable_count = listed
+        omitted_count = data.get('omittedCount')
+        if not isinstance(omitted_count, int):
+            omitted_count = max(0, deliverable_count - listed)
+
+        body = "\n\n".join(sections) if sections else "(no deliverables listed)"
+
+        return f"""Today is {today}.
+
+You are writing a short status briefing for the engineer who owns the deliverables listed below.
+Scope: {scope_text}.
+Total in scope: {deliverable_count}. Listed below: {listed}. Not listed: {omitted_count}.
+
+{body}
+
+IMPORTANT CONTEXT
+- "status None" means no status label was ever set on that deliverable. It does NOT mean the
+  work is stalled or abandoned. Judge urgency from the dates, not the status.
+- "hard due" is a deadline that cannot move. "internal due" is a target that can slip.
+  A missed hard deadline is always more serious than a missed internal due date.
+- Never invent deliverables, dates, people, or reasons that are not in the list above.
+
+Return JSON with exactly this shape:
+{{"headline": "one sentence, max 20 words", "paragraphs": ["...", "..."]}}
+
+RULES
+- 2 to 4 paragraphs, each 35-70 words, plain prose sentences.
+- No markdown, no bullet points, no headings, no bold.
+- Paragraph 1: what is overdue or has blown a hard deadline, named specifically
+  (project id + deliverable name).
+- Paragraph 2: what is due this week or slipping toward trouble.
+- Final paragraph: what to prioritize first, in order, and why.
+- Reference deliverables as "<deliverable name> on <project id>".
+- If a bucket is empty, say so in one clause rather than inventing filler."""
+
+    def _normalize_deliverable_status_summary(self, parsed):
+        """Coerces the model's JSON into (headline, paragraphs)."""
+        data = parsed if isinstance(parsed, dict) else {}
+
+        def _clean(value):
+            text = str(value or '').strip()
+            # The model occasionally emits markdown despite being told not to.
+            text = re.sub(r'^\s*(?:[-*+]\s+|#{1,6}\s+)', '', text)
+            text = text.replace('**', '').strip()
+            return text[:1200]
+
+        headline = _clean(data.get('headline'))
+
+        raw_paragraphs = data.get('paragraphs')
+        if isinstance(raw_paragraphs, str):
+            raw_paragraphs = [
+                chunk for chunk in re.split(r'\n\s*\n', raw_paragraphs) if chunk.strip()
+            ]
+        if not isinstance(raw_paragraphs, list):
+            raw_paragraphs = []
+
+        paragraphs = []
+        for raw in raw_paragraphs:
+            text = _clean(raw)
+            if text:
+                paragraphs.append(text)
+            if len(paragraphs) >= 6:
+                break
+
+        return headline, paragraphs
+
+    def _format_deliverable_summary_ai_error(self, exc):
+        """Maps a Gemini exception onto actionable copy for the status briefing."""
+        message = str(exc)
+        lower = message.lower()
+        if ("api key expired" in lower or "api_key_invalid" in lower
+                or "invalid api key" in lower):
+            return ('Your Google API key is expired/invalid. Create a new key in '
+                    'Google AI Studio, update your settings, then try again.')
+        if "api key" in lower and "not configured" in lower:
+            return message
+        if "model" in lower and ("not found" in lower or "does not exist" in lower):
+            return ('AI model not available. The Gemini 3 Flash model may not be '
+                    'accessible with your API key.')
+        if "quota" in lower or "rate limit" in lower:
+            return 'API rate limit exceeded. Please wait a moment and try again.'
+        if "deadline" in lower or "unavailable" in lower or "503" in lower or "504" in lower:
+            return ('The AI request timed out. Please try again, or export without '
+                    'the status briefing.')
+        return f"AI error: {message}"
+
+    def generate_deliverable_status_summary(self, data):
+        """Writes a short prose status briefing over the selected deliverables."""
+        try:
+            payload = data or {}
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            if not isinstance(payload, dict):
+                return {'status': 'error', 'message': 'Invalid summary payload.'}
+
+            buckets = payload.get('buckets')
+            if not isinstance(buckets, list) or not any(
+                isinstance(bucket, dict) and bucket.get('deliverables')
+                for bucket in buckets
+            ):
+                return {
+                    'status': 'error',
+                    'message': 'Select at least one deliverable to summarize.',
+                }
+
+            api_key = str(payload.get('apiKey') or '').strip()
+            if not api_key:
+                api_key = str(os.environ.get('GEMINI_API_KEY') or '').strip()
+            final_api_key = self._resolve_google_ai_api_key(api_key)
+
+            prompt = self._build_deliverable_status_summary_prompt(payload)
+
+            self._ensure_aiohttp()
+            client = genai.Client(
+                api_key=final_api_key,
+                http_options=types.HttpOptions(timeout=120000),
+            )
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[types.Part.from_text(text=prompt)],
+                    ),
+                ],
+                config=types.GenerateContentConfig(
+                    # Prose, not structured extraction - a little latitude reads better,
+                    # while staying near-deterministic. Deliberately not 0.
+                    temperature=0.2,
+                    response_mime_type="application/json",
+                ),
+            )
+
+            raw_text = response.text
+            if raw_text is None:
+                if hasattr(response, 'parts') and response.parts:
+                    raw_text = ''.join(
+                        part.text for part in response.parts
+                        if hasattr(part, 'text') and part.text
+                    )
+            cleaned = (raw_text or '').strip()
+            if not cleaned:
+                return {
+                    'status': 'error',
+                    'message': 'AI returned an empty briefing. Please try again.',
+                }
+
+            headline, paragraphs = self._normalize_deliverable_status_summary(
+                json.loads(cleaned)
+            )
+            if not headline and not paragraphs:
+                return {
+                    'status': 'error',
+                    'message': 'AI returned an empty briefing. Please try again.',
+                }
+
+            return {
+                'status': 'success',
+                'headline': headline,
+                'paragraphs': paragraphs,
+                'generatedAt': datetime.datetime.now().strftime("%m/%d/%Y %I:%M %p"),
+            }
+        except json.JSONDecodeError:
+            return {
+                'status': 'error',
+                'message': 'AI returned invalid JSON. Please try again.',
+            }
+        except Exception as e:
+            logging.error(f"Error generating deliverable status summary: {e}")
+            return {
+                'status': 'error',
+                'message': self._format_deliverable_summary_ai_error(e),
+            }
 
     def save_dropped_email(self, upload, context=None):
         """Persists a dropped .msg/.eml payload and returns a normalized email reference."""
@@ -14429,7 +13904,7 @@ Return ONLY the JSON object.
                     'images are very large. Click Rerun to try again, or split the '
                     'panel into smaller image groups (one breaker section per run).')
         if "model" in lower and ("not found" in lower or "does not exist" in lower):
-            return 'AI model not available. The Gemini 3 Flash model may not be accessible with your API key.'
+            return 'AI model not available. The Gemini 3.6 Flash model may not be accessible with your API key.'
         if "quota" in lower or "rate limit" in lower:
             return 'API rate limit exceeded. Please wait a moment and try again.'
         return msg
@@ -14633,7 +14108,7 @@ TASK 3: LOAD TYPES
             for attempt in range(3):
                 try:
                     response = client.models.generate_content(
-                        model="gemini-3.5-flash",
+                        model="gemini-3.6-flash",
                         contents=[prompt, *gemini_images],
                         config=types.GenerateContentConfig(
                             response_mime_type="application/json",
@@ -14672,6 +14147,460 @@ TASK 3: LOAD TYPES
 
         panel_data.panel_name = panel_name
         return panel_data
+
+    def _sanitize_panel_schedule_filename(self, value, fallback="PANEL"):
+        text = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", str(value or "").strip())
+        text = re.sub(r"\s+", " ", text).strip().strip(".").strip()
+        return (text[:60].strip() or fallback).upper()
+
+    def _resolve_canvas_panel_selection_images(self, images):
+        """Maps canvas image nodes onto absolute page_asset paths, flagging unusable ones."""
+        entries = images if isinstance(images, (list, tuple)) else []
+        resolved = []
+        for index, raw in enumerate(entries):
+            if not isinstance(raw, dict):
+                continue
+            node_id = str(raw.get('nodeId') or raw.get('node_id') or '').strip()
+            asset_path = str(raw.get('assetPath') or raw.get('asset_path') or '').strip()
+            if not node_id or not asset_path:
+                continue
+
+            entry = {
+                'nodeId': node_id,
+                'assetPath': asset_path,
+                'absPath': '',
+                'fileName': os.path.basename(asset_path.replace("\\", "/")),
+                'status': 'ok',
+                'message': '',
+            }
+
+            if len(resolved) >= CANVAS_PANEL_CLASSIFY_MAX_IMAGES:
+                entry['status'] = 'unsupported'
+                entry['message'] = (
+                    f"Only the first {CANVAS_PANEL_CLASSIFY_MAX_IMAGES} images are classified."
+                )
+                resolved.append(entry)
+                continue
+
+            abs_path = self._resolve_page_asset_path(asset_path)
+            if not abs_path or not os.path.isfile(abs_path):
+                entry['status'] = 'missing'
+                entry['message'] = 'Image file not found.'
+            elif os.path.splitext(abs_path)[1].lower() in CANVAS_PANEL_UNSUPPORTED_IMAGE_EXTS:
+                entry['status'] = 'unsupported'
+                entry['message'] = "SVG images can't be read by the panel schedule AI."
+            else:
+                entry['absPath'] = abs_path
+
+            resolved.append(entry)
+        return resolved
+
+    def _normalize_canvas_panel_notes(self, notes):
+        values = notes if isinstance(notes, (list, tuple)) else [notes]
+        normalized = []
+        for raw in values:
+            text = re.sub(r"\s+", " ", str(raw or "")).strip()
+            if not text:
+                continue
+            normalized.append(text[:CANVAS_PANEL_CLASSIFY_MAX_NOTE_CHARS])
+            if len(normalized) >= CANVAS_PANEL_CLASSIFY_MAX_NOTES:
+                break
+        return normalized
+
+    def _build_canvas_panel_classification_prompt(self, image_count, notes):
+        if notes:
+            notes_block = "\n".join(f"- {note}" for note in notes)
+        else:
+            notes_block = "- (no notes provided)"
+        last_index = max(int(image_count or 0) - 1, 0)
+        return f"""
+You are triaging photos an electrical engineer dropped on a design canvas so they can be fed into a panel schedule generator.
+
+You are given {image_count} images, numbered 0 through {last_index} in the order provided. Classify EVERY image and return exactly {image_count} entries in "images", one per input image, using "image_index" to identify which image each entry describes.
+
+ROLE DEFINITIONS
+
+"breaker" - a FIELD PHOTO of the inside of an opened electrical panel showing the physical circuit breakers. Look for:
+- rows of breaker handles or toggle switches
+- amperage numbers stamped or molded into the breaker faces
+- bus bars, conduit, wire nuts, or colored conductors
+- stick-on or handwritten labels beside individual breakers
+
+"as_built_schedule" - a PRINTED OR TYPED PANEL SCHEDULE DOCUMENT. This is a formal drawing or office document, not something filled in at the panel. Look for:
+- typeset uniform text and ruled table borders, with no handwriting in the circuit rows
+- a header block with labelled fields such as VOLTAGE, BUS RATING, AIC, PHASE, WIRE, MOUNTING, or MAINS
+- columns for circuit number, description, trip/amperage, poles, and usually a VA or kVA load column
+- odd and even circuits laid out as the two halves of one table
+- often a title block, sheet number, revision marks, or an "AS-BUILT" or "EXISTING" stamp
+- usually a scan, screenshot, PDF export, or a straight-on photo of a drawing sheet
+If a person could retype the whole circuit list from this image alone without ever seeing the panel, it is an "as_built_schedule".
+
+"field_directory" - the CIRCUIT DIRECTORY CARD that lives inside the panel door. Look for:
+- handwritten, label-maker, or typewriter entries, often in several different hands or pen colors
+- only circuit numbers and short load descriptions: no kVA/VA column and no header block
+- blank rows, crossed-out entries, "SPARE" scribbles, smudges, or water staining
+- photographed at an angle with the metal door, hinges, screws, or panel cover visible around it
+If the list is partial or informal and only makes sense alongside the panel itself, it is a "field_directory".
+
+"ignore" - anything else: site photos, equipment nameplates, one-line or riser diagrams, floor plans, blank or badly blurred images, screenshots of unrelated software.
+
+DECIDING FACTORS - apply in this order
+1. Handwriting anywhere in the circuit rows means "field_directory". A handwritten list is NEVER an "as_built_schedule", no matter how complete it looks.
+2. A kVA or VA load column, or a header block listing AIC and bus rating, means "as_built_schedule".
+3. Visible physical breaker handles mean "breaker".
+4. A photo of the open door with the card taped to it, where the card text is readable, is "field_directory". If the card text is not readable but the breakers are, it is "breaker".
+5. A printed document you cannot read well enough to retype is "ignore", not "as_built_schedule". Being printed is not enough on its own.
+6. Do not guess. Use "ignore" whenever no definition clearly fits.
+
+This distinction matters: an "as_built_schedule" is transcribed exactly as drawn, while a "field_directory" is only used to label circuits that are read off the breaker photos. Choosing the wrong one produces a wrong panel schedule.
+
+PANEL NAME
+- Extract the panel designation. Examples: "MDP", "PANEL A", "LP-1", "H1", "DP2A".
+- Look at stencilled or engraved labels on the panel cover, the title written on the directory card, the header of the schedule document, and the user notes below.
+- Prefer a name stated in the user notes over one you infer from an image.
+- Return it uppercase, with filler words removed ("PANEL SCHEDULE", "PANELBOARD", "DIRECTORY", "SCHEDULE FOR").
+- If no panel name is visible or stated anywhere, return "".
+
+Classify each image on its own merits. Do not try to decide how the panel schedule tool should run - that is worked out from the roles you assign.
+
+USER NOTES
+These notes were attached to the selection. Treat them as authoritative for the panel name, and for which image is which, whenever they conflict with what you see.
+{notes_block}
+
+CONFIDENCE AND REASONS
+- Set "confidence" to "high", "medium", or "low" for each image.
+- Set "reason" to a short phrase under 120 characters naming the visual evidence you used, for example "rows of breaker handles with 20A stamps", "typed table with kVA column and AIC header", or "handwritten card on panel door, no kVA column".
+- Set "notes" to one or two sentences explaining your role decisions, especially any image you found borderline.
+
+Return JSON matching the provided schema exactly, with image_index values 0 through {last_index} and no duplicates.
+""".strip()
+
+    def _classify_canvas_panel_images(self, usable, notes):
+        """Asks Gemini which selected canvas images are breaker photos vs circuit directories."""
+        api_key = self._resolve_panel_schedule_api_key()
+        if not api_key:
+            raise RuntimeError(
+                'AI API key is not configured. Please add it in Settings or set GOOGLE_API_KEY in your .env.'
+            )
+
+        self._ensure_aiohttp()
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=600000),
+        )
+
+        gemini_images = []
+        loaded = []
+        try:
+            for entry in usable:
+                try:
+                    gemini_images.append(_open_panel_schedule_image(
+                        entry['absPath'],
+                        max_edge=CANVAS_PANEL_CLASSIFY_MAX_IMAGE_EDGE,
+                    ))
+                except Exception as exc:
+                    entry['status'] = 'unsupported'
+                    entry['message'] = str(exc) or 'Could not read this image.'
+                    continue
+                loaded.append(entry)
+
+            if not loaded:
+                return None, []
+
+            prompt = self._build_canvas_panel_classification_prompt(len(loaded), notes)
+
+            response = None
+            for attempt in range(3):
+                try:
+                    response = client.models.generate_content(
+                        model="gemini-3.6-flash",
+                        contents=[prompt, *gemini_images],
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=CanvasPanelClassification
+                        ),
+                    )
+                    break
+                except Exception as exc:
+                    msg = str(exc).lower()
+                    transient = (
+                        "unavailable" in msg
+                        or "deadline" in msg
+                        or "503" in msg
+                        or "504" in msg
+                    )
+                    if not transient or attempt == 2:
+                        raise
+                    time.sleep(5 * (3 ** attempt))
+        finally:
+            for img in gemini_images:
+                try:
+                    img.close()
+                except Exception:
+                    pass
+
+        parsed = getattr(response, 'parsed', None)
+        if parsed is None:
+            raw_text = getattr(response, 'text', '') or ""
+            if not raw_text.strip():
+                raise RuntimeError("AI returned an empty response. Please try again.")
+            data = json.loads(raw_text)
+            if hasattr(CanvasPanelClassification, "model_validate"):
+                parsed = CanvasPanelClassification.model_validate(data)
+            else:
+                parsed = CanvasPanelClassification.parse_obj(data)
+        return parsed, loaded
+
+    def _coerce_canvas_panel_classification(self, parsed, resolved, classified):
+        """Turns a raw model answer into per-node roles, deciding the input mode from the counts."""
+        by_node = {}
+        for entry in resolved:
+            entry['role'] = 'ignore'
+            entry['confidence'] = 'low'
+            entry['reason'] = ''
+            if entry['status'] == 'ok':
+                entry['reason'] = 'The AI did not classify this image.'
+                by_node[entry['nodeId']] = entry
+
+        seen_indexes = set()
+        for raw in (getattr(parsed, 'images', None) or []):
+            try:
+                image_index = int(getattr(raw, 'image_index', -1))
+            except Exception:
+                continue
+            if image_index < 0 or image_index >= len(classified):
+                continue
+            if image_index in seen_indexes:
+                continue
+            seen_indexes.add(image_index)
+
+            entry = by_node.get(classified[image_index]['nodeId'])
+            if not entry:
+                continue
+
+            role = str(getattr(raw, 'role', '') or '').strip().lower()
+            entry['role'] = role if role in CANVAS_PANEL_IMAGE_ROLES else 'ignore'
+            confidence = str(getattr(raw, 'confidence', '') or '').strip().lower()
+            entry['confidence'] = (
+                confidence if confidence in CANVAS_PANEL_CONFIDENCE_LEVELS else 'medium'
+            )
+            entry['reason'] = str(getattr(raw, 'reason', '') or '').strip()[:160]
+
+        counts = {role: 0 for role in CANVAS_PANEL_IMAGE_ROLES}
+        for entry in resolved:
+            counts[entry['role']] = counts.get(entry['role'], 0) + 1
+        input_mode, blocking, blocking_message = self._derive_canvas_panel_input_mode(counts)
+
+        panel_name = str(getattr(parsed, 'panel_name', '') or '').strip().upper() or 'PANEL'
+
+        return {
+            'status': 'success',
+            'panelName': panel_name,
+            'inputMode': input_mode,
+            'blocking': blocking,
+            'blockingMessage': blocking_message,
+            'summary': str(getattr(parsed, 'notes', '') or '').strip(),
+            'images': resolved,
+        }
+
+    def _derive_canvas_panel_input_mode(self, counts):
+        """Picks the Panel Schedule AI mode from the image roles.
+
+        The model classifies what each image *is*; the mode follows from that. Asking
+        the model for the mode directly made it key off "are breakers present?" and
+        run field-photo mode over a printed as-built that should have been transcribed.
+        """
+        breaker_count = int(counts.get('breaker') or 0)
+        as_built_count = int(counts.get('as_built_schedule') or 0)
+        field_directory_count = int(counts.get('field_directory') or 0)
+        directory_count = as_built_count + field_directory_count
+
+        if breaker_count == 0 and directory_count == 0:
+            return (
+                'field_photos',
+                'no_usable_images',
+                "None of the selected images look like breaker photos, an as-built schedule, "
+                "or a field directory card. Pick the role for each image manually.",
+            )
+        if as_built_count > 0:
+            # A printed schedule is authoritative: transcribe it rather than re-reading
+            # the breakers and estimating loads, even when breaker photos are present.
+            return ('existing_directory', '', '')
+        if breaker_count == 0:
+            # Only a field card. Nothing to read breakers from, so transcribe what there is.
+            return ('existing_directory', '', '')
+        if directory_count == 0:
+            return (
+                'field_photos',
+                'needs_directory',
+                "Reading circuits off breaker photos also needs a circuit list. Set one image "
+                "to As-built schedule or Field directory card, or remove the breaker photos.",
+            )
+        return ('field_photos', '', '')
+
+    def classify_canvas_panel_selection(self, owner_key, images, notes=None):
+        """Classifies selected canvas image nodes into Panel Schedule AI inputs."""
+        try:
+            resolved = self._resolve_canvas_panel_selection_images(images)
+            if not resolved:
+                return {'status': 'error', 'message': 'Select at least one image.'}
+
+            usable = [entry for entry in resolved if entry['status'] == 'ok']
+            if not usable:
+                return {
+                    'status': 'error',
+                    'message': 'None of the selected images could be read. SVG images and missing files are skipped.',
+                    'images': resolved,
+                }
+
+            if getattr(self, "_canvas_panel_classify_running", False):
+                return {
+                    'status': 'error',
+                    'message': 'Still reading the previous selection. Try again in a moment.',
+                }
+
+            normalized_notes = self._normalize_canvas_panel_notes(notes)
+            self._canvas_panel_classify_running = True
+            try:
+                parsed, classified = self._classify_canvas_panel_images(usable, normalized_notes)
+            finally:
+                self._canvas_panel_classify_running = False
+
+            if parsed is None:
+                return {
+                    'status': 'error',
+                    'message': 'None of the selected images could be read. SVG images and missing files are skipped.',
+                    'images': resolved,
+                }
+
+            return self._coerce_canvas_panel_classification(parsed, resolved, classified)
+        except Exception as e:
+            logging.error(f"Canvas panel classification error: {e}")
+            return {'status': 'error', 'message': self._format_panel_schedule_ai_error(e)}
+
+    def _ensure_canvas_panel_classify_job_state(self):
+        if not hasattr(self, "_canvas_panel_classify_lock") or self._canvas_panel_classify_lock is None:
+            self._canvas_panel_classify_lock = threading.Lock()
+        if not hasattr(self, "_canvas_panel_classify_record"):
+            self._canvas_panel_classify_record = None
+
+    def _store_canvas_panel_classify_record(self, record):
+        self._ensure_canvas_panel_classify_job_state()
+        with self._canvas_panel_classify_lock:
+            self._canvas_panel_classify_record = deepcopy(record) if isinstance(record, dict) else None
+
+    def _get_canvas_panel_classify_record(self, job_id=None):
+        self._ensure_canvas_panel_classify_job_state()
+        with self._canvas_panel_classify_lock:
+            record = deepcopy(self._canvas_panel_classify_record)
+        if not isinstance(record, dict):
+            return None
+        if job_id is not None and str(record.get('jobId') or '') != str(job_id or '').strip():
+            return None
+        return record
+
+    def run_canvas_panel_classification_background(self, owner_key, images, notes=None):
+        """Classifies a canvas selection on a worker thread so the UI stays usable."""
+        if getattr(self, "_canvas_panel_classify_job_running", False):
+            return {
+                'status': 'error',
+                'message': 'Still reading the previous selection. Try again in a moment.',
+            }
+
+        job_id = uuid.uuid4().hex
+        self._store_canvas_panel_classify_record({
+            'jobId': job_id,
+            'status': 'running',
+            'message': 'Reading the selected canvas images...',
+            'ownerKey': str(owner_key or ''),
+            'result': None,
+            'startedAt': utc_now_iso(),
+            'finishedAt': '',
+        })
+        self._canvas_panel_classify_job_running = True
+        try:
+            thread = threading.Thread(
+                target=self._canvas_panel_classify_worker,
+                args=(job_id, owner_key, images, notes),
+                daemon=True
+            )
+            self._canvas_panel_classify_thread = thread
+            thread.start()
+        except Exception as e:
+            self._canvas_panel_classify_job_running = False
+            self._store_canvas_panel_classify_record(
+                self._build_canvas_panel_classify_terminal_record(
+                    job_id, {'status': 'error', 'message': str(e)}
+                )
+            )
+            return {'status': 'error', 'message': str(e)}
+        return {'status': 'started', 'jobId': job_id}
+
+    def _build_canvas_panel_classify_terminal_record(self, job_id, result):
+        existing = self._get_canvas_panel_classify_record(job_id) or {}
+        payload = result if isinstance(result, dict) else {}
+        status = 'success' if str(payload.get('status') or '').strip().lower() == 'success' else 'error'
+        return {
+            'jobId': str(job_id or '').strip(),
+            'status': status,
+            'message': str(payload.get('message') or '').strip(),
+            'ownerKey': str(existing.get('ownerKey') or '').strip(),
+            'result': deepcopy(payload) if payload else None,
+            'startedAt': str(existing.get('startedAt') or utc_now_iso()).strip(),
+            'finishedAt': utc_now_iso(),
+        }
+
+    def get_canvas_panel_classification_status(self, job_id):
+        normalized_job_id = str(job_id or '').strip()
+        if not normalized_job_id:
+            return {'status': 'not_found', 'jobId': ''}
+        record = self._get_canvas_panel_classify_record(normalized_job_id)
+        if not record:
+            return {'status': 'not_found', 'jobId': normalized_job_id}
+        return record
+
+    def _canvas_panel_classify_worker(self, job_id, owner_key, images, notes):
+        window = webview.windows[0] if webview.windows else None
+        result = {'status': 'error', 'message': 'Canvas panel classification failed.'}
+        try:
+            result = self.classify_canvas_panel_selection(owner_key, images, notes)
+        except Exception as e:
+            logging.error(f"Canvas panel classification error: {e}")
+            result = {'status': 'error', 'message': str(e)}
+        finally:
+            self._canvas_panel_classify_job_running = False
+
+        terminal_record = self._build_canvas_panel_classify_terminal_record(job_id, result)
+        self._store_canvas_panel_classify_record(terminal_record)
+
+        if not window:
+            return
+
+        try:
+            js_payload = json.dumps(terminal_record)
+            window.evaluate_js(
+                f"window.handleCanvasPanelClassificationResult({js_payload})"
+            )
+        except Exception as e:
+            logging.error(f"Failed to notify canvas panel classification result: {e}")
+
+    def resolve_canvas_panel_schedule_output(self, panel_name, folder_token=""):
+        """Computes (without creating) the temp workbook path for a canvas panel schedule run."""
+        try:
+            token = re.sub(r"[^A-Za-z0-9_-]+", "", str(folder_token or "").strip())[:40]
+            if not token:
+                token = f"{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+            safe_name = self._sanitize_panel_schedule_filename(panel_name, "PANEL")
+            folder = os.path.join(get_app_data_path(CANVAS_PANEL_SCHEDULES_DIRNAME), token)
+            return {
+                'status': 'success',
+                'folderToken': token,
+                'outputFolder': os.path.normpath(folder),
+                'outputPath': os.path.normpath(os.path.join(folder, f"{safe_name}.xlsx")),
+            }
+        except Exception as e:
+            logging.error(f"Error resolving canvas panel schedule output: {e}")
+            return {'status': 'error', 'message': str(e)}
 
     def _process_panel_schedule_payload(self, payload, job_id=None):
         data = self._normalize_panel_schedule_payload(payload)
@@ -16350,7 +16279,8 @@ TASK 3: LOAD TYPES
         """Runs the PlotDWGs.ps1 PowerShell script with progress updates.
 
         params_override (dict, optional): per-invocation overrides for publishDwgOptions
-        (autoDetectPaperSize, shrinkPercent, stripPdfLayers). Used by the workflow runner.
+        (autoDetectPaperSize, shrinkPercent, stripPdfLayers, refreshExcelOleLinks).
+        Used by the workflow runner.
         """
         script_path = os.path.join(BASE_DIR, "scripts", "PlotDWGs.ps1")
         if not os.path.exists(script_path):
@@ -16375,6 +16305,7 @@ TASK 3: LOAD TYPES
         auto_detect = publish_options.get('autoDetectPaperSize', True)
         shrink_percent = publish_options.get('shrinkPercent', 100)
         strip_pdf_layers = publish_options.get('stripPdfLayers', True)
+        refresh_excel_ole_links = publish_options.get('refreshExcelOleLinks', True)
 
         def _ps_bool(value):
             return "1" if value else "0"
@@ -16417,6 +16348,8 @@ TASK 3: LOAD TYPES
             shrink_percent,
             '-StripPdfLayers',
             _ps_bool(strip_pdf_layers),
+            '-RefreshExcelOleLinks',
+            _ps_bool(refresh_excel_ole_links),
         )
         if auto_selection:
             command.extend([

@@ -152,6 +152,8 @@ TOOL_CASES = (
             "85",
             "-StripPdfLayers",
             "1",
+            "-RefreshExcelOleLinks",
+            "1",
         ),
     },
     {
@@ -400,6 +402,29 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
         command = captured[0][0]
         strip_arg_index = command.index("-StripPdfLayers")
         self.assertEqual("0", command[strip_arg_index + 1])
+
+    def test_publish_tool_can_disable_excel_ole_refresh(self):
+        publish_case = next(
+            case for case in TOOL_CASES if case["method_name"] == "run_publish_script"
+        )
+        settings = {
+            **publish_case["settings"],
+            "publishDwgOptions": {
+                **publish_case["settings"]["publishDwgOptions"],
+                "refreshExcelOleLinks": False,
+            },
+        }
+        case = {**publish_case, "settings": settings}
+
+        result, captured, _ = self._run_tool(
+            case,
+            auto_selection={"files_list_path": AUTO_SELECTED_FILES_LIST},
+        )
+
+        self.assertEqual("success", result["status"])
+        command = captured[0][0]
+        refresh_arg_index = command.index("-RefreshExcelOleLinks")
+        self.assertEqual("0", command[refresh_arg_index + 1])
 
     def test_projects_tab_cad_tools_pass_default_directory_for_manual_picker(self):
         default_directory = r"C:\Projects\260243 BofA - Eastport Plaza"

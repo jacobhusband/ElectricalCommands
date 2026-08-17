@@ -10,6 +10,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MAIN_PY_PATH = REPO_ROOT / "main.py"
 SCRIPT_JS_PATH = REPO_ROOT / "script.js"
+INDEX_HTML_PATH = REPO_ROOT / "index.html"
 CAD_SCRIPT_PATHS = (
     REPO_ROOT / "scripts" / "PlotDWGs.ps1",
     REPO_ROOT / "scripts" / "ManageLayersDWGs.ps1",
@@ -101,12 +102,26 @@ class PowerShellCadWrapperTests(unittest.TestCase):
                     'Write-Host "PROGRESS: TRACE branch=manual_picker"',
                     text,
                 )
+                # The picker runs in a hidden-console child process, so an
+                # ownerless ShowDialog() lands behind the app window and the
+                # tool looks frozen until the app is killed.
+                self.assertIn("function Show-DwgFileSelectionPrompt {", text)
+                self.assertIn("$promptForm.TopMost = $true", text)
+                self.assertIn("$promptForm.ShowInTaskbar = $true", text)
+                self.assertIn("$result = $dlg.ShowDialog($promptForm)", text)
+                self.assertNotIn("$dlg.ShowDialog()", text)
                 self.assertIn('Write-Host "PROGRESS: INPUT_FOLDER: $inputFolder"', text)
                 if script_path.name == "PlotDWGs.ps1":
                     self.assertIn('[string]$StripPdfLayers = "true"', text)
                     self.assertIn('$StripPdfLayers = Convert-ToBool $StripPdfLayers $true', text)
                     self.assertIn('$stripPdfLayersScriptPath = Join-Path $scriptRoot "strip_pdf_layers.py"', text)
                     self.assertIn('@("-StripPdfLayers", $StripPdfLayers)', text)
+                    self.assertIn('[string]$RefreshExcelOleLinks = "true"', text)
+                    self.assertIn(
+                        '$RefreshExcelOleLinks = Convert-ToBool $RefreshExcelOleLinks $true',
+                        text,
+                    )
+                    self.assertIn('@("-RefreshExcelOleLinks", $RefreshExcelOleLinks)', text)
                     self.assertIn('Write-Host "PROGRESS: ERROR: \'strip_pdf_layers.py\' not found."', text)
                     self.assertIn('Write-Host "PROGRESS: Removing PDF layers from combined PDF..."', text)
                     self.assertIn('"PDF layer cleanup completed." | Out-File $logFile -Append', text)
@@ -171,6 +186,44 @@ class PowerShellCadWrapperTests(unittest.TestCase):
                         text,
                     )
                     self.assertIn('Write-Host "PROGRESS: OUTPUT_FOLDER: $outputFolder"', text)
+
+    def test_publish_refreshes_linked_excel_ole_through_full_autocad_once(self):
+        text = (REPO_ROOT / "scripts" / "PlotDWGs.ps1").read_text(encoding="utf-8")
+
+        for expected in (
+            'Join-Path $acadInstallDir "acad.exe"',
+            'function Invoke-FullAutoCadOleRefresh {',
+            'function Invoke-CorePlotAttempt {',
+            '(and typePair (= (cdr typePair) 1))',
+            '$oleCheckPresentMarker = "ACIES_OLE_CHECK:PRESENT"',
+            '$oleRefreshRequiredMarker = "ACIES_OLE_REFRESH:REQUIRED"',
+            '(not *acies-ole-refresh-attempted*)',
+            '-OleRefreshAlreadyAttempted $false',
+            '-OleRefreshAlreadyAttempted $true',
+            '-TimeoutSeconds 180',
+            '-WindowStyle Hidden',
+            'REGENALL',
+            'QSAVE',
+            'Publishing cached OLE content.',
+            'Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue',
+        ):
+            self.assertIn(expected, text)
+
+        self.assertIn('Write-Host "PROGRESS: WARNING:', text)
+        self.assertNotIn('Write-Host "PROGRESS: ERROR: $($dwgItem.Name) - $($oleRefreshResult.Message)', text)
+
+    def test_publish_excel_ole_refresh_setting_is_bound_in_both_uis(self):
+        script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+        html = INDEX_HTML_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("refreshExcelOleLinks: true,", script)
+        for control_id in (
+            "settings_publish_refreshExcelOleLinks",
+            "publish_modal_refreshExcelOleLinks",
+        ):
+            self.assertIn(control_id, script)
+            self.assertIn(f'id="{control_id}"', html)
+        self.assertIn("Refresh linked Excel OLE content and save source DWGs", html)
 
     def test_clean_xrefs_script_reports_output_folder_marker(self):
         text = CLEAN_XREF_SCRIPT_PATH.read_text(encoding="utf-8")
@@ -269,6 +322,15 @@ class PowerShellCadWrapperTests(unittest.TestCase):
             'error_message = f"Script finished with error code {return_code}."',
         ):
             self.assertIn(expected, text)
+
+    def test_script_runner_debug_output_is_safe_for_legacy_windows_codecs(self):
+        text = MAIN_PY_PATH.read_text(encoding="utf-8")
+        replacement_line = "AutoCAD output with replacement character: \ufffd"
+        debug_line = f"DEBUG THREAD OUTPUT: {replacement_line!a}"
+
+        self.assertIn('print(f"DEBUG THREAD OUTPUT: {line!a}")', text)
+        self.assertNotIn("\ufffd", debug_line)
+        debug_line.encode("cp1252")
 
     @unittest.skipUnless(sys.platform == "win32", "PowerShell STA relaunch is Windows-only")
     def test_sta_relaunch_preserves_files_list_path(self):

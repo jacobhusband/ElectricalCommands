@@ -21,7 +21,7 @@
         })();
     </script>
     <link rel="stylesheet" href="styles.css?v=20260708-richer-blocks-p6" />
-    <link rel="stylesheet" href="project-pages-editor/dist/project-pages-editor-project-pages-editor.css?v=20260708-richer-blocks-p6" />
+    <link rel="stylesheet" href="project-pages-editor/dist/project-pages-editor-project-pages-editor.css?v=20260729-page-email-attach" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
@@ -50,8 +50,6 @@
                 <button class="main-tab-btn" data-tab="checklists">Checklists</button>
                 <button class="main-tab-btn" data-tab="tools">Tools</button>
                 <button class="main-tab-btn" data-tab="timesheets">Timesheets</button>
-                <button class="main-tab-btn" data-tab="email">Email <span id="emailTabBadge" class="tab-badge"
-                        hidden></span></button>
             </nav>
         </div>
         <div class="header-actions">
@@ -206,6 +204,15 @@
                                 <line x1="18" y1="20" x2="18" y2="10"></line>
                                 <line x1="12" y1="20" x2="12" y2="4"></line>
                                 <line x1="6" y1="20" x2="6" y2="14"></line>
+                            </svg>
+                        </button>
+                        <button class="icon-btn" id="exportDeliverablesBtn" aria-label="Export deliverables"
+                            title="Export incomplete deliverables to Excel">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
                             </svg>
                         </button>
                         <div class="projects-view-toggle" role="group" aria-label="Projects view mode">
@@ -1009,40 +1016,6 @@
                 </div>
             </section>
         </div>
-        <div id="email-panel" class="tab-panel" hidden>
-            <section class="panel stack">
-                <div class="panel-toolbar">
-                    <div class="email-inbox-filters" id="emailInboxFilters" role="group" aria-label="Email filters">
-                        <button class="btn tiny email-filter-btn active" data-email-filter="new">New</button>
-                        <button class="btn tiny email-filter-btn" data-email-filter="cc">CC &amp; Other</button>
-                        <button class="btn tiny email-filter-btn" data-email-filter="accepted">Accepted</button>
-                        <button class="btn tiny email-filter-btn" data-email-filter="dismissed">Dismissed</button>
-                    </div>
-                    <div class="toolbar-actions">
-                        <span class="tiny muted" id="emailCaptureLastScan"></span>
-                        <button class="btn tiny" id="emailCaptureRescanBtn">Scan Now</button>
-                    </div>
-                </div>
-                <div id="emailCaptureProgress" class="tiny muted email-capture-progress" aria-live="polite" hidden>
-                </div>
-                <div id="emailInboxList" class="email-inbox-list stack"></div>
-            </section>
-            <section class="panel stack" id="followUpsSection">
-                <div class="panel-toolbar">
-                    <div class="follow-ups-heading">
-                        <span class="label">Follow-ups</span>
-                        <span class="tiny muted" id="followUpsSummary"></span>
-                    </div>
-                    <div class="toolbar-actions">
-                        <button class="btn tiny follow-up-filter-btn active" data-follow-up-filter="open">Open</button>
-                        <button class="btn tiny follow-up-filter-btn"
-                            data-follow-up-filter="resolved">Resolved</button>
-                        <button class="btn tiny" id="addFollowUpBtn">+ Follow-up</button>
-                    </div>
-                </div>
-                <div id="followUpsList" class="follow-ups-list stack"></div>
-            </section>
-        </div>
     </main>
     <aside id="scratchpadPanel" class="scratchpad-panel" hidden aria-label="Scratchpad" data-viewport-docked="true">
         <div class="scratchpad-panel-header">
@@ -1169,6 +1142,42 @@
             </div>
         </div>
         <input type="file" id="pageImageInput" accept="image/*" multiple hidden />
+        <div id="pageCanvasRoot" class="page-canvas-root" hidden>
+            <div class="page-canvas-toolbar">
+                <input id="pageCanvasTitle" class="page-canvas-title" type="text" aria-label="Page title"
+                    placeholder="Untitled" autocomplete="off" spellcheck="true" />
+                <div class="page-canvas-toolbar-actions">
+                    <button type="button" class="page-tool-btn" id="pageCanvasAddTextBtn"
+                        title="Add a text box (or double-click the canvas)">+ Text</button>
+                    <button type="button" class="page-tool-btn" id="pageCanvasAddImageBtn"
+                        title="Insert an image (or paste / drop one)">+ Image</button>
+                    <button type="button" class="page-tool-btn" id="pageCanvasZoomFitBtn"
+                        title="Fit all items in view">Fit</button>
+                    <span class="page-canvas-zoom-label" id="pageCanvasZoomLabel" aria-live="polite">100%</span>
+                </div>
+            </div>
+            <div class="page-canvas-viewport" id="pageCanvasViewport" tabindex="0"
+                aria-label="Canvas. Double-click to add a text box. Drag to select, Ctrl+click to add to the selection, space-drag or middle-drag to pan, scroll to zoom.">
+                <div class="page-canvas-world" id="pageCanvasWorld">
+                    <svg class="page-canvas-edges" id="pageCanvasEdges" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <marker id="pageCanvasArrowHead" viewBox="0 0 10 10" refX="9" refY="5"
+                                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
+                            </marker>
+                        </defs>
+                        <g id="pageCanvasEdgePaths"></g>
+                        <path id="pageCanvasEdgeDraft" class="page-canvas-edge-draft" d="" hidden></path>
+                    </svg>
+                    <div class="page-canvas-nodes" id="pageCanvasNodes"></div>
+                </div>
+                <div class="page-canvas-empty-hint" id="pageCanvasEmptyHint" hidden>
+                    Double-click anywhere to add a text box
+                </div>
+                <div class="page-canvas-marquee" id="pageCanvasMarquee" hidden></div>
+            </div>
+            <input type="file" id="pageCanvasImageInput" accept="image/*" multiple hidden />
+        </div>
     </section>
     <button id="projectsBackToTopBtn" class="projects-back-to-top" type="button" aria-label="Back to top"
         title="Back to top">Top</button>
@@ -1250,15 +1259,28 @@
         <div class="modal-header">
             <div>
                 <div class="title">Export Deliverables to Excel</div>
-                <div class="muted tiny">Select deliverables to include in a basic Excel export.</div>
+                <div class="muted tiny">Incomplete deliverables are preselected. Generate an AI status briefing to
+                    include it as a second sheet.</div>
             </div>
             <button class="btn ghost" type="button" onclick="closeDlg('deliverableNotepadDlg')">Cancel</button>
         </div>
         <div class="modal-body stack">
+            <div class="deliverable-notepad-toolbar">
+                <div class="projects-filter-chip-list" role="group" aria-label="Deliverable scope">
+                    <button type="button" class="projects-filter-chip is-active"
+                        id="deliverableNotepadScopeIncompleteBtn" data-notepad-scope="incomplete"
+                        aria-pressed="true">Incomplete only</button>
+                    <button type="button" class="projects-filter-chip" id="deliverableNotepadScopeAllBtn"
+                        data-notepad-scope="all" aria-pressed="false">All deliverables</button>
+                </div>
+                <button class="btn ghost" id="deliverableNotepadSummaryBtn" type="button">Generate Status
+                    Briefing</button>
+            </div>
             <div class="deliverable-notepad-layout">
                 <section class="deliverable-notepad-panel">
                     <div class="deliverable-notepad-panel-header">
-                        <div class="deliverable-notepad-panel-title">All Deliverables</div>
+                        <div class="deliverable-notepad-panel-title" id="deliverableNotepadAvailablePanelTitle">
+                            Incomplete Deliverables</div>
                         <div id="deliverableNotepadAvailableCount" class="muted tiny">0 deliverables</div>
                     </div>
                     <div id="deliverableNotepadAvailableList" class="deliverable-notepad-list" role="list"></div>
@@ -1275,6 +1297,14 @@
                     <div id="deliverableNotepadSelectedList" class="deliverable-notepad-list" role="list"></div>
                 </section>
             </div>
+            <section id="deliverableNotepadSummaryPanel" class="deliverable-notepad-summary" hidden
+                aria-live="polite">
+                <div class="deliverable-notepad-summary-header">
+                    <div class="deliverable-notepad-panel-title">AI Status Briefing</div>
+                    <div id="deliverableNotepadSummaryMeta" class="muted tiny"></div>
+                </div>
+                <div id="deliverableNotepadSummaryBody" class="deliverable-notepad-summary-body"></div>
+            </section>
             <div class="modal-footer">
                 <button class="btn-primary" id="deliverableNotepadExportBtn" type="button" disabled>Export to Excel</button>
             </div>
@@ -1454,37 +1484,6 @@
                         Project</button>
                 </div>
             </div>
-        </div>
-    </dialog>
-    <dialog id="followUpDlg">
-        <div class="modal-header">
-            <div class="title" id="followUpDlgTitle">Flag Follow-up</div>
-            <button class="btn ghost" onclick="closeDlg('followUpDlg')">Cancel</button>
-        </div>
-        <div class="modal-body stack">
-            <div class="tiny muted" id="followUpDlgContext" hidden></div>
-            <label class="label" for="followUpTitleInput">Title</label>
-            <input id="followUpTitleInput" type="text" placeholder="What needs a follow-up?" />
-            <label class="label" for="followUpWaitingOnInput">Waiting on</label>
-            <input id="followUpWaitingOnInput" type="text" placeholder="Person or company you are waiting on" />
-            <label class="label" for="followUpDueInput">Follow up by</label>
-            <input id="followUpDueInput" type="date" />
-            <label class="label" for="followUpNoteInput">Note</label>
-            <textarea id="followUpNoteInput" rows="3" placeholder="Optional context..."></textarea>
-            <div class="modal-footer">
-                <button class="btn-primary" id="followUpSaveBtn">Save Follow-up</button>
-            </div>
-        </div>
-    </dialog>
-    <dialog id="emailProjectPickerDlg">
-        <div class="modal-header">
-            <div class="title">Link Email to Project</div>
-            <button class="btn ghost" onclick="closeDlg('emailProjectPickerDlg')">Cancel</button>
-        </div>
-        <div class="modal-body stack">
-            <p class="tiny muted">Pick the project this email belongs to. A new deliverable will be created there.</p>
-            <input id="emailProjectPickerSearch" type="search" placeholder="Search by project name or nickname..." />
-            <div id="emailProjectPickerList" class="timesheet-project-list"></div>
         </div>
     </dialog>
     <!-- Paste CSV Modal -->
@@ -1731,14 +1730,17 @@
                             Auto-detect page size</label>
                         <label class="radio-label"><input type="checkbox" id="settings_publish_stripPdfLayers">
                             Remove PDF layers</label>
+                        <label class="radio-label"><input type="checkbox" id="settings_publish_refreshExcelOleLinks">
+                            Refresh linked Excel OLE content and save source DWGs</label>
                         <div class="inline" style="gap: 0.5rem; align-items: center;">
                             <label class="tiny muted" style="min-width: 160px;">Reduce combined PDF quality to</label>
                             <input type="range" id="settings_publish_shrinkPercent" min="5" max="100" step="5" />
                             <span class="tiny" id="settings_publish_shrinkValue">100%</span>
                         </div>
                     </div>
-                    <div class="tiny muted" style="margin-top: 0.35rem;">If unchecked, you'll manually enter a page
-                        size.</div>
+                    <div class="tiny muted" style="margin-top: 0.35rem;">Turn off page-size detection to enter a size
+                        manually. Excel OLE refresh opens only linked drawings in full AutoCAD and saves the original DWG
+                        before plotting.</div>
                 </div>
                 <div class="col-12" style="margin-top: 0.6rem;">
                     <label class="label">Freeze/Thaw Layers in CAD DWGs Headless Mode</label>
@@ -1918,6 +1920,22 @@
                         <span class="toggle-label">Off</span>
                         <label class="switch" aria-label="Remove PDF layers">
                             <input type="checkbox" id="publish_modal_stripPdfLayers">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label">On</span>
+                    </div>
+                </div>
+                <div class="tool-setting">
+                    <div class="tool-setting-text">
+                        <div class="tool-setting-title">Refresh linked Excel OLE</div>
+                        <div class="tool-setting-desc">On: opens drawings containing linked Excel OLE objects in full
+                            AutoCAD, refreshes the links, and saves the original DWGs before plotting. If refresh fails,
+                            Publish warns and uses the cached drawing content.</div>
+                    </div>
+                    <div class="tool-setting-control">
+                        <span class="toggle-label">Off</span>
+                        <label class="switch" aria-label="Refresh linked Excel OLE and save source drawings">
+                            <input type="checkbox" id="publish_modal_refreshExcelOleLinks">
                             <span class="slider"></span>
                         </label>
                         <span class="toggle-label">On</span>
@@ -2790,6 +2808,79 @@
         </div>
     </dialog>
 
+    <dialog id="canvasPanelScheduleDlg" class="canvas-panel-schedule-dialog">
+        <div class="cps-shell">
+            <div class="cps-header">
+                <div class="cps-title">
+                    <div class="title-row">
+                        <div class="title">Convert to Panel Schedule</div>
+                        <span class="ai-badge">
+                            <span class="ai-badge-dot"></span>
+                            AI Powered
+                        </span>
+                    </div>
+                    <p class="tiny muted">Review what the AI decided before the schedule is generated.</p>
+                </div>
+                <button class="icon-btn" id="cpsCloseBtn" aria-label="Close" title="Close">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M13 1L1 13M1 1L13 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="cps-body">
+                <div id="cpsLoading" class="cps-loading">
+                    <div class="spinner">Reading your selection</div>
+                    <p class="tiny muted">The AI is sorting your images into breaker photos and circuit directories.</p>
+                </div>
+                <div id="cpsError" class="cps-error" hidden></div>
+
+                <div id="cpsContent" hidden>
+                    <section class="cps-section">
+                        <label class="cps-section-title" for="cpsPanelName">Panel name</label>
+                        <input id="cpsPanelName" type="text" autocomplete="off" placeholder="e.g. MDP" />
+                    </section>
+
+                    <section class="cps-section">
+                        <div class="cps-section-title">Input mode</div>
+                        <label class="cps-radio">
+                            <input type="radio" name="cpsInputMode" id="cpsInputModeField" value="field_photos" />
+                            <span>Read the breakers <span class="tiny muted">(circuits come off the breaker photos, loads are estimated)</span></span>
+                        </label>
+                        <label class="cps-radio">
+                            <input type="radio" name="cpsInputMode" id="cpsInputModeExisting" value="existing_directory" />
+                            <span>Transcribe the schedule <span class="tiny muted">(circuits and loads are copied from the document as drawn)</span></span>
+                        </label>
+                    </section>
+
+                    <section class="cps-section">
+                        <div class="cps-section-title">Images</div>
+                        <div id="cpsImageList" class="cps-image-list"></div>
+                    </section>
+
+                    <section class="cps-section" id="cpsNotesSection" hidden>
+                        <div class="cps-section-title">What the AI saw</div>
+                        <p class="tiny muted" id="cpsSummary"></p>
+                        <ul class="cps-note-list" id="cpsNoteList"></ul>
+                    </section>
+
+                    <section class="cps-section">
+                        <div class="cps-section-title">Output</div>
+                        <span id="cpsOutputPath" class="cb-file-pill" data-empty="true">Preparing...</span>
+                        <p class="tiny muted">A new workbook is created in the app data folder. Explorer opens with the file selected when the run finishes.</p>
+                    </section>
+
+                    <div id="cpsWarning" class="cps-warning" hidden></div>
+                </div>
+            </div>
+
+            <div class="cps-footer">
+                <button class="btn ghost" id="cpsCancelBtn" type="button">Cancel</button>
+                <button class="btn-primary" id="cpsConfirmBtn" type="button" disabled>Create panel schedule</button>
+            </div>
+        </div>
+    </dialog>
+
     <dialog id="lightingScheduleDlg" class="lighting-schedule-dialog">
         <div class="lighting-schedule-shell">
             <div class="lighting-schedule-header">
@@ -3098,12 +3189,21 @@
                             <input class="d-name" placeholder="e.g. DD90" />
                         </div>
                         <div class="field">
-                            <label class="label">Due Date</label>
+                            <label class="label">Internal Due Date</label>
                             <div class="input-with-calendar">
                                 <input class="d-due" placeholder="MM/DD/YYYY" />
                                 <button type="button" class="calendar-icon-btn" title="Pick a date">📅</button>
                                 <div class="date-validation-msg"></div>
                             </div>
+                        </div>
+                        <div class="field">
+                            <label class="label">Hard Deadline</label>
+                            <div class="input-with-calendar">
+                                <input class="d-hard-due" placeholder="MM/DD/YYYY" />
+                                <button type="button" class="calendar-icon-btn" title="Pick a date">📅</button>
+                                <div class="date-validation-msg"></div>
+                            </div>
+                            <div class="tiny muted">Must-finish date. Leave blank if this can be pushed.</div>
                         </div>
                     </div>
                     <div class="deliverable-controls">
@@ -3147,8 +3247,8 @@
         </div>
     </section>
     <div id="updateCheckIndicator" class="corner-status" hidden>Checking for updates...</div>
-    <script src="project-pages-editor/dist/project-pages-editor.js?v=20260708-richer-blocks-p6"></script>
-    <script src="script.js?v=20260427-card-order"></script>
+    <script src="project-pages-editor/dist/project-pages-editor.js?v=20260729-page-email-attach"></script>
+    <script src="script.js?v=20260729-page-email-attach"></script>
 </body>
 
 </html>

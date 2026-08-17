@@ -3,6 +3,7 @@ param(
   [string]$AutoDetectPaperSize = "true",
   [int]$ShrinkPercent = 100,
   [string]$StripPdfLayers = "true",
+  [string]$RefreshExcelOleLinks = "true",
   [string]$FilesListPath = "",
   [string]$DefaultDirectory = ""
 )
@@ -24,6 +25,7 @@ function Convert-ToBool {
 
 $AutoDetectPaperSize = Convert-ToBool $AutoDetectPaperSize $true
 $StripPdfLayers = Convert-ToBool $StripPdfLayers $true
+$RefreshExcelOleLinks = Convert-ToBool $RefreshExcelOleLinks $true
 
 function Ensure-WinFormsAssemblies {
   Add-Type -AssemblyName System.Windows.Forms
@@ -56,6 +58,108 @@ function Move-FormToPrimaryScreen {
   $y = $workingArea.Top + [Math]::Max(0, [int](($workingArea.Height - $TargetForm.Height) / 2))
   $TargetForm.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
   $TargetForm.Location = New-Object System.Drawing.Point($x, $y)
+}
+
+function Show-DwgFileSelectionPrompt {
+  # The picker runs inside a hidden-console child process, so a bare
+  # OpenFileDialog.ShowDialog() has no owner window and Windows refuses to pull
+  # it in front of the app that launched it. The dialog then sits behind the
+  # main window while the tool looks frozen. Owning it with a TopMost form keeps
+  # it visible and gives the user a taskbar entry to get back to.
+  $promptForm = New-Object System.Windows.Forms.Form
+  $promptForm.Text = "Select DWG file(s) to plot"
+  $promptForm.StartPosition = "Manual"
+  $promptForm.Size = New-Object System.Drawing.Size(560, 190)
+  $promptForm.MinimumSize = New-Object System.Drawing.Size(560, 190)
+  $promptForm.MaximumSize = New-Object System.Drawing.Size(560, 190)
+  $promptForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+  $promptForm.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Font
+  $promptForm.MaximizeBox = $false
+  $promptForm.MinimizeBox = $false
+  $promptForm.TopMost = $true
+  $promptForm.ShowInTaskbar = $true
+  $promptForm.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+  Move-FormToPrimaryScreen $promptForm
+
+  $lblPrompt = New-Object System.Windows.Forms.Label
+  $lblPrompt.Text = "Choose one or more DWG files to publish. This window stays on top until files are selected or you exit."
+  $lblPrompt.Location = New-Object System.Drawing.Point(16, 16)
+  $lblPrompt.Size = New-Object System.Drawing.Size(520, 52)
+  $lblPrompt.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+  $promptForm.Controls.Add($lblPrompt)
+
+  $btnSelectFiles = New-Object System.Windows.Forms.Button
+  $btnSelectFiles.Text = "Select DWG Files..."
+  $btnSelectFiles.Size = New-Object System.Drawing.Size(210, 44)
+  $btnSelectFiles.Location = New-Object System.Drawing.Point(222, 92)
+  $btnSelectFiles.Anchor = [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Right
+  $btnSelectFiles.Font = New-Object System.Drawing.Font("Segoe UI", 9.5, [System.Drawing.FontStyle]::Bold)
+  $btnSelectFiles.FlatStyle = [System.Windows.Forms.FlatStyle]::System
+  $promptForm.Controls.Add($btnSelectFiles)
+
+  $btnExitPrompt = New-Object System.Windows.Forms.Button
+  $btnExitPrompt.Text = "Exit"
+  $btnExitPrompt.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+  $btnExitPrompt.Size = New-Object System.Drawing.Size(110, 44)
+  $btnExitPrompt.Location = New-Object System.Drawing.Point(434, 92)
+  $btnExitPrompt.Anchor = [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Right
+  $btnExitPrompt.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+  $btnExitPrompt.FlatStyle = [System.Windows.Forms.FlatStyle]::System
+  $promptForm.Controls.Add($btnExitPrompt)
+
+  $promptForm.CancelButton = $btnExitPrompt
+  $promptForm.AcceptButton = $btnSelectFiles
+
+  $dlg = New-Object System.Windows.Forms.OpenFileDialog
+  $dlg.Title = "Select DWG file(s) to plot"
+  $dlg.Filter = "DWG files (*.dwg)|*.dwg|All files (*.*)|*.*"
+  $dlg.Multiselect = $true
+  $dlg.CheckFileExists = $true
+  $dlg.CheckPathExists = $true
+  $dlg.RestoreDirectory = $true
+  $dlg.InitialDirectory = Resolve-DialogInitialDirectory `
+    -CandidatePath $DefaultDirectory `
+    -FallbackPath ([Environment]::GetFolderPath("Desktop"))
+
+  $btnSelectFiles.add_Click({
+      $promptForm.TopMost = $true
+      $promptForm.Activate()
+      $result = $dlg.ShowDialog($promptForm)
+      if ($result -eq [System.Windows.Forms.DialogResult]::OK -and $dlg.FileNames.Count -gt 0) {
+        $promptForm.Tag = [string[]]$dlg.FileNames
+        $promptForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $promptForm.Close()
+        return
+      }
+      $promptForm.TopMost = $true
+      $promptForm.Activate()
+      $promptForm.BringToFront()
+    })
+
+  $promptForm.add_Shown({
+      $promptForm.Activate()
+      $promptForm.BringToFront()
+      $btnSelectFiles.PerformClick()
+    })
+
+  # Keep this prompt from being minimized so it remains actionable.
+  $promptForm.add_Resize({
+      if ($promptForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+        $promptForm.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+        Move-FormToPrimaryScreen $promptForm
+        $promptForm.Activate()
+        $promptForm.BringToFront()
+      }
+    })
+
+  $promptResult = $promptForm.ShowDialog()
+  if ($promptResult -eq [System.Windows.Forms.DialogResult]::OK) {
+    $selectedFiles = @($promptForm.Tag)
+    if ($selectedFiles.Count -gt 0) {
+      return $selectedFiles
+    }
+  }
+  return $null
 }
 
 function Convert-ToLispPath {
@@ -274,6 +378,9 @@ if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
   if ($PSBoundParameters.ContainsKey('StripPdfLayers')) {
     $argsList += @("-StripPdfLayers", $StripPdfLayers)
   }
+  if ($PSBoundParameters.ContainsKey('RefreshExcelOleLinks')) {
+    $argsList += @("-RefreshExcelOleLinks", $RefreshExcelOleLinks)
+  }
   if ($PSBoundParameters.ContainsKey('FilesListPath') -and -not [string]::IsNullOrWhiteSpace($FilesListPath)) {
     $argsList += @("-FilesListPath", $FilesListPath)
   }
@@ -292,6 +399,11 @@ if ([string]::IsNullOrEmpty($acadCore) -or -not (Test-Path $acadCore)) {
 
 $arcAlignedTextSupportCandidates = [System.Collections.Generic.List[string]]::new()
 $acadInstallDir = Split-Path -Path $acadCore -Parent
+$fullAcadExe = if ([string]::IsNullOrWhiteSpace($acadInstallDir)) {
+  ""
+} else {
+  Join-Path $acadInstallDir "acad.exe"
+}
 if (-not [string]::IsNullOrWhiteSpace($acadInstallDir)) {
   $candidateFromExpress = Join-Path $acadInstallDir "Express\ctextapp.arx"
   $candidateFromRoot = Join-Path $acadInstallDir "ctextapp.arx"
@@ -319,8 +431,87 @@ $arcModuleLoadFailedMarker = "ACIES_ARC_MODULE_LOAD:FAILED"
 $arcModuleLoadSkippedMarker = "ACIES_ARC_MODULE_LOAD:SKIPPED"
 $plotDecisionContinueMarker = "ACIES_PLOT_DECISION:CONTINUE"
 $plotDecisionSkipMarker = "ACIES_PLOT_DECISION:SKIP"
+$plotDecisionRefreshOleMarker = "ACIES_PLOT_DECISION:REFRESH_OLE"
 $preflightErrorMarker = "ACIES_PREFLIGHT_ERROR"
+$oleCheckPresentMarker = "ACIES_OLE_CHECK:PRESENT"
+$oleCheckAbsentMarker = "ACIES_OLE_CHECK:ABSENT"
+$oleCheckErrorMarker = "ACIES_OLE_CHECK:ERROR"
+$oleRefreshRequiredMarker = "ACIES_OLE_REFRESH:REQUIRED"
 Write-Host "PROGRESS: ARCALIGNEDTEXT module candidates: $($arcAlignedTextSupportCandidates -join '; ')"
+
+function Invoke-FullAutoCadOleRefresh {
+  param(
+    [string]$AcadExe,
+    [string]$DwgPath,
+    [string]$LogFile,
+    [int]$TimeoutSeconds = 180
+  )
+
+  if ([string]::IsNullOrWhiteSpace($AcadExe) -or -not (Test-Path -LiteralPath $AcadExe -PathType Leaf)) {
+    return [pscustomobject]@{
+      Status = "unavailable"
+      Message = "Full AutoCAD executable was not found beside the selected Core Console."
+    }
+  }
+
+  $dwgItem = Get-Item -LiteralPath $DwgPath
+  if ($dwgItem.IsReadOnly) {
+    return [pscustomobject]@{
+      Status = "read_only"
+      Message = "The drawing is read-only and cannot be saved after refreshing linked Excel content."
+    }
+  }
+
+  $refreshScript = Join-Path $env:TEMP ("acies_refresh_ole_{0}.scr" -f [guid]::NewGuid().ToString("N"))
+  $scriptContent = @"
+REGENALL
+QSAVE
+QUIT
+"@
+
+  try {
+    Set-Content -Encoding ASCII -LiteralPath $refreshScript -Value $scriptContent
+    $argumentLine = ('"{0}" /nologo /b "{1}"' -f $DwgPath, $refreshScript)
+    "OLE_REFRESH_COMMAND: $AcadExe $argumentLine" | Out-File $LogFile -Append
+
+    $process = Start-Process -FilePath $AcadExe `
+      -ArgumentList $argumentLine `
+      -PassThru `
+      -WindowStyle Hidden
+
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+      try { $process.Kill() } catch {}
+      try { $null = $process.WaitForExit() } catch {}
+      return [pscustomobject]@{
+        Status = "timeout"
+        Message = "Full AutoCAD did not finish the OLE refresh within $TimeoutSeconds seconds."
+      }
+    }
+
+    if ($process.ExitCode -ne 0) {
+      return [pscustomobject]@{
+        Status = "failed"
+        Message = "Full AutoCAD exited with code $($process.ExitCode) while refreshing linked Excel content."
+      }
+    }
+
+    return [pscustomobject]@{
+      Status = "success"
+      Message = "Linked Excel OLE content was refreshed and the drawing was saved."
+    }
+  }
+  catch {
+    return [pscustomobject]@{
+      Status = "failed"
+      Message = "Could not refresh linked Excel OLE content: $($_.Exception.Message)"
+    }
+  }
+  finally {
+    if (Test-Path -LiteralPath $refreshScript -PathType Leaf) {
+      Remove-Item -LiteralPath $refreshScript -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
 
 Ensure-WinFormsAssemblies
 
@@ -365,19 +556,14 @@ if ($files -and $files.Count -gt 0) {
 if (-not $files -or $files.Count -eq 0) {
   Write-Host "PROGRESS: TRACE branch=manual_picker"
   Write-Host "PROGRESS: Waiting for user input..."
+  Write-Host "PROGRESS: File selection dialog should be visible on the primary display."
   [System.Windows.Forms.Application]::EnableVisualStyles()
 
-  $dlg = New-Object System.Windows.Forms.OpenFileDialog
-  $dlg.Title = "Select DWG file(s) to plot"
-  $dlg.Filter = "DWG files (*.dwg)|*.dwg|All files (*.*)|*.*"
-  $dlg.Multiselect = $true
-  $dlg.InitialDirectory = Resolve-DialogInitialDirectory `
-    -CandidatePath $DefaultDirectory `
-    -FallbackPath ([Environment]::GetFolderPath("Desktop"))
-  if ($dlg.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK -or -not $dlg.FileNames) {
+  $selectedDwgFiles = Show-DwgFileSelectionPrompt
+  if (-not $selectedDwgFiles -or $selectedDwgFiles.Count -eq 0) {
     Write-Host "PROGRESS: ERROR: No files selected."; exit
   }
-  $files = $dlg.FileNames
+  $files = $selectedDwgFiles
 }
 
 # Normalize to a string array so single-file runs still behave like multi-file runs.
@@ -570,6 +756,8 @@ $logFile = Join-Path $batchOutputDir "_BatchPlotLog.txt"
 "AutoCAD Core Used: $acadCore" | Out-File $logFile -Append
 "ARCALIGNEDTEXT module candidates: $($arcAlignedTextSupportCandidates -join '; ')" | Out-File $logFile -Append
 "Strip PDF Layers: $StripPdfLayers" | Out-File $logFile -Append
+"Refresh Excel OLE Links: $RefreshExcelOleLinks" | Out-File $logFile -Append
+"Full AutoCAD Executable: $fullAcadExe" | Out-File $logFile -Append
 "Output Folder: $batchOutputDir" | Out-File $logFile -Append
 "Combined PDF Name: $combinedPdfName" | Out-File $logFile -Append
 "Processing $($files.Count) files..." | Out-File $logFile -Append
@@ -583,19 +771,82 @@ $pdfMergeFailed = $false
 $pdfLayerCleanupFailed = $false
 $i = 0
 
-# --- Main Processing Loop (Plotting ONLY) ---
-foreach ($dwgPath in $files) {
-  $i++
-  $dwgItem = Get-Item $dwgPath
-  $dwgNameWithoutExt = $dwgItem.BaseName
-  Write-Host "PROGRESS: Plotting $i of $($files.Count): $($dwgItem.Name)"
-    
-  "===== $(Get-Date -f 'yyyy-MM-dd HH:mm:ss') Start Plotting: $($dwgItem.Name) =====" | Out-File $logFile -Append
-    
-  # Create AutoLISP file for plotting
-  $lispFile = Join-Path $env:TEMP "plot_layouts.lsp"
-  $lispOutputDir = $batchOutputDir -replace '\\', '\\'
+function Invoke-CorePlotAttempt {
+  param(
+    [string]$DwgPath,
+    [string]$DwgNameWithoutExt,
+    [string]$OutputDirectory,
+    [string]$PaperSize,
+    [string]$LogFile,
+    [bool]$OleRefreshAlreadyAttempted
+  )
+
+  $attemptId = [guid]::NewGuid().ToString("N")
+  $lispFile = Join-Path $env:TEMP "plot_layouts_$attemptId.lsp"
+  $scriptFile = Join-Path $env:TEMP "run_plot_$attemptId.scr"
+  $lispOutputDir = $OutputDirectory -replace '\\', '\\'
+  $oleRefreshEnabledLiteral = if ($RefreshExcelOleLinks) { "T" } else { "nil" }
+  $oleRefreshAttemptedLiteral = if ($OleRefreshAlreadyAttempted) { "T" } else { "nil" }
+
   $lispContent = @"
+(setq *acies-refresh-excel-ole-links* $oleRefreshEnabledLiteral)
+(setq *acies-ole-refresh-attempted* $oleRefreshAttemptedLiteral)
+
+(defun LinkedOLEObjectP (obj / ename data typePair)
+  (if (= (vla-get-ObjectName obj) "AcDbOle2Frame")
+    (progn
+      (setq ename (vl-catch-all-apply 'vlax-vla-object->ename (list obj)))
+      (if (vl-catch-all-error-p ename)
+        nil
+        (progn
+          (setq data (entget ename))
+          (setq typePair (assoc 71 data))
+          (and typePair (= (cdr typePair) 1))
+        )
+      )
+    )
+    nil
+  )
+)
+
+(defun CountLinkedOLEsInBlock (blk / count)
+  (setq count 0)
+  (vlax-for obj blk
+    (if (LinkedOLEObjectP obj)
+      (setq count (1+ count))
+    )
+  )
+  count
+)
+
+(defun InspectLinkedOLEs (/ acad doc count)
+  (vl-load-com)
+  (setq acad (vlax-get-acad-object))
+  (setq doc (vla-get-ActiveDocument acad))
+  (setq count (CountLinkedOLEsInBlock (vla-get-ModelSpace doc)))
+  (vlax-for lay (vla-get-Layouts doc)
+    (if (/= (strcase (vla-get-Name lay)) "MODEL")
+      (setq count (+ count (CountLinkedOLEsInBlock (vla-get-Block lay))))
+    )
+  )
+  (if (> count 0)
+    (princ (strcat "\n${oleCheckPresentMarker}:" (itoa count)))
+    (princ "\n$oleCheckAbsentMarker")
+  )
+  count
+)
+
+(defun SafeInspectLinkedOLEs (/ result)
+  (setq result (vl-catch-all-apply 'InspectLinkedOLEs '()))
+  (if (vl-catch-all-error-p result)
+    (progn
+      (princ (strcat "\n${oleCheckErrorMarker}: " (vl-catch-all-error-message result)))
+      -1
+    )
+    result
+  )
+)
+
 (defun UpdateBlockOLELinks (blk / res)
   (vlax-for obj blk
     (if (equal (vla-get-ObjectName obj) "AcDbOle2Frame")
@@ -725,7 +976,7 @@ foreach ($dwgPath in $files) {
   )
 )
 
-(defun c:PlotAllLayouts (/ main-dict layout-dict item layout-name pdfName preflightResult)
+(defun PlotLayoutsAfterPreflight (/ main-dict layout-dict item layout-name pdfName preflightResult)
   (setq preflightResult (vl-catch-all-apply 'EnsurePublishPreflight '()))
   (if (vl-catch-all-error-p preflightResult)
     (progn
@@ -744,8 +995,8 @@ foreach ($dwgPath in $files) {
               (if (/= (strcase layout-name) "MODEL")
                 (progn
                   (setvar "CTAB" layout-name)
-                  (setq pdfName (strcat "$lispOutputDir\\" "$dwgNameWithoutExt" "-" layout-name ".pdf"))
-                  (command "-PLOT" "Y" "" "DWG to PDF.pc3" "$selectedPaperSize" "I" "L" "N" "L" "1:1" "0.00,0.00" "Y" "510-monochrome.ctb" "Y" "N" "N" "N" pdfName "N" "Y")
+                  (setq pdfName (strcat "$lispOutputDir\\" "$DwgNameWithoutExt" "-" layout-name ".pdf"))
+                  (command "-PLOT" "Y" "" "DWG to PDF.pc3" "$PaperSize" "I" "L" "N" "L" "1:1" "0.00,0.00" "Y" "510-monochrome.ctb" "Y" "N" "N" "N" pdfName "N" "Y")
                 )
               )
             )
@@ -759,18 +1010,56 @@ foreach ($dwgPath in $files) {
       )
     )
   )
+)
+
+(defun c:PlotAllLayouts (/ linkedOleCount)
+  (setq linkedOleCount (SafeInspectLinkedOLEs))
+  (if (and *acies-refresh-excel-ole-links*
+           (not *acies-ole-refresh-attempted*)
+           (> linkedOleCount 0))
+    (progn
+      (AciesLog "$oleRefreshRequiredMarker")
+      (AciesLog "$plotDecisionRefreshOleMarker")
+      (command "QUIT" "N")
+    )
+    (PlotLayoutsAfterPreflight)
+  )
   (princ)
 )
 "@
-  Set-Content -Encoding ASCII -Path $lispFile -Value $lispContent
-    
-  $scriptFile = Join-Path $env:TEMP "run_plot.scr"
-  $lispPathForScript = $lispFile -replace '\\', '/'
-  $scriptContent = @"
+
+  try {
+    Set-Content -Encoding ASCII -LiteralPath $lispFile -Value $lispContent
+    $lispPathForScript = $lispFile -replace '\\', '/'
+    $scriptContent = @"
 (load "$lispPathForScript")
 PlotAllLayouts
 "@
-  Set-Content -Encoding ASCII -Path $scriptFile -Value $scriptContent
+    Set-Content -Encoding ASCII -LiteralPath $scriptFile -Value $scriptContent
+
+    $plotOutput = & $acadCore /i "$DwgPath" /s "$scriptFile" 2>&1 | Tee-Object -FilePath $LogFile -Append
+    return [pscustomobject]@{
+      Output = @($plotOutput)
+      ExitCode = $LASTEXITCODE
+    }
+  }
+  finally {
+    foreach ($tempPath in @($lispFile, $scriptFile)) {
+      if (Test-Path -LiteralPath $tempPath -PathType Leaf) {
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+}
+
+# --- Main Processing Loop (Plotting ONLY) ---
+foreach ($dwgPath in $files) {
+  $i++
+  $dwgItem = Get-Item $dwgPath
+  $dwgNameWithoutExt = $dwgItem.BaseName
+  Write-Host "PROGRESS: Plotting $i of $($files.Count): $($dwgItem.Name)"
+
+  "===== $(Get-Date -f 'yyyy-MM-dd HH:mm:ss') Start Plotting: $($dwgItem.Name) =====" | Out-File $logFile -Append
 
   $existingPerDwgPdfs = @(Get-ChildItem -Path $batchOutputDir -Filter "$($dwgNameWithoutExt)-*.pdf" -ErrorAction SilentlyContinue)
   $existingPerDwgPdfSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -778,8 +1067,51 @@ PlotAllLayouts
     [void]$existingPerDwgPdfSet.Add($existingPdf.FullName)
   }
 
-  $plotOutput = & $acadCore /i "$dwgPath" /s "$scriptFile" 2>&1 | Tee-Object -FilePath $logFile -Append
-  $code = $LASTEXITCODE
+  $plotAttempt = Invoke-CorePlotAttempt `
+    -DwgPath $dwgPath `
+    -DwgNameWithoutExt $dwgNameWithoutExt `
+    -OutputDirectory $batchOutputDir `
+    -PaperSize $selectedPaperSize `
+    -LogFile $logFile `
+    -OleRefreshAlreadyAttempted $false
+  $plotOutput = @($plotAttempt.Output)
+  $code = $plotAttempt.ExitCode
+
+  $initialPlotOutputText = ($plotOutput | ForEach-Object { "$_" }) -join [Environment]::NewLine
+  $initialPlotOutputNormalized = $initialPlotOutputText -replace ([char]0), ''
+  $oleRefreshRequired = $RefreshExcelOleLinks -and (
+    $initialPlotOutputNormalized -match [regex]::Escape($oleRefreshRequiredMarker)
+  )
+
+  if ($oleRefreshRequired) {
+    Write-Host "PROGRESS: Linked Excel OLE content detected in $($dwgItem.Name)."
+    Write-Host "PROGRESS: Refreshing linked Excel content in $($dwgItem.Name) and saving the drawing..."
+    "OLE_REFRESH: Required for $dwgPath" | Out-File $logFile -Append
+    $oleRefreshResult = Invoke-FullAutoCadOleRefresh `
+      -AcadExe $fullAcadExe `
+      -DwgPath $dwgPath `
+      -LogFile $logFile `
+      -TimeoutSeconds 180
+
+    "OLE_REFRESH_RESULT: $($oleRefreshResult.Status) - $($oleRefreshResult.Message)" | Out-File $logFile -Append
+    if ($oleRefreshResult.Status -eq "success") {
+      Write-Host "PROGRESS: Refreshed linked Excel content and saved $($dwgItem.Name)."
+    }
+    else {
+      Write-Host "PROGRESS: WARNING: $($dwgItem.Name) - $($oleRefreshResult.Message) Publishing cached OLE content."
+    }
+
+    $plotAttempt = Invoke-CorePlotAttempt `
+      -DwgPath $dwgPath `
+      -DwgNameWithoutExt $dwgNameWithoutExt `
+      -OutputDirectory $batchOutputDir `
+      -PaperSize $selectedPaperSize `
+      -LogFile $logFile `
+      -OleRefreshAlreadyAttempted $true
+    $plotOutput = @($plotAttempt.Output)
+    $code = $plotAttempt.ExitCode
+  }
+
   $plotOutputText = ($plotOutput | ForEach-Object { "$_" }) -join [Environment]::NewLine
   $plotOutputTextNormalized = $plotOutputText -replace ([char]0), ''
   $normalizedOutputLines = @(
@@ -792,6 +1124,9 @@ PlotAllLayouts
   $arcModuleLoadSkipped = $plotOutputTextNormalized -match [regex]::Escape($arcModuleLoadSkippedMarker)
   $plotDecisionContinue = $plotOutputTextNormalized -match [regex]::Escape($plotDecisionContinueMarker)
   $plotDecisionSkip = $plotOutputTextNormalized -match [regex]::Escape($plotDecisionSkipMarker)
+  $oleCheckPresent = $plotOutputTextNormalized -match [regex]::Escape($oleCheckPresentMarker)
+  $oleCheckAbsent = $plotOutputTextNormalized -match [regex]::Escape($oleCheckAbsentMarker)
+  $oleCheckError = $plotOutputTextNormalized -match [regex]::Escape($oleCheckErrorMarker)
   $missingArcAlignedTextSupport = $plotOutputTextNormalized -match [regex]::Escape($arcAlignedTextFailureMarker)
   $preflightError = $plotOutputTextNormalized -match [regex]::Escape($preflightErrorMarker)
   $preflightErrorLine = @(
@@ -813,15 +1148,31 @@ PlotAllLayouts
   if ($plotDecisionContinue) { $plotDecision = "continue" }
   elseif ($plotDecisionSkip) { $plotDecision = "skip" }
 
+  $oleCheckStatus = "unknown"
+  if ($oleCheckPresent) { $oleCheckStatus = "present" }
+  elseif ($oleCheckAbsent) { $oleCheckStatus = "absent" }
+  elseif ($oleCheckError) { $oleCheckStatus = "error" }
+
+  if ($oleCheckError) {
+    Write-Host "PROGRESS: WARNING: $($dwgItem.Name) - Could not inspect linked Excel OLE objects. Publishing cached drawing content."
+  }
+  elseif ($oleCheckAbsent) {
+    Write-Host "PROGRESS: No linked Excel OLE content detected in $($dwgItem.Name); continuing headless publish."
+  }
+  elseif ($oleCheckPresent -and -not $RefreshExcelOleLinks) {
+    Write-Host "PROGRESS: Linked Excel OLE content detected in $($dwgItem.Name), but automatic refresh is disabled."
+  }
+
   $currentPerDwgPdfs = @(Get-ChildItem -Path $batchOutputDir -Filter "$($dwgNameWithoutExt)-*.pdf" -ErrorAction SilentlyContinue | Sort-Object FullName)
   $newPerDwgPdfs = @($currentPerDwgPdfs | Where-Object { -not $existingPerDwgPdfSet.Contains($_.FullName) })
   $newPerDwgPdfCount = $newPerDwgPdfs.Count
 
   "ARC_CHECK: $arcCheckStatus" | Out-File $logFile -Append
   "ARC_MODULE_LOAD: $arcModuleLoadStatus" | Out-File $logFile -Append
+  "OLE_CHECK: $oleCheckStatus" | Out-File $logFile -Append
   "PLOT_DECISION: $plotDecision" | Out-File $logFile -Append
   "PDF_COUNT_AFTER_DWG: $newPerDwgPdfCount" | Out-File $logFile -Append
-  Write-Host "TELEMETRY: $($dwgItem.Name): ARC_CHECK=$arcCheckStatus; ARC_MODULE_LOAD=$arcModuleLoadStatus; PLOT_DECISION=$plotDecision; PDF_COUNT_AFTER_DWG=$newPerDwgPdfCount"
+  Write-Host "TELEMETRY: $($dwgItem.Name): OLE_CHECK=$oleCheckStatus; ARC_CHECK=$arcCheckStatus; ARC_MODULE_LOAD=$arcModuleLoadStatus; PLOT_DECISION=$plotDecision; PDF_COUNT_AFTER_DWG=$newPerDwgPdfCount"
 
   $preflightSkipped = ($plotDecision -eq "skip")
   $noPdfOutputFailure = (($plotDecision -eq "continue" -or $plotDecision -eq "unknown") -and $newPerDwgPdfCount -eq 0)

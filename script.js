@@ -251,6 +251,8 @@ const FOLDER_ICON_PATH =
   "M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z";
 const NOTE_ICON_PATH =
   "M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm1 7V3.5L20.5 9H15zM8 13h8v2H8v-2zm0 4h8v2H8v-2zm0-8h5v2H8V9z";
+const ALERT_ICON_PATH =
+  "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z";
 const PENCIL_ICON_PATH =
   "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.21c.39-.39.39-1.02 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z";
 const TRASH_ICON_PATH =
@@ -3062,7 +3064,7 @@ function getProjectsForWeek(weekStart) {
   db.forEach((project) => {
     const deliverables = getProjectDeliverables(project);
     deliverables.forEach((deliverable) => {
-      const due = parseDueStr(deliverable?.due);
+      const due = parseDueStr(getEffectiveDueStr(deliverable));
       if (due && due >= weekStart && due <= weekEnd) {
         projectsWithDeliverables.push({
           project,
@@ -3491,7 +3493,7 @@ function formatCopyDeliverableLabel(item) {
   const projectLabel =
     item.project?.name || item.project?.nick || item.project?.id || "Untitled Project";
   const deliverableLabel = item.deliverable?.name || "Untitled Deliverable";
-  const dueLabel = item.due ? humanDate(item.deliverable?.due) : "";
+  const dueLabel = item.due ? humanDate(getEffectiveDueStr(item.deliverable)) : "";
   const dueSuffix = dueLabel ? ` (Due ${dueLabel})` : "";
   return `${projectLabel} - ${deliverableLabel}${dueSuffix}`;
 }
@@ -3501,7 +3503,7 @@ function getCopyDialogDeliverableOptions() {
     .map(({ project, deliverable }) => {
       const name = String(deliverable?.name || "").trim();
       if (!name) return null;
-      const due = parseDueStr(deliverable?.due);
+      const due = parseDueStr(getEffectiveDueStr(deliverable));
       return { project, deliverable, due };
     })
     .filter(Boolean);
@@ -4938,7 +4940,7 @@ function renderTimesheetSuggestions() {
     group.deliverables.push(deliverable);
     if (!group.earliestDueDate || (dueDate && dueDate < group.earliestDueDate)) {
       group.earliestDueDate = dueDate || group.earliestDueDate;
-      group.earliestDue = deliverable?.due || group.earliestDue;
+      group.earliestDue = getEffectiveDueStr(deliverable) || group.earliestDue;
     }
     grouped.set(key, group);
   });
@@ -5303,7 +5305,7 @@ function openAddTimesheetProjectDialog() {
         option.innerHTML = `
           <div><strong>${project.id || "--"}</strong> - ${project.nick || project.name || "Unnamed"
           }</div>
-          <div class="muted tiny">${deliverable.name || "Deliverable"} - Due: ${humanDate(deliverable.due) || "No date"
+          <div class="muted tiny">${deliverable.name || "Deliverable"} - Due: ${humanDate(getEffectiveDueStr(deliverable)) || "No date"
           }</div>
         `;
         option.onclick = () => {
@@ -6915,6 +6917,34 @@ function dueState(dueStr) {
   return "ok";
 }
 
+// The date that drives scheduling. The internal date wins; a deliverable that only
+// has a hard deadline falls back to it so it still sorts, filters, and shows up in
+// the week view instead of silently dropping out of every dated list.
+function getEffectiveDueStr(deliverable) {
+  const internal = String(deliverable?.due || "").trim();
+  return internal || String(deliverable?.hardDue || "").trim();
+}
+
+function getHardDueStr(deliverable) {
+  return String(deliverable?.hardDue || "").trim();
+}
+
+// "critical" | "overdue" | "dueSoon" | "ok" — a missed hard deadline outranks a
+// slipped internal target.
+function deliverableDueState(deliverable) {
+  const hard = parseDueStr(getHardDueStr(deliverable));
+  if (hard && !isFinished(deliverable)) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (hard < today) return "critical";
+  }
+  return dueState(getEffectiveDueStr(deliverable));
+}
+
+function isDeliverableHardDueMissed(deliverable) {
+  return deliverableDueState(deliverable) === "critical";
+}
+
 function humanDate(s) {
   const d = parseDueStr(s);
   if (!d) return "";
@@ -7019,8 +7049,32 @@ function validateDueDateInput(inputElement) {
   return true;
 }
 
+// Non-blocking nudge when the internal target sits after the hard deadline —
+// still a legal state, just almost certainly a mistake.
+function validateDeliverableDateOrder(card) {
+  if (!card) return true;
+  const dueInput = card.querySelector('.d-due');
+  const hardDueInput = card.querySelector('.d-hard-due');
+  if (!dueInput || !hardDueInput) return true;
+
+  const due = parseDueStr(dueInput.value.trim());
+  const hardDue = parseDueStr(hardDueInput.value.trim());
+  if (!due || !hardDue || due <= hardDue) return true;
+
+  // Leave hard errors from validateDueDateInput in place.
+  if (dueInput.classList.contains('input-error')) return true;
+
+  dueInput.classList.add('input-warning');
+  const validationMsg = dueInput.parentElement.querySelector('.date-validation-msg');
+  if (validationMsg) {
+    validationMsg.textContent = 'Warning: Internal date is after the hard deadline';
+    validationMsg.className = 'date-validation-msg warning';
+  }
+  return true;
+}
+
 function validateAllDueDates() {
-  const inputs = document.querySelectorAll('.d-due');
+  const inputs = document.querySelectorAll('.d-due, .d-hard-due');
   let allValid = true;
 
   inputs.forEach(input => {
@@ -7240,7 +7294,12 @@ function showCalendarForInput(inputElement, onSelectCallback) {
   }, 100);
 }
 
-function showCalendarForDeliverableBadge(anchorElement, deliverable, project) {
+function showCalendarForDeliverableBadge(
+  anchorElement,
+  deliverable,
+  project,
+  field = "due"
+) {
   if (!anchorElement || !deliverable) return;
 
   // Remove any existing calendar
@@ -7261,7 +7320,7 @@ function showCalendarForDeliverableBadge(anchorElement, deliverable, project) {
     openDate.getFullYear(),
     openDate.getMonth(),
     async (selectedDate) => {
-      deliverable.due = formatDueDateShort(selectedDate);
+      deliverable[field] = formatDueDateShort(selectedDate);
       if (project) autoSetPrimary(project);
       await save();
       render();
@@ -8011,26 +8070,92 @@ async function saveDroppedEmailFile(file, context = {}) {
   return normalized;
 }
 
-async function resolveEmailRefFromDrop(event, context = {}) {
-  const dt = event?.dataTransfer;
-  if (!dt) return { emailRef: null, reason: "no-data-transfer" };
+// Outlook publishes a dragged message as a *virtual* file (CF_FILEGROUPDESCRIPTORW +
+// CF_FILECONTENTS). Those never show up in dataTransfer.files, but Chromium does expose
+// them through items[].webkitGetAsEntry(). Both reads have to happen before the first
+// await -- the DataTransfer is dead once the drop handler returns.
+function captureDropFileEntries(dt) {
+  const entries = [];
+  const items = Array.from(dt?.items || []);
+  for (const item of items) {
+    if (item?.kind !== "file") continue;
+    let entry = null;
+    try {
+      entry = item.webkitGetAsEntry?.();
+    } catch {
+      entry = null;
+    }
+    if (entry?.isFile) entries.push(entry);
+  }
+  return entries;
+}
 
-  const files = Array.from(dt.files || []);
-  const emailFile = files.find(isSupportedEmailFile);
+const OUTLOOK_DROP_TYPE_PREFIXES = ["filegroupdescriptor", "renprivate"];
+
+function looksLikeOutlookDrop(types) {
+  return Array.from(types || [])
+    .map((type) => String(type || "").toLowerCase())
+    .some((type) => OUTLOOK_DROP_TYPE_PREFIXES.some((prefix) => type.startsWith(prefix)));
+}
+
+function captureEmailDropSources(dt) {
+  if (!dt) return null;
+  return {
+    files: Array.from(dt.files || []),
+    entries: captureDropFileEntries(dt),
+    urlCandidate: extractEmailUrlFromDropData(dt),
+    types: Array.from(dt.types || []),
+  };
+}
+
+function readEntryAsFile(entry) {
+  return new Promise((resolve) => {
+    try {
+      entry.file(resolve, () => resolve(null));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function resolveEmailRefFromCapturedDrop(captured, context = {}) {
+  if (!captured) return { emailRef: null, reason: "no-data-transfer" };
+
+  const emailFile = captured.files.find(isSupportedEmailFile);
   if (emailFile) {
     const emailRef = await saveDroppedEmailFile(emailFile, context);
     return { emailRef, source: "file-drop" };
   }
 
-  const urlCandidate = extractEmailUrlFromDropData(dt);
-  if (urlCandidate) {
-    const emailRef = buildEmailRefFromRawInput(urlCandidate, "url");
+  for (const entry of captured.entries) {
+    if (!isSupportedEmailFile({ name: entry.name })) continue;
+    const file = await readEntryAsFile(entry);
+    if (!file) continue;
+    const emailRef = await saveDroppedEmailFile(
+      // Virtual files can arrive with an empty name; fall back to the entry's.
+      file.name ? file : new File([file], entry.name, { type: file.type }),
+      context
+    );
+    return { emailRef, source: "entry-drop" };
+  }
+
+  if (captured.urlCandidate) {
+    const emailRef = buildEmailRefFromRawInput(captured.urlCandidate, "url");
     if (emailRef) {
       return { emailRef, source: "url-drop" };
     }
   }
 
-  return { emailRef: null, reason: "unsupported-drop-data" };
+  return {
+    emailRef: null,
+    reason: "unsupported-drop-data",
+    outlookDrop: looksLikeOutlookDrop(captured.types),
+  };
+}
+
+async function resolveEmailRefFromDrop(event, context = {}) {
+  const captured = captureEmailDropSources(event?.dataTransfer);
+  return resolveEmailRefFromCapturedDrop(captured, context);
 }
 
 async function promptForEmailLinkRef() {
@@ -8081,6 +8206,94 @@ async function requestEmailRefFromFallbackActions() {
 
 function showEmailLinkFallbackGuidance() {
   toast("Could not read Outlook drop data. Use the email icon to paste a link or choose a .msg/.eml file.");
+}
+
+async function saveActiveOutlookSelectionRef(context = {}) {
+  if (!window.pywebview?.api?.save_active_outlook_selection) return null;
+  try {
+    const res = await window.pywebview.api.save_active_outlook_selection(context);
+    if (res?.status !== "success") {
+      if (res?.message) toast(res.message);
+      return null;
+    }
+    return normalizeEmailRef(res.emailRef);
+  } catch (e) {
+    toast("Could not read the message selected in Outlook.");
+    return null;
+  }
+}
+
+// --- Page editor email attachments -----------------------------------------
+// The TipTap bundle has no access to the emailRef helpers above, so the host owns
+// resolution and the editor only stores the resulting reference on a chip node.
+
+function buildPageEmailDropContext() {
+  const project = pageNav?.project || null;
+  return {
+    projectId: String(project?.id || "").trim(),
+    projectName: String(project?.name || "").trim(),
+    // Reused as the second path segment under email-links/, so page emails stay
+    // grouped per page rather than colliding in the project root.
+    deliverableId: String(pageEditorOwnerKey || "page").trim(),
+    scope: "page-editor",
+    attachmentOwnerKind: "page",
+  };
+}
+
+async function resolvePageEmailDropRef(event, context = {}) {
+  // Must run before any await: the DataTransfer is invalidated the moment the
+  // editor's drop handler returns.
+  const captured = captureEmailDropSources(event?.dataTransfer);
+  let result = null;
+  try {
+    result = await resolveEmailRefFromCapturedDrop(captured, context);
+  } catch (e) {
+    return { status: "error", message: e?.message || "Could not attach the dropped email." };
+  }
+  if (result?.emailRef) {
+    console.info(`[page-email] attached via ${result.source}`);
+    return { status: "success", emailRef: result.emailRef };
+  }
+  if (result?.outlookDrop) {
+    const fromSelection = await saveActiveOutlookSelectionRef(context);
+    if (fromSelection) {
+      console.info("[page-email] attached via outlook-selection");
+      return { status: "success", emailRef: fromSelection };
+    }
+  }
+  showEmailLinkFallbackGuidance();
+  return { status: "error", message: "" };
+}
+
+async function requestPageEmailRef(context = {}) {
+  if (window.pywebview?.api?.save_active_outlook_selection) {
+    const useSelection = confirm(
+      "Attach the message currently selected in Outlook?\nPress Cancel to paste a link or choose a .msg/.eml file instead."
+    );
+    if (useSelection) {
+      const fromSelection = await saveActiveOutlookSelectionRef(context);
+      return fromSelection
+        ? { status: "success", emailRef: fromSelection }
+        : { status: "error", message: "" };
+    }
+  }
+  const chosen = await requestEmailRefFromFallbackActions();
+  return chosen ? { status: "success", emailRef: chosen } : { status: "error", message: "" };
+}
+
+async function openPageEmailRef(attrs) {
+  const ref = normalizeEmailRef(attrs);
+  if (!ref) return { status: "error", message: "This email reference is incomplete." };
+  const opened = await openDeliverableEmailRef(ref);
+  // openDeliverableEmailRef raises its own toast, so no message here.
+  return opened ? { status: "success" } : { status: "error", message: "" };
+}
+
+async function deletePageEmailRef(attrs) {
+  const ref = normalizeEmailRef(attrs);
+  // Only managed copies are ours to delete; links and EntryIDs just drop the chip.
+  if (ref) await deleteManagedSavedEmailRef(ref);
+  return { status: "success" };
 }
 
 function openExternalUrl(url) {
@@ -8497,6 +8710,22 @@ function renderActivityTray() {
         })
       );
     }
+    if (isTerminal && item.canvasPanelReview) {
+      actions.appendChild(
+        el("button", {
+          className: "activity-card-action",
+          type: "button",
+          textContent: "Review findings",
+          "data-activity-action": "review-canvas-panel",
+          "data-activity-id": item.id,
+          onclick: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleActivityTrayReviewCanvasPanel(item.id);
+          },
+        })
+      );
+    }
     if (isTerminal && item.openFolderPath) {
       actions.appendChild(
         el("button", {
@@ -8577,6 +8806,16 @@ async function handleActivityTrayOpenFolder(activityId) {
     toast(error?.message || "Unable to open folder.");
     return false;
   }
+}
+
+function handleActivityTrayReviewCanvasPanel(activityId) {
+  if (!canvasPanelScheduleState.pendingResult) {
+    toast("Those findings were already reviewed.");
+    acceptActivity(activityId);
+    return;
+  }
+  showCanvasPanelScheduleFindings(canvasPanelScheduleState.pendingResult);
+  acceptActivity(activityId);
 }
 
 async function handleActivityTrayCopyCombinedPdf(activityId) {
@@ -8694,6 +8933,10 @@ function initActivityTray() {
       await handleActivityTrayOpenFolder(activityId);
       return;
     }
+    if (action === "review-canvas-panel") {
+      handleActivityTrayReviewCanvasPanel(activityId);
+      return;
+    }
     if (action === "copy-combined-pdf") {
       await handleActivityTrayCopyCombinedPdf(activityId);
       return;
@@ -8765,6 +9008,9 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
     completedCount: Math.max(
       Number(incoming.completedCount ?? existing?.completedCount ?? 0) || 0,
       0
+    ),
+    canvasPanelReview: Boolean(
+      incoming.canvasPanelReview ?? existing?.canvasPanelReview ?? false
     ),
     createdAt: Number(existing?.createdAt || now),
     updatedAt: now,
@@ -9309,6 +9555,7 @@ const DEFAULT_PUBLISH_DWG_OPTIONS = {
   autoDetectPaperSize: true,
   shrinkPercent: 100,
   stripPdfLayers: true,
+  refreshExcelOleLinks: true,
 };
 const DEFAULT_MANAGE_LAYERS_OPTIONS = {
   scanAllLayers: true,
@@ -11106,17 +11353,18 @@ function buildOutlookScanProjectContext(scanDate = "") {
     .map((project) => {
       const deliverables = getProjectDeliverables(project)
         .filter((deliverable) => {
-          const due = parseDueStr(deliverable?.due);
+          const due = parseDueStr(getEffectiveDueStr(deliverable));
           return due && due >= start && due <= end;
         })
         .map((deliverable) => ({
           name: String(deliverable?.name || "").trim(),
           due: String(deliverable?.due || "").trim(),
+          hardDue: getHardDueStr(deliverable),
           status: String(deliverable?.status || "").trim(),
         }))
         .sort((left, right) => {
-          const leftDue = parseDueStr(left?.due);
-          const rightDue = parseDueStr(right?.due);
+          const leftDue = parseDueStr(left?.due || left?.hardDue);
+          const rightDue = parseDueStr(right?.due || right?.hardDue);
           if (leftDue && rightDue && leftDue.getTime() !== rightDue.getTime()) {
             return leftDue - rightDue;
           }
@@ -11137,8 +11385,8 @@ function buildOutlookScanProjectContext(scanDate = "") {
     })
     .filter(Boolean)
     .sort((left, right) => {
-      const leftDue = parseDueStr(left.deliverables[0]?.due);
-      const rightDue = parseDueStr(right.deliverables[0]?.due);
+      const leftDue = parseDueStr(getEffectiveDueStr(left.deliverables[0]));
+      const rightDue = parseDueStr(getEffectiveDueStr(right.deliverables[0]));
       if (leftDue && rightDue && leftDue.getTime() !== rightDue.getTime()) {
         return leftDue - rightDue;
       }
@@ -11667,743 +11915,6 @@ async function acceptOutlookScanSuggestion(suggestionKey) {
     }.`
   );
   return true;
-}
-
-// ===================== EMAIL CAPTURE INBOX & FOLLOW-UPS =====================
-
-let emailCaptureState = {
-  loaded: false,
-  loading: false,
-  items: [],
-  counts: { new: 0, newDirected: 0, newCc: 0, pendingAi: 0 },
-  filter: "new",
-  scan: { running: false, stage: "", message: "", lastResult: null },
-  lastScanCompletedAtUtc: "",
-  followUps: [],
-  followUpFilter: "open",
-  autoScanStarted: false,
-};
-
-let followUpDialogState = { followUpId: null, capturedEmailId: null };
-let emailProjectPickerState = { capturedEmailId: null };
-
-window.updateEmailCaptureProgress = function (payload = {}) {
-  const stage = String(payload.stage || "").trim();
-  emailCaptureState.scan.stage = stage;
-  emailCaptureState.scan.message = String(payload.message || "").trim();
-  emailCaptureState.scan.running = payload.active !== false;
-  renderEmailCaptureProgress();
-  if (stage === "done") {
-    const newCount = Number(payload.newCount || 0);
-    if (newCount > 0) {
-      toast(
-        `Email scan: ${newCount} new email${newCount === 1 ? "" : "s"} captured.`
-      );
-    }
-    refreshEmailCaptureData({ silent: true });
-  }
-};
-
-function isEmailTabActive() {
-  return document.body.dataset.activeTab === "email";
-}
-
-function emailCaptureDirectednessBadge(directedness) {
-  const value = String(directedness || "unknown");
-  if (value === "to") return { label: "To you", cls: "direct" };
-  if (value === "named") return { label: "Named", cls: "direct" };
-  if (value === "cc") return { label: "CC", cls: "cc" };
-  return { label: "Other", cls: "cc" };
-}
-
-function buildEmailCaptureProjectContext() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - 14);
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-  end.setDate(end.getDate() + 60);
-  return db
-    .map((rawProject) => normalizeProject(rawProject))
-    .filter(Boolean)
-    .map((project) => ({
-      id: String(project.id || "").trim(),
-      name: String(project.name || "").trim(),
-      nick: String(project.nick || "").trim(),
-      path: String(project.path || "").trim(),
-      deliverables: getProjectDeliverables(project)
-        .filter((deliverable) => {
-          const due = parseDueStr(deliverable?.due);
-          return due && due >= start && due <= end;
-        })
-        .map((deliverable) => ({
-          name: String(deliverable?.name || "").trim(),
-          due: String(deliverable?.due || "").trim(),
-          status: String(deliverable?.status || "").trim(),
-        })),
-    }))
-    .filter(
-      (project) => project.id || project.name || project.nick || project.path
-    );
-}
-
-async function refreshEmailCaptureData({ silent = false } = {}) {
-  if (!window.pywebview?.api?.list_captured_emails) return;
-  emailCaptureState.loading = true;
-  if (!silent && isEmailTabActive()) renderEmailInboxView();
-  try {
-    const statusFilter =
-      emailCaptureState.filter === "cc" ? "new" : emailCaptureState.filter;
-    const directedness = emailCaptureState.filter === "cc" ? "cc" : "all";
-    const listing = await window.pywebview.api.list_captured_emails({
-      status: statusFilter,
-      directedness,
-    });
-    if (listing?.status === "success") {
-      let items = listing.items || [];
-      if (emailCaptureState.filter === "new") {
-        items = items.filter((item) =>
-          ["to", "named"].includes(String(item.directedness || ""))
-        );
-      }
-      emailCaptureState.items = items;
-      emailCaptureState.counts = listing.counts || emailCaptureState.counts;
-      emailCaptureState.loaded = true;
-    }
-    const followUps = await window.pywebview.api.list_follow_ups({
-      status: emailCaptureState.followUpFilter,
-    });
-    if (followUps?.status === "success") {
-      emailCaptureState.followUps = followUps.items || [];
-    }
-    const scanState = await window.pywebview.api.get_email_capture_scan_state();
-    if (scanState?.status === "success") {
-      emailCaptureState.lastScanCompletedAtUtc =
-        scanState.lastScanCompletedAtUtc || "";
-    }
-  } catch (err) {
-    console.warn("Could not load email capture data:", err);
-  } finally {
-    emailCaptureState.loading = false;
-  }
-  updateEmailTabBadge();
-  if (isEmailTabActive()) {
-    renderEmailInboxView();
-    renderFollowUpsView();
-  }
-}
-
-async function updateEmailTabBadge() {
-  const badge = document.getElementById("emailTabBadge");
-  if (!badge || !window.pywebview?.api?.get_email_capture_badge_counts) return;
-  try {
-    const counts = await window.pywebview.api.get_email_capture_badge_counts();
-    if (counts?.status !== "success") return;
-    const total =
-      Number(counts.newDirected || 0) + Number(counts.overdueFollowUps || 0);
-    badge.textContent = total > 99 ? "99+" : String(total);
-    badge.hidden = total <= 0;
-  } catch (err) {
-    console.warn("Could not load email badge counts:", err);
-  }
-}
-
-function renderEmailCaptureProgress() {
-  const progressEl = document.getElementById("emailCaptureProgress");
-  if (!progressEl) return;
-  const { running, message } = emailCaptureState.scan;
-  progressEl.hidden = !running && !message;
-  progressEl.textContent = message || "";
-  progressEl.classList.toggle("active", !!running);
-  const rescanBtn = document.getElementById("emailCaptureRescanBtn");
-  if (rescanBtn) {
-    rescanBtn.disabled = !!running;
-    rescanBtn.textContent = running ? "Scanning..." : "Scan Now";
-  }
-  const lastScanEl = document.getElementById("emailCaptureLastScan");
-  if (lastScanEl) {
-    const lastScan = emailCaptureState.lastScanCompletedAtUtc;
-    lastScanEl.textContent = lastScan
-      ? `Last scan ${new Date(lastScan).toLocaleString(undefined, {
-          month: "numeric",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        })}`
-      : "";
-  }
-}
-
-function renderEmailInboxView() {
-  const list = document.getElementById("emailInboxList");
-  if (!list) return;
-
-  document.querySelectorAll("#emailInboxFilters .email-filter-btn").forEach(
-    (btn) =>
-      btn.classList.toggle(
-        "active",
-        btn.dataset.emailFilter === emailCaptureState.filter
-      )
-  );
-  renderEmailCaptureProgress();
-
-  if (emailCaptureState.loading && !emailCaptureState.loaded) {
-    list.innerHTML = '<div class="tiny muted email-inbox-empty">Loading captured emails...</div>';
-    return;
-  }
-  if (!emailCaptureState.items.length) {
-    const emptyByFilter = {
-      new: "No new captured emails directed at you. Run a scan or check CC & Other.",
-      cc: "No CC or distribution-list emails waiting for review.",
-      accepted: "No accepted emails yet.",
-      dismissed: "No dismissed emails.",
-    };
-    list.innerHTML = `<div class="tiny muted email-inbox-empty">${
-      emptyByFilter[emailCaptureState.filter] || "Nothing here yet."
-    }</div>`;
-    return;
-  }
-
-  list.innerHTML = emailCaptureState.items
-    .map((item) => {
-      const badge = emailCaptureDirectednessBadge(item.directedness);
-      const received = item.receivedAtUtc
-        ? new Date(item.receivedAtUtc).toLocaleString(undefined, {
-            month: "numeric",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          })
-        : "";
-      const sender = item.senderName || item.senderAddress || "Unknown sender";
-      let aiLine = "";
-      if (item.aiStatus === "matched" && item.aiProject) {
-        const projectLabel =
-          item.aiProject.nick || item.aiProject.name || item.aiProject.id || "";
-        const suggestionName = item.aiSuggestion?.name || "";
-        aiLine = `<div class="email-inbox-ai tiny">&rarr; ${escapeHtml(
-          projectLabel
-        )}${suggestionName ? ` &middot; ${escapeHtml(suggestionName)}` : ""}</div>`;
-      } else if (item.aiStatus === "pending") {
-        aiLine = '<div class="email-inbox-ai tiny muted">AI review pending</div>';
-      } else if (item.aiStatus === "no_match") {
-        aiLine = '<div class="email-inbox-ai tiny muted">No project match</div>';
-      }
-      const isNew = item.status === "new";
-      const actions = [];
-      if (isNew) {
-        actions.push(
-          `<button class="btn tiny btn-primary" data-email-action="accept" data-email-id="${item.id}">${
-            item.aiStatus === "matched" ? "Accept" : "Link to project..."
-          }</button>`
-        );
-        actions.push(
-          `<button class="btn tiny" data-email-action="follow-up" data-email-id="${item.id}">Follow up</button>`
-        );
-        actions.push(
-          `<button class="btn tiny ghost" data-email-action="dismiss" data-email-id="${item.id}">Dismiss</button>`
-        );
-      } else if (item.status === "dismissed") {
-        actions.push(
-          `<button class="btn tiny" data-email-action="restore" data-email-id="${item.id}">Restore</button>`
-        );
-      }
-      actions.push(
-        `<button class="btn tiny ghost" data-email-action="open" data-email-id="${item.id}">Open in Outlook</button>`
-      );
-      return `
-        <article class="email-inbox-card" data-email-card="${item.id}">
-          <div class="email-inbox-card-head">
-            <span class="email-directedness-pill ${badge.cls}">${badge.label}</span>
-            <span class="email-inbox-subject">${escapeHtml(
-              item.subject || "(no subject)"
-            )}</span>
-            <span class="email-inbox-meta tiny muted">${escapeHtml(sender)}${
-              received ? ` &middot; ${received}` : ""
-            }</span>
-          </div>
-          ${
-            item.bodyPreview
-              ? `<div class="email-inbox-preview tiny muted">${escapeHtml(
-                  String(item.bodyPreview).slice(0, 180)
-                )}</div>`
-              : ""
-          }
-          ${aiLine}
-          <div class="email-inbox-actions">${actions.join("")}</div>
-        </article>`;
-    })
-    .join("");
-}
-
-function followUpDueState(item) {
-  return dueState(item?.snoozedUntil || item?.dueDate || "");
-}
-
-function renderFollowUpsView() {
-  const list = document.getElementById("followUpsList");
-  if (!list) return;
-
-  document
-    .querySelectorAll("#followUpsSection .follow-up-filter-btn")
-    .forEach((btn) =>
-      btn.classList.toggle(
-        "active",
-        btn.dataset.followUpFilter === emailCaptureState.followUpFilter
-      )
-    );
-
-  const summary = document.getElementById("followUpsSummary");
-  if (summary) {
-    const open = emailCaptureState.followUps.filter(
-      (item) => item.status === "open"
-    );
-    const overdue = open.filter(
-      (item) => followUpDueState(item) === "overdue"
-    ).length;
-    summary.textContent =
-      emailCaptureState.followUpFilter === "open" && open.length
-        ? `${open.length} open${overdue ? `, ${overdue} overdue` : ""}`
-        : "";
-  }
-
-  if (!emailCaptureState.followUps.length) {
-    list.innerHTML =
-      emailCaptureState.followUpFilter === "resolved"
-        ? '<div class="tiny muted email-inbox-empty">No resolved follow-ups yet.</div>'
-        : '<div class="tiny muted email-inbox-empty">No open follow-ups. Flag an email or add one manually to get nudged.</div>';
-    return;
-  }
-
-  list.innerHTML = emailCaptureState.followUps
-    .map((item) => {
-      const effectiveDue = item.snoozedUntil || item.dueDate || "";
-      const state = followUpDueState(item);
-      const duePill = effectiveDue
-        ? `<span class="pill ${state}">${
-            item.snoozedUntil ? "Snoozed to " : "Due "
-          }${humanDate(effectiveDue)}</span>`
-        : '<span class="pill none">No date</span>';
-      const context = [];
-      if (item.waitingOn) context.push(`Waiting on ${escapeHtml(item.waitingOn)}`);
-      if (item.emailSenderName) context.push(`From ${escapeHtml(item.emailSenderName)}`);
-      const actions = [];
-      if (item.status === "open") {
-        actions.push(
-          `<button class="btn tiny" data-follow-up-action="snooze3" data-follow-up-id="${item.id}">+3d</button>`
-        );
-        actions.push(
-          `<button class="btn tiny" data-follow-up-action="snooze7" data-follow-up-id="${item.id}">+7d</button>`
-        );
-        actions.push(
-          `<button class="btn tiny btn-primary" data-follow-up-action="resolve" data-follow-up-id="${item.id}">Resolve</button>`
-        );
-      } else {
-        actions.push(
-          `<button class="btn tiny" data-follow-up-action="reopen" data-follow-up-id="${item.id}">Reopen</button>`
-        );
-      }
-      if (item.capturedEmailId && item.emailEntryId) {
-        actions.push(
-          `<button class="btn tiny ghost" data-follow-up-action="open-email" data-follow-up-id="${item.id}">Open email</button>`
-        );
-      }
-      return `
-        <article class="follow-up-card ${state}" data-follow-up-card="${item.id}">
-          <div class="follow-up-card-head">
-            ${duePill}
-            <span class="follow-up-title">${escapeHtml(item.title || "Follow-up")}</span>
-          </div>
-          ${
-            context.length
-              ? `<div class="tiny muted">${context.join(" &middot; ")}</div>`
-              : ""
-          }
-          ${item.note ? `<div class="tiny muted">${escapeHtml(item.note)}</div>` : ""}
-          <div class="email-inbox-actions">${actions.join("")}</div>
-        </article>`;
-    })
-    .join("");
-}
-
-async function acceptCapturedEmail(recordId) {
-  const item = emailCaptureState.items.find((entry) => entry.id === recordId);
-  if (!item) return false;
-  const match =
-    item.aiStatus === "matched" && item.aiProject
-      ? findBestProjectMatch(item.aiProject)
-      : null;
-  if (!match) {
-    openEmailProjectPicker(recordId);
-    return false;
-  }
-  return acceptCapturedEmailIntoProject(recordId, match.index);
-}
-
-async function acceptCapturedEmailIntoProject(recordId, projectIndex) {
-  const item = emailCaptureState.items.find((entry) => entry.id === recordId);
-  if (!item || !db[projectIndex]) return false;
-
-  const snapshot = deepCloneJson(db[projectIndex], null);
-  const project = normalizeProject(db[projectIndex]);
-  const emailRef = buildOutlookEmailRefFromMessage({
-    id: item.entryId,
-    subject: item.subject,
-    internetMessageId: item.internetMessageId,
-    receivedDateTime: item.receivedAtUtc,
-    source: "desktop-outlook",
-  });
-  const suggestion = item.aiSuggestion || {};
-  const deliverable = createDeliverable({
-    name: String(suggestion.name || item.subject || "Email follow-up").trim(),
-    due: suggestion.due || "",
-    notes: suggestion.notes || "",
-    tasks: suggestion.tasks || [],
-    emailRefs: emailRef ? [emailRef] : [],
-    emailRef: emailRef || null,
-  });
-  project.deliverables.push(deliverable);
-  syncProjectActiveDeliverables(project, { fallbackActiveId: deliverable.id });
-  db[projectIndex] = project;
-
-  const saved = await save({ silent: true });
-  if (!saved) {
-    if (snapshot) db[projectIndex] = snapshot;
-    render();
-    toast("Could not save the new deliverable.");
-    return false;
-  }
-
-  try {
-    await window.pywebview.api.update_captured_email_status({
-      id: recordId,
-      status: "accepted",
-      acceptedProjectId: String(project.id || ""),
-      acceptedDeliverableId: String(deliverable.id || ""),
-    });
-  } catch (err) {
-    console.warn("Could not mark captured email accepted:", err);
-  }
-  render();
-  toast(
-    `Added ${deliverable.name || "deliverable"} to ${
-      project.nick || project.name || "project"
-    }.`
-  );
-  await refreshEmailCaptureData({ silent: true });
-  return true;
-}
-
-function openEmailProjectPicker(recordId) {
-  emailProjectPickerState.capturedEmailId = recordId;
-  const searchInput = document.getElementById("emailProjectPickerSearch");
-  if (searchInput) searchInput.value = "";
-  renderEmailProjectPickerList("");
-  document.getElementById("emailProjectPickerDlg")?.showModal();
-}
-
-function renderEmailProjectPickerList(query = "") {
-  const list = document.getElementById("emailProjectPickerList");
-  if (!list) return;
-  const needle = String(query || "").trim().toLowerCase();
-  const matches = db
-    .map((rawProject, index) => ({
-      project: normalizeProject(rawProject),
-      index,
-    }))
-    .filter(({ project }) => {
-      if (!project) return false;
-      if (!needle) return true;
-      return [project.name, project.nick, project.id]
-        .some((value) => String(value || "").toLowerCase().includes(needle));
-    })
-    .slice(0, 25);
-  if (!matches.length) {
-    list.innerHTML = '<div class="tiny muted">No matching projects.</div>';
-    return;
-  }
-  list.innerHTML = matches
-    .map(
-      ({ project, index }) => `
-        <button type="button" class="btn block email-project-pick" data-project-index="${index}">
-          ${escapeHtml(project.nick || project.name || project.id || "Project")}
-          ${
-            project.nick && project.name
-              ? `<span class="tiny muted"> &middot; ${escapeHtml(project.name)}</span>`
-              : ""
-          }
-        </button>`
-    )
-    .join("");
-}
-
-function openFollowUpDialog({ capturedEmailId = null, followUpId = null } = {}) {
-  followUpDialogState = { capturedEmailId, followUpId };
-  const titleInput = document.getElementById("followUpTitleInput");
-  const waitingOnInput = document.getElementById("followUpWaitingOnInput");
-  const dueInput = document.getElementById("followUpDueInput");
-  const noteInput = document.getElementById("followUpNoteInput");
-  const contextEl = document.getElementById("followUpDlgContext");
-  if (titleInput) titleInput.value = "";
-  if (waitingOnInput) waitingOnInput.value = "";
-  if (dueInput) dueInput.value = "";
-  if (noteInput) noteInput.value = "";
-  if (contextEl) {
-    contextEl.hidden = true;
-    contextEl.textContent = "";
-  }
-
-  if (capturedEmailId != null) {
-    const item = emailCaptureState.items.find(
-      (entry) => entry.id === capturedEmailId
-    );
-    if (item) {
-      if (titleInput) titleInput.value = item.subject || "";
-      if (waitingOnInput)
-        waitingOnInput.value = item.senderName || item.senderAddress || "";
-      if (contextEl) {
-        contextEl.hidden = false;
-        contextEl.textContent = `From email: ${item.subject || "(no subject)"}`;
-      }
-    }
-  }
-  document.getElementById("followUpDlg")?.showModal();
-}
-
-async function submitFollowUp() {
-  const title = val("followUpTitleInput");
-  const waitingOn = val("followUpWaitingOnInput");
-  const dueDate = val("followUpDueInput");
-  const note = val("followUpNoteInput");
-  if (!title) {
-    toast("Follow-up needs a title.");
-    return;
-  }
-  try {
-    const payload = {
-      title,
-      waitingOn,
-      dueDate,
-      note,
-    };
-    if (followUpDialogState.capturedEmailId != null) {
-      payload.kind = "email";
-      payload.capturedEmailId = followUpDialogState.capturedEmailId;
-    } else {
-      payload.kind = "custom";
-    }
-    const result = await window.pywebview.api.create_follow_up(payload);
-    if (result?.status !== "success") {
-      toast(result?.message || "Could not save the follow-up.");
-      return;
-    }
-    closeDlg("followUpDlg");
-    toast("Follow-up saved.");
-    await refreshEmailCaptureData({ silent: true });
-  } catch (err) {
-    console.warn("Could not save follow-up:", err);
-    toast("Could not save the follow-up.");
-  }
-}
-
-async function snoozeFollowUp(followUpId, days) {
-  try {
-    await window.pywebview.api.update_follow_up({
-      id: followUpId,
-      action: "snooze",
-      days,
-    });
-    await refreshEmailCaptureData({ silent: true });
-  } catch (err) {
-    console.warn("Could not snooze follow-up:", err);
-  }
-}
-
-async function resolveFollowUp(followUpId) {
-  try {
-    await window.pywebview.api.update_follow_up({
-      id: followUpId,
-      action: "resolve",
-    });
-    await refreshEmailCaptureData({ silent: true });
-  } catch (err) {
-    console.warn("Could not resolve follow-up:", err);
-  }
-}
-
-async function reopenFollowUp(followUpId) {
-  try {
-    await window.pywebview.api.update_follow_up({
-      id: followUpId,
-      action: "reopen",
-    });
-    await refreshEmailCaptureData({ silent: true });
-  } catch (err) {
-    console.warn("Could not reopen follow-up:", err);
-  }
-}
-
-async function dismissCapturedEmail(recordId) {
-  try {
-    await window.pywebview.api.update_captured_email_status({
-      id: recordId,
-      status: "dismissed",
-    });
-    await refreshEmailCaptureData({ silent: true });
-  } catch (err) {
-    console.warn("Could not dismiss captured email:", err);
-  }
-}
-
-async function restoreCapturedEmail(recordId) {
-  try {
-    await window.pywebview.api.update_captured_email_status({
-      id: recordId,
-      status: "new",
-    });
-    await refreshEmailCaptureData({ silent: true });
-  } catch (err) {
-    console.warn("Could not restore captured email:", err);
-  }
-}
-
-async function openCapturedEmailInOutlook(recordId) {
-  const item =
-    emailCaptureState.items.find((entry) => entry.id === recordId) ||
-    emailCaptureState.followUps.find(
-      (entry) => entry.capturedEmailId === recordId
-    );
-  const entryId = item?.entryId || item?.emailEntryId || "";
-  if (!entryId) {
-    toast("Could not open this Outlook message.");
-    return;
-  }
-  await openOutlookScanMessage({
-    id: entryId,
-    subject: item?.subject || item?.emailSubject || "",
-    internetMessageId: item?.internetMessageId || "",
-    receivedDateTime: item?.receivedAtUtc || "",
-    source: "desktop-outlook",
-  });
-}
-
-async function runEmailCaptureScan(mode = "manual") {
-  if (!window.pywebview?.api?.run_email_capture_scan) return;
-  if (emailCaptureState.scan.running) return;
-  emailCaptureState.scan.running = true;
-  emailCaptureState.scan.stage = "starting";
-  emailCaptureState.scan.message = "Starting email scan...";
-  renderEmailCaptureProgress();
-  try {
-    const response = await window.pywebview.api.run_email_capture_scan(
-      { mode, projectContext: buildEmailCaptureProjectContext() },
-      userSettings.apiKey || "",
-      userSettings.userName || "",
-      getActiveDisciplineList()
-    );
-    emailCaptureState.scan.lastResult = response || null;
-    if (response?.status === "error" && mode !== "auto") {
-      toast(response.message || "Email scan failed.");
-    }
-    if (response?.status === "error") {
-      emailCaptureState.scan.message = String(response.message || "").trim();
-    }
-  } catch (err) {
-    console.warn("Email capture scan failed:", err);
-  } finally {
-    emailCaptureState.scan.running = false;
-    renderEmailCaptureProgress();
-    await refreshEmailCaptureData({ silent: true });
-  }
-}
-
-function startEmailCaptureAutoScan() {
-  if (emailCaptureState.autoScanStarted) return;
-  emailCaptureState.autoScanStarted = true;
-  Promise.resolve()
-    .then(() => runEmailCaptureScan("auto"))
-    .catch((err) => console.warn("Email capture auto-scan failed:", err));
-}
-
-function initEmailCaptureUi() {
-  document
-    .getElementById("emailInboxFilters")
-    ?.addEventListener("click", (e) => {
-      const btn = e.target.closest(".email-filter-btn");
-      if (!btn) return;
-      emailCaptureState.filter = btn.dataset.emailFilter || "new";
-      refreshEmailCaptureData();
-    });
-
-  document
-    .getElementById("emailCaptureRescanBtn")
-    ?.addEventListener("click", () => runEmailCaptureScan("manual"));
-
-  document.getElementById("emailInboxList")?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-email-action]");
-    if (!btn) return;
-    const recordId = Number(btn.dataset.emailId);
-    const action = btn.dataset.emailAction;
-    if (action === "accept") acceptCapturedEmail(recordId);
-    else if (action === "dismiss") dismissCapturedEmail(recordId);
-    else if (action === "restore") restoreCapturedEmail(recordId);
-    else if (action === "follow-up")
-      openFollowUpDialog({ capturedEmailId: recordId });
-    else if (action === "open") openCapturedEmailInOutlook(recordId);
-  });
-
-  document
-    .querySelectorAll("#followUpsSection .follow-up-filter-btn")
-    .forEach((btn) =>
-      btn.addEventListener("click", () => {
-        emailCaptureState.followUpFilter = btn.dataset.followUpFilter || "open";
-        refreshEmailCaptureData();
-      })
-    );
-
-  document
-    .getElementById("addFollowUpBtn")
-    ?.addEventListener("click", () => openFollowUpDialog({}));
-
-  document
-    .getElementById("followUpSaveBtn")
-    ?.addEventListener("click", () => submitFollowUp());
-
-  document.getElementById("followUpsList")?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-follow-up-action]");
-    if (!btn) return;
-    const followUpId = Number(btn.dataset.followUpId);
-    const action = btn.dataset.followUpAction;
-    if (action === "snooze3") snoozeFollowUp(followUpId, 3);
-    else if (action === "snooze7") snoozeFollowUp(followUpId, 7);
-    else if (action === "resolve") resolveFollowUp(followUpId);
-    else if (action === "reopen") reopenFollowUp(followUpId);
-    else if (action === "open-email") {
-      const item = emailCaptureState.followUps.find(
-        (entry) => entry.id === followUpId
-      );
-      if (item?.capturedEmailId) openCapturedEmailInOutlook(item.capturedEmailId);
-    }
-  });
-
-  document
-    .getElementById("emailProjectPickerSearch")
-    ?.addEventListener("input", (e) =>
-      renderEmailProjectPickerList(e.target.value)
-    );
-
-  document
-    .getElementById("emailProjectPickerList")
-    ?.addEventListener("click", (e) => {
-      const btn = e.target.closest(".email-project-pick");
-      if (!btn) return;
-      const projectIndex = Number(btn.dataset.projectIndex);
-      const recordId = emailProjectPickerState.capturedEmailId;
-      closeDlg("emailProjectPickerDlg");
-      if (recordId != null && Number.isFinite(projectIndex)) {
-        acceptCapturedEmailIntoProject(recordId, projectIndex);
-      }
-    });
 }
 
 // ===================== CLOUD SYNC =====================
@@ -13374,11 +12885,16 @@ function hasMeaningfulTasksState(doc) {
 }
 
 function serializeGlobalPagesForStore() {
-  return (Array.isArray(globalPages) ? globalPages : []).map((p) => ({
-    id: p.id,
-    title: p.title,
-    page: { html: p.page?.html || "", updatedAt: p.page?.updatedAt || "" },
-  }));
+  return (Array.isArray(globalPages) ? globalPages : []).map((p) => {
+    const page = { html: p.page?.html || "", updatedAt: p.page?.updatedAt || "" };
+    if (isCanvasPage(p.page)) {
+      page.kind = "canvas";
+      page.canvas = normalizePageCanvas(
+        JSON.parse(JSON.stringify(p.page.canvas || {}))
+      );
+    }
+    return { id: p.id, title: p.title, page };
+  });
 }
 
 function buildNotesCloudDoc() {
@@ -14541,11 +14057,20 @@ function normalizeGlobalPage(raw) {
   return { id, title, page };
 }
 
-function createGlobalPage({ title = "Untitled", html = "" } = {}) {
+function createGlobalPage({ title = "Untitled", html = "", kind = "" } = {}) {
+  const page =
+    kind === "canvas"
+      ? {
+          html: "",
+          updatedAt: new Date().toISOString(),
+          kind: "canvas",
+          canvas: createCanvasPageData(),
+        }
+      : { html: html || "", updatedAt: new Date().toISOString() };
   return {
     id: createId("gp"),
     title: String(title || "Untitled").trim() || "Untitled",
-    page: { html: html || "", updatedAt: new Date().toISOString() },
+    page,
   };
 }
 
@@ -14743,6 +14268,14 @@ function syncPublishOptionsInputs() {
   setCheckboxValue(
     "publish_modal_stripPdfLayers",
     publishOptions.stripPdfLayers !== false
+  );
+  setCheckboxValue(
+    "settings_publish_refreshExcelOleLinks",
+    publishOptions.refreshExcelOleLinks !== false
+  );
+  setCheckboxValue(
+    "publish_modal_refreshExcelOleLinks",
+    publishOptions.refreshExcelOleLinks !== false
   );
   const percent = Number(publishOptions.shrinkPercent ?? 100);
   const normalized = Number.isFinite(percent) ? percent : 100;
@@ -15621,7 +15154,82 @@ function normalizePage(raw) {
     html = typeof raw.html === "string" ? raw.html : "";
     updatedAt = typeof raw.updatedAt === "string" ? raw.updatedAt : "";
   }
+  if (raw && typeof raw === "object" && raw.kind === "canvas") {
+    return { html, updatedAt, kind: "canvas", canvas: normalizePageCanvas(raw.canvas) };
+  }
   return { html, updatedAt };
+}
+
+function isCanvasPage(page) {
+  return !!page && typeof page === "object" && page.kind === "canvas";
+}
+
+function createCanvasPageData() {
+  return { nodes: [], edges: [], view: { x: 0, y: 0, scale: 1 } };
+}
+
+function normalizeCanvasNode(raw, usedIds) {
+  if (!raw || typeof raw !== "object") return null;
+  const type = raw.type === "image" ? "image" : "text";
+  let id = String(raw.id || "").trim();
+  if (!id || usedIds.has(id)) id = createId("cnode");
+  usedIds.add(id);
+  const x = Number(raw.x);
+  const y = Number(raw.y);
+  const w = Number(raw.w);
+  const h = Number(raw.h);
+  const node = {
+    id,
+    type,
+    x: Number.isFinite(x) ? x : 0,
+    y: Number.isFinite(y) ? y : 0,
+    w: Number.isFinite(w) && w > 0 ? w : 200,
+    h: Number.isFinite(h) && h > 0 ? h : type === "image" ? 150 : 0,
+  };
+  if (type === "image") {
+    node.assetPath = typeof raw.assetPath === "string" ? raw.assetPath : "";
+    if (!node.assetPath) return null;
+  } else {
+    node.text = typeof raw.text === "string" ? raw.text : "";
+    // Text boxes hug their content unless the user pinned a width with the resize handle.
+    node.autoW = raw.autoW !== false;
+  }
+  return node;
+}
+
+function normalizeCanvasEdge(raw, nodeIds, usedIds) {
+  if (!raw || typeof raw !== "object") return null;
+  const from = String(raw.from || "").trim();
+  const to = String(raw.to || "").trim();
+  if (!from || !to || from === to) return null;
+  if (!nodeIds.has(from) || !nodeIds.has(to)) return null;
+  let id = String(raw.id || "").trim();
+  if (!id || usedIds.has(id)) id = createId("cedge");
+  usedIds.add(id);
+  return { id, from, to };
+}
+
+function normalizePageCanvas(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const usedNodeIds = new Set();
+  const nodes = (Array.isArray(source.nodes) ? source.nodes : [])
+    .map((node) => normalizeCanvasNode(node, usedNodeIds))
+    .filter(Boolean);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const usedEdgeIds = new Set();
+  const edges = (Array.isArray(source.edges) ? source.edges : [])
+    .map((edge) => normalizeCanvasEdge(edge, nodeIds, usedEdgeIds))
+    .filter(Boolean);
+  const rawView = source.view && typeof source.view === "object" ? source.view : {};
+  const viewX = Number(rawView.x);
+  const viewY = Number(rawView.y);
+  const viewScale = Number(rawView.scale);
+  const view = {
+    x: Number.isFinite(viewX) ? viewX : 0,
+    y: Number.isFinite(viewY) ? viewY : 0,
+    scale: Number.isFinite(viewScale) && viewScale > 0 ? Math.min(2.5, Math.max(0.2, viewScale)) : 1,
+  };
+  return { nodes, edges, view };
 }
 
 function normalizeProjectSubpage(raw = {}, index = 0, usedIds = new Set()) {
@@ -15670,9 +15278,22 @@ function normalizeProjectSubpages(rawSubpages = []) {
   return subpages;
 }
 
+// Re-normalizing on every access would replace each subpage with a fresh
+// clone, orphaning live references held by the open page editor
+// (pageNav.subpage / pageEditorTarget) and silently dropping edits. Normalize
+// only when this exact array hasn't been normalized yet; the marker is
+// non-enumerable so it never reaches JSON persistence or the cloud.
 function getProjectSubpages(project) {
   if (!project) return [];
-  project.subpages = normalizeProjectSubpages(project.subpages);
+  if (!Array.isArray(project.subpages) || !project.subpages.__normalized) {
+    const normalized = normalizeProjectSubpages(project.subpages);
+    Object.defineProperty(normalized, "__normalized", {
+      value: true,
+      enumerable: false,
+      configurable: true,
+    });
+    project.subpages = normalized;
+  }
   return project.subpages;
 }
 
@@ -15680,6 +15301,98 @@ function getProjectSubpageById(project, subpageId) {
   const id = String(subpageId || "").trim();
   if (!id) return null;
   return getProjectSubpages(project).find((subpage) => subpage.id === id) || null;
+}
+
+// --- Important page lines (rollup for deliverable cards) ---
+// Lines flagged with /important in the page editor persist as
+// <p data-important="true">. Deliverable cards surface a count for the whole
+// project, so this walks the project page plus every subpage.
+const PROJECT_IMPORTANT_SELECTOR = '[data-important="true"]';
+const PROJECT_IMPORTANT_MARKER = "data-important";
+const projectImportantItemsCache = new Map();
+
+// Attached-email chips live inside the flagged block, so their subject and the "x"
+// button would otherwise be read as part of the important line's text.
+function readImportantNodeText(node) {
+  let target = node;
+  if (node.querySelector(".page-email")) {
+    target = node.cloneNode(true);
+    target.querySelectorAll(".page-email").forEach((chip) => chip.remove());
+  }
+  return String(target.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+function extractImportantPageLines(html, source) {
+  const raw = String(html || "");
+  // Fast bail so the common (unflagged) page never pays for a DOM parse.
+  if (!raw || raw.indexOf(PROJECT_IMPORTANT_MARKER) === -1) return [];
+  let doc = null;
+  try {
+    doc = new DOMParser().parseFromString(raw, "text/html");
+  } catch (_) {
+    return [];
+  }
+  return Array.from(doc.querySelectorAll(PROJECT_IMPORTANT_SELECTOR)).map((node) => ({
+    text: readImportantNodeText(node),
+    subpageId: source.subpageId || null,
+    pageTitle: source.pageTitle || "",
+  }));
+}
+
+// Derived from data that every write already touches (queueProjectPagesEditorSave
+// stamps updatedAt on each keystroke), so the cache self-invalidates. Explicit
+// invalidation would have to be threaded through every site that replaces db,
+// and one missed call would mean a silently stale badge.
+function getProjectImportantCacheKey(project) {
+  const parts = [
+    String(project?.page?.updatedAt || ""),
+    String(project?.page?.html || "").length,
+  ];
+  (Array.isArray(project?.subpages) ? project.subpages : []).forEach((subpage) => {
+    parts.push(
+      String(subpage?.id || ""),
+      String(subpage?.page?.updatedAt || ""),
+      String(subpage?.page?.html || "").length
+    );
+  });
+  return parts.join("|");
+}
+
+function getProjectImportantItems(project) {
+  if (!project) return [];
+  const cacheId = String(project.id || "");
+  const key = getProjectImportantCacheKey(project);
+  const cached = cacheId ? projectImportantItemsCache.get(cacheId) : null;
+  if (cached && cached.key === key) return cached.items;
+
+  const items = [];
+  if (!isCanvasPage(project.page)) {
+    items.push(
+      ...extractImportantPageLines(project.page?.html, {
+        subpageId: null,
+        pageTitle: project.name || "Project notes",
+      })
+    );
+  }
+  getProjectSubpages(project).forEach((subpage) => {
+    if (isCanvasPage(subpage.page)) return;
+    items.push(
+      ...extractImportantPageLines(subpage.page?.html, {
+        subpageId: subpage.id,
+        pageTitle: subpage.title || "Untitled",
+      })
+    );
+  });
+
+  if (cacheId) {
+    if (projectImportantItemsCache.size > 500) projectImportantItemsCache.clear();
+    projectImportantItemsCache.set(cacheId, { key, items });
+  }
+  return items;
+}
+
+function getProjectImportantCount(project) {
+  return getProjectImportantItems(project).length;
 }
 
 function getProjectSubpageAncestors(project, subpage) {
@@ -15719,14 +15432,24 @@ function createProjectSubpage({
   title = "Untitled",
   parentId = null,
   html = "",
+  kind = "",
   sourceDeliverableId = null,
   order = null,
 } = {}) {
+  const page =
+    kind === "canvas"
+      ? {
+          html: "",
+          updatedAt: new Date().toISOString(),
+          kind: "canvas",
+          canvas: createCanvasPageData(),
+        }
+      : { html, updatedAt: html ? new Date().toISOString() : "" };
   return normalizeProjectSubpage({
     id: createId("psp"),
     title,
     parentId,
-    page: { html, updatedAt: html ? new Date().toISOString() : "" },
+    page,
     order,
     sourceDeliverableId,
   });
@@ -15746,6 +15469,7 @@ function normalizeDeliverable(deliverable = {}) {
     id: deliverable.id || createId("dlv"),
     name: String(deliverable.name || "").trim(),
     due: String(deliverable.due || "").trim(),
+    hardDue: String(deliverable.hardDue || "").trim(),
     notes: String(deliverable.notes || ""),
     page: normalizePage(deliverable.page),
     noteItems: normalizeDeliverableNoteItems(
@@ -15809,6 +15533,7 @@ function createDeliverable(seed = {}) {
     id: seed.id || createId("dlv"),
     name: seed.name || "",
     due: seed.due || "",
+    hardDue: seed.hardDue || "",
     notes: seed.notes || "",
     noteItems: seed.noteItems || [],
     tasks: seed.tasks || [],
@@ -16213,7 +15938,7 @@ function getLatestDueDeliverableId(deliverables = []) {
   let latestId = "";
   let latestDue = null;
   deliverables.forEach((deliverable) => {
-    const due = parseDueStr(deliverable?.due);
+    const due = parseDueStr(getEffectiveDueStr(deliverable));
     if (!due) return;
     if (!latestDue || due > latestDue) {
       latestDue = due;
@@ -16251,7 +15976,7 @@ function getActiveAnchorDeliverable(project) {
   if (!deliverables.length) return null;
   const activeDeliverables = getProjectActiveDeliverables(project);
   const activeWithDue = activeDeliverables.filter((deliverable) =>
-    parseDueStr(deliverable?.due)
+    parseDueStr(getEffectiveDueStr(deliverable))
   );
   if (activeWithDue.length) {
     return activeWithDue.sort(compareDeliverablesByDue)[0];
@@ -16397,7 +16122,7 @@ function getAllDeliverables() {
 
 async function pinUrgentDeliverables() {
   const confirmed = confirm(
-    "Pin all overdue incomplete deliverables and deliverables due today?"
+    "Pin all overdue incomplete deliverables, deliverables due today, and anything with a hard deadline this week?"
   );
   if (!confirmed) return;
 
@@ -16410,9 +16135,15 @@ async function pinUrgentDeliverables() {
   db.forEach((project) => {
     getProjectDeliverables(project).forEach((deliverable) => {
       if (isFinished(deliverable)) return false;
-      const due = parseDueStr(deliverable?.due);
-      if (!due) return false;
-      if (!isSameDay(due, today) && due >= today) return false;
+      // A hard deadline that is past or lands this week is urgent even when the
+      // internal date still has runway.
+      const hardDueStr = getHardDueStr(deliverable);
+      const hardUrgent = !!parseDueStr(hardDueStr) && dueState(hardDueStr) !== "ok";
+      const due = parseDueStr(getEffectiveDueStr(deliverable));
+      if (!hardUrgent) {
+        if (!due) return false;
+        if (!isSameDay(due, today) && due >= today) return false;
+      }
       deliverablesMatched += 1;
       if (isDeliverablePinned(deliverable)) return;
       setDeliverablePinnedState(deliverable, true);
@@ -19235,6 +18966,10 @@ async function runLocalProjectManagerTimestampComparison() {
 
 let deliverableNotepadEntries = [];
 let deliverableNotepadSelectedEntryIds = [];
+let deliverableNotepadScope = "incomplete";
+let deliverableNotepadSummary = null;
+let deliverableNotepadSummaryLoading = false;
+const DELIVERABLE_SUMMARY_MAX_ROWS = 150;
 
 function formatDeliverableExportField(value, fallback = "--") {
   const normalized = String(value ?? "")
@@ -19259,6 +18994,7 @@ function hasDeliverableExportContent(deliverable) {
   if (!deliverable || typeof deliverable !== "object") return false;
   if (String(deliverable.name || "").trim()) return true;
   if (String(deliverable.due || "").trim()) return true;
+  if (String(deliverable.hardDue || "").trim()) return true;
   if (String(deliverable.notes || "").trim()) return true;
   if (String(deliverable.status || "").trim()) return true;
   if (
@@ -19276,11 +19012,12 @@ function hasDeliverableExportContent(deliverable) {
   return false;
 }
 
-function buildDeliverableNotepadEntries(projects = db) {
+function buildDeliverableNotepadEntries(projects = db, scope = "incomplete") {
   const candidates = Array.isArray(projects) ? projects : [];
   return candidates
     .flatMap((project, projectIndex) =>
       getProjectDeliverables(project)
+        .filter((deliverable) => scope === "all" || !isFinished(deliverable))
         .filter((deliverable) => hasDeliverableExportContent(deliverable))
         .map((deliverable, deliverableIndex) => {
           const projectId = String(project?.id || "").trim();
@@ -19295,9 +19032,18 @@ function buildDeliverableNotepadEntries(projects = db) {
             }`,
             projectId,
             projectName,
+            projectPath: String(project?.path || "").trim(),
             deliverableName,
             due: String(deliverable?.due || "").trim(),
-            dueLabel: humanDate(deliverable?.due) || "No date",
+            hardDue: getHardDueStr(deliverable),
+            dueIso: toDeliverableSummaryIsoDate(
+              parseDueStr(String(deliverable?.due || "").trim())
+            ),
+            hardDueIso: toDeliverableSummaryIsoDate(
+              parseDueStr(getHardDueStr(deliverable))
+            ),
+            dueBucket: getDeliverableSummaryBucket(deliverable),
+            dueLabel: humanDate(getEffectiveDueStr(deliverable)) || "No date",
             statusText: getDeliverableStatusText(deliverable),
             project,
             deliverable,
@@ -19319,6 +19065,79 @@ function buildDeliverableNotepadEntries(projects = db) {
         { numeric: true, sensitivity: "base" }
       );
     });
+}
+
+// parseDueStr builds dates at local noon; toISOString() would shift the day in
+// far-eastern timezones, so format from the local components instead.
+function toDeliverableSummaryIsoDate(date) {
+  if (!(date instanceof Date) || isNaN(date)) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+// dueState() returns "ok" for undated items, so the undated check must come first
+// or deliverables with no date get filed as on-track.
+function getDeliverableSummaryBucket(deliverable) {
+  if (!parseDueStr(getEffectiveDueStr(deliverable))) return "undated";
+  const state = deliverableDueState(deliverable);
+  if (state === "critical") return "missedHardDeadline";
+  if (state === "overdue") return "overdue";
+  if (state === "dueSoon") return "dueThisWeek";
+  return "upcoming";
+}
+
+const DELIVERABLE_SUMMARY_BUCKET_ORDER = [
+  "missedHardDeadline",
+  "overdue",
+  "dueThisWeek",
+  "upcoming",
+  "undated",
+];
+
+function buildDeliverableSummaryRequest(selectedItems = []) {
+  const items = Array.isArray(selectedItems) ? selectedItems.filter(Boolean) : [];
+  const byBucket = new Map(
+    DELIVERABLE_SUMMARY_BUCKET_ORDER.map((bucket) => [bucket, []])
+  );
+  items.forEach((item) => {
+    const bucket = item.dueBucket || getDeliverableSummaryBucket(item.deliverable);
+    (byBucket.get(bucket) || byBucket.get("undated")).push(item);
+  });
+
+  const buckets = [];
+  let remaining = DELIVERABLE_SUMMARY_MAX_ROWS;
+  let omittedCount = 0;
+
+  DELIVERABLE_SUMMARY_BUCKET_ORDER.forEach((bucket) => {
+    // A briefing reads soonest-first, unlike the Excel sheet's descending sort.
+    const all = (byBucket.get(bucket) || [])
+      .slice()
+      .sort((a, b) => compareDeliverablesByDue(a?.deliverable, b?.deliverable));
+    const take = Math.max(0, Math.min(remaining, all.length));
+    remaining -= take;
+    omittedCount += all.length - take;
+    buckets.push({
+      bucket,
+      totalCount: all.length,
+      deliverables: all.slice(0, take).map((item) => ({
+        projectId: item.projectId,
+        projectName: item.projectName,
+        deliverableName: item.deliverableName || "Untitled Deliverable",
+        due: item.dueIso || "",
+        hardDue: item.hardDueIso || "",
+        statusText: item.statusText || "None",
+      })),
+    });
+  });
+
+  return {
+    scope: deliverableNotepadScope,
+    today: toDeliverableSummaryIsoDate(new Date()),
+    deliverableCount: items.length,
+    omittedCount,
+    buckets,
+  };
 }
 
 function buildSelectedDeliverablesExcelRows(entries = []) {
@@ -19346,7 +19165,9 @@ function buildSelectedDeliverablesExcelRows(entries = []) {
       deliverableName:
         String(item?.deliverableName || "").trim() || "Untitled Deliverable",
       due: String(item?.due || "").trim(),
+      hardDue: String(item?.hardDue || "").trim(),
       statusText: String(item?.statusText || "").trim() || "None",
+      projectPath: String(item?.projectPath || "").trim(),
     })),
     deliverableCount: sortedEntries.length,
   };
@@ -19411,16 +19232,36 @@ function renderDeliverableNotepadDialog() {
     .map((id) => entryMap.get(id))
     .filter(Boolean);
 
+  // With everything preselected the available panel starts empty, so the message
+  // has to explain that rather than reading as "nothing was found".
   renderDeliverableNotepadList(
     availableList,
     availableItems,
-    "No deliverables are available to add."
+    deliverableNotepadScope === "incomplete"
+      ? "All incomplete deliverables are already selected for export."
+      : "No deliverables are available to add."
   );
   renderDeliverableNotepadList(
     selectedList,
     selectedItems,
     "No deliverables have been selected for export."
   );
+
+  const availableTitle = document.getElementById(
+    "deliverableNotepadAvailablePanelTitle"
+  );
+  if (availableTitle) {
+    availableTitle.textContent =
+      deliverableNotepadScope === "incomplete"
+        ? "Incomplete Deliverables"
+        : "All Deliverables";
+  }
+
+  document.querySelectorAll("[data-notepad-scope]").forEach((chip) => {
+    const isActive = chip.dataset.notepadScope === deliverableNotepadScope;
+    chip.classList.toggle("is-active", isActive);
+    chip.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
 
   const availableCount = document.getElementById("deliverableNotepadAvailableCount");
   if (availableCount) {
@@ -19444,6 +19285,58 @@ function renderDeliverableNotepadDialog() {
 
   const exportBtn = document.getElementById("deliverableNotepadExportBtn");
   if (exportBtn) exportBtn.disabled = !selectedItems.length;
+
+  const summaryBtn = document.getElementById("deliverableNotepadSummaryBtn");
+  if (summaryBtn) {
+    summaryBtn.disabled = !selectedItems.length || deliverableNotepadSummaryLoading;
+  }
+
+  renderDeliverableNotepadSummary();
+}
+
+function renderDeliverableNotepadSummary() {
+  const panel = document.getElementById("deliverableNotepadSummaryPanel");
+  const body = document.getElementById("deliverableNotepadSummaryBody");
+  const meta = document.getElementById("deliverableNotepadSummaryMeta");
+  if (!panel || !body) return;
+
+  if (deliverableNotepadSummaryLoading) {
+    panel.hidden = false;
+    if (meta) meta.textContent = "";
+    body.replaceChildren(
+      el("p", { textContent: "Generating status briefing..." })
+    );
+    return;
+  }
+
+  if (!deliverableNotepadSummary) {
+    panel.hidden = true;
+    body.replaceChildren();
+    if (meta) meta.textContent = "";
+    return;
+  }
+
+  panel.hidden = false;
+  if (meta) {
+    const count = deliverableNotepadSummary.deliverableCount;
+    meta.textContent = `${count} deliverable${
+      count === 1 ? "" : "s"
+    } - included as a second Excel sheet`;
+  }
+
+  const nodes = [];
+  if (deliverableNotepadSummary.headline) {
+    nodes.push(
+      el("p", {
+        className: "deliverable-notepad-summary-headline",
+        textContent: deliverableNotepadSummary.headline,
+      })
+    );
+  }
+  (deliverableNotepadSummary.paragraphs || []).forEach((text) => {
+    nodes.push(el("p", { textContent: text }));
+  });
+  body.replaceChildren(...nodes);
 }
 
 function getCheckedDeliverableNotepadEntryIds(listId) {
@@ -19461,6 +19354,7 @@ function addDeliverablesToNotepadSelection() {
     return;
   }
 
+  clearDeliverableNotepadSummary();
   const selectedIdSet = new Set(deliverableNotepadSelectedEntryIds);
   ids.forEach((id) => {
     if (!selectedIdSet.has(id)) {
@@ -19480,6 +19374,7 @@ function removeDeliverablesFromNotepadSelection() {
     return;
   }
 
+  clearDeliverableNotepadSummary();
   deliverableNotepadSelectedEntryIds = deliverableNotepadSelectedEntryIds.filter(
     (id) => !ids.has(id)
   );
@@ -19505,10 +19400,19 @@ async function exportSelectedDeliverablesToExcel() {
   const { entries, deliverableCount } =
     buildSelectedDeliverablesExcelRows(selectedItems);
 
+  const payload = { entries };
+  if (deliverableNotepadSummary) {
+    payload.summary = {
+      headline: deliverableNotepadSummary.headline,
+      paragraphs: deliverableNotepadSummary.paragraphs,
+      generatedAt: deliverableNotepadSummary.generatedAt,
+      scope: deliverableNotepadSummary.scope,
+      deliverableCount: deliverableNotepadSummary.deliverableCount,
+    };
+  }
+
   try {
-    const response = await window.pywebview.api.export_deliverables_excel({
-      entries,
-    });
+    const response = await window.pywebview.api.export_deliverables_excel(payload);
     if (response?.status === "success") {
       closeDlg("deliverableNotepadDlg");
       toast(
@@ -19525,11 +19429,117 @@ async function exportSelectedDeliverablesToExcel() {
   }
 }
 
+function clearDeliverableNotepadSummary() {
+  deliverableNotepadSummary = null;
+  deliverableNotepadSummaryLoading = false;
+}
 
+// Entries hold live project/deliverable references, so a cloud sync that replaces
+// db mid-dialog would leave this operating on detached objects. Pre-existing.
+function openDeliverablesExcelDialog() {
+  const dialog = document.getElementById("deliverableNotepadDlg");
+  if (!dialog) return;
+
+  deliverableNotepadScope = "incomplete";
+  clearDeliverableNotepadSummary();
+  deliverableNotepadEntries = buildDeliverableNotepadEntries(
+    db,
+    deliverableNotepadScope
+  );
+
+  if (!deliverableNotepadEntries.length) {
+    // Everything is Complete/Delivered - fall back to the full list rather than
+    // dead-ending the user on an empty dialog.
+    deliverableNotepadScope = "all";
+    deliverableNotepadEntries = buildDeliverableNotepadEntries(db, "all");
+    if (!deliverableNotepadEntries.length) {
+      toast("No deliverables found on projects.");
+      return;
+    }
+    toast("No incomplete deliverables - showing all deliverables.");
+  }
+
+  deliverableNotepadSelectedEntryIds = deliverableNotepadEntries.map(
+    (item) => item.id
+  );
+  renderDeliverableNotepadDialog();
+  dialog.showModal();
+}
+
+function setDeliverableNotepadScope(scope) {
+  const next = scope === "all" ? "all" : "incomplete";
+  if (next === deliverableNotepadScope) return;
+
+  deliverableNotepadScope = next;
+  deliverableNotepadEntries = buildDeliverableNotepadEntries(db, next);
+  if (next === "incomplete") {
+    // Keep Export immediately clickable when returning to the default scope.
+    deliverableNotepadSelectedEntryIds = deliverableNotepadEntries.map(
+      (item) => item.id
+    );
+  } else {
+    const availableIds = new Set(
+      deliverableNotepadEntries.map((item) => item.id)
+    );
+    deliverableNotepadSelectedEntryIds =
+      deliverableNotepadSelectedEntryIds.filter((id) => availableIds.has(id));
+  }
+  clearDeliverableNotepadSummary();
+  renderDeliverableNotepadDialog();
+}
+
+async function generateDeliverableStatusBriefing() {
+  const entryMap = new Map(deliverableNotepadEntries.map((item) => [item.id, item]));
+  const selectedItems = deliverableNotepadSelectedEntryIds
+    .map((id) => entryMap.get(id))
+    .filter(Boolean);
+
+  if (!selectedItems.length) {
+    toast("Select at least one deliverable to summarize.");
+    return;
+  }
+  if (!window.pywebview?.api?.generate_deliverable_status_summary) {
+    toast("AI status briefing is unavailable.");
+    return;
+  }
+  if (deliverableNotepadSummaryLoading) return;
+
+  deliverableNotepadSummaryLoading = true;
+  deliverableNotepadSummary = null;
+  renderDeliverableNotepadDialog();
+
+  try {
+    const request = buildDeliverableSummaryRequest(selectedItems);
+    const response =
+      await window.pywebview.api.generate_deliverable_status_summary({
+        ...request,
+        apiKey: userSettings.apiKey || "",
+      });
+    if (response?.status === "success") {
+      deliverableNotepadSummary = {
+        headline: String(response.headline || "").trim(),
+        paragraphs: Array.isArray(response.paragraphs)
+          ? response.paragraphs.map((p) => String(p || "").trim()).filter(Boolean)
+          : [],
+        generatedAt: String(response.generatedAt || ""),
+        scope: request.scope,
+        deliverableCount: request.deliverableCount,
+      };
+    } else {
+      toast(response?.message || "Failed to generate the status briefing.");
+    }
+  } catch (error) {
+    console.error("Failed to generate deliverable status briefing:", error);
+    toast(error?.message || "Failed to generate the status briefing.");
+  } finally {
+    deliverableNotepadSummaryLoading = false;
+    renderDeliverableNotepadDialog();
+  }
+}
 
 function compareDeliverablesByDue(a, b) {
-  const da = parseDueStr(a?.due);
-  const dbb = parseDueStr(b?.due);
+  const da = parseDueStr(getEffectiveDueStr(a));
+  const dbb = parseDueStr(getEffectiveDueStr(b));
   if (!da && !dbb) return 0;
   if (!da) return 1;
   if (!dbb) return -1;
@@ -19537,8 +19547,8 @@ function compareDeliverablesByDue(a, b) {
 }
 
 function compareDeliverablesByDueDesc(a, b) {
-  const da = parseDueStr(a?.due);
-  const dbb = parseDueStr(b?.due);
+  const da = parseDueStr(getEffectiveDueStr(a));
+  const dbb = parseDueStr(getEffectiveDueStr(b));
   if (!da && !dbb) return 0;
   if (!da) return 1;
   if (!dbb) return -1;
@@ -19560,7 +19570,7 @@ function getEarliestIncompleteDeliverable(project) {
     (d) => !isFinished(d)
   );
   if (!deliverables.length) return null;
-  const withDue = deliverables.filter((d) => parseDueStr(d?.due));
+  const withDue = deliverables.filter((d) => parseDueStr(getEffectiveDueStr(d)));
   if (withDue.length) return withDue.sort(compareDeliverablesByDue)[0];
   return deliverables[0];
 }
@@ -19580,12 +19590,12 @@ function getProjectListPriorityMeta(project) {
       hasIncompleteActiveWork: false,
       sortBucket: 2,
       sortDueDate: null,
-      fallbackDueDate: parseDueStr(activeAnchorDeliverable?.due),
+      fallbackDueDate: parseDueStr(getEffectiveDueStr(activeAnchorDeliverable)),
     };
   }
 
   const activeIncompleteWithDue = activeIncompleteDeliverables.filter((deliverable) =>
-    parseDueStr(deliverable?.due)
+    parseDueStr(getEffectiveDueStr(deliverable))
   );
   if (activeIncompleteWithDue.length) {
     const priorityDeliverable = activeIncompleteWithDue.sort(compareDeliverablesByDue)[0];
@@ -19593,7 +19603,7 @@ function getProjectListPriorityMeta(project) {
       priorityDeliverable,
       hasIncompleteActiveWork: true,
       sortBucket: 0,
-      sortDueDate: parseDueStr(priorityDeliverable?.due),
+      sortDueDate: parseDueStr(getEffectiveDueStr(priorityDeliverable)),
       fallbackDueDate: null,
     };
   }
@@ -19626,7 +19636,7 @@ function getProjectSortKey(project, projectListContext = null) {
   }
   const activeAnchorDeliverable =
     projectListContext?.activeAnchorDeliverable || getActiveAnchorDeliverable(project);
-  return parseDueStr(activeAnchorDeliverable?.due);
+  return parseDueStr(getEffectiveDueStr(activeAnchorDeliverable));
 }
 
 function matchesProjectStatusFilter(deliverable, filter) {
@@ -19650,7 +19660,7 @@ function matchesProjectDeliverablesFilter(
 
 function matchesDueFilter(deliverable, filter) {
   if (filter === "all") return true;
-  const d = parseDueStr(deliverable?.due);
+  const d = parseDueStr(getEffectiveDueStr(deliverable));
   if (!d) return false;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -19683,7 +19693,7 @@ function getTimeframeFilterLabel(filter) {
 function getLatestDeliverableDueDate(deliverables = []) {
   let latestDue = null;
   deliverables.forEach((deliverable) => {
-    const due = parseDueStr(deliverable?.due);
+    const due = parseDueStr(getEffectiveDueStr(deliverable));
     if (!due) return;
     if (!latestDue || due > latestDue) latestDue = due;
   });
@@ -22420,6 +22430,31 @@ function createDeliverableCardTopActions(deliverable, project, card) {
       })
     );
   }
+  // Important-line alert -> jumps to the page carrying the first flag
+  if (project) {
+    const importantItems = getProjectImportantItems(project);
+    if (importantItems.length) {
+      const importantBtn = createDeliverableCardActionButton({
+        className: "deliverable-card-important-action",
+        title: `${importantItems.length} important line${
+          importantItems.length === 1 ? "" : "s"
+        } in project notes`,
+        ariaLabel: "Open important project notes",
+        iconPath: ALERT_ICON_PATH,
+        onClick: () => {
+          closeDeliverableCardActionOverlays();
+          const first = importantItems[0];
+          const subpage = first?.subpageId
+            ? getProjectSubpageById(project, first.subpageId)
+            : null;
+          pendingImportantPageScroll = true;
+          openProjectPage(project, subpage);
+        },
+      });
+      importantBtn.dataset.importantCount = String(importantItems.length);
+      rightActions.append(importantBtn);
+    }
+  }
   // Notion-style project notes entry point
   if (project) {
     rightActions.append(
@@ -23040,41 +23075,81 @@ function createCardHeader(deliverable, isPrimary, card, project) {
 
   leftSection.appendChild(title);
 
-  // Due date badge - now on the left after title
-  if (deliverable.due) {
-    const ds = dueState(deliverable.due);
-    const badgeClass = `deliverable-due-badge ${ds === "overdue" ? "overdue" : ds === "dueSoon" ? "due-soon" : "ok"}`;
-    const badgeText = humanDate(deliverable.due).replace(/\//g, "/").toUpperCase();
-    const badge = el("div", {
-      className: `${badgeClass} is-clickable`,
-      textContent: badgeText
-    });
-    badge.setAttribute("role", "button");
-    badge.setAttribute("tabindex", "0");
-    badge.setAttribute("title", "Click to change due date");
-    badge.setAttribute(
-      "aria-label",
-      ds === "overdue"
-        ? `Overdue – due ${humanDate(deliverable.due)}. Click to change due date.`
-        : `Due ${humanDate(deliverable.due)}. Click to change due date.`
-    );
-    const handleOpen = (e) => {
-      e.stopPropagation();
-      showCalendarForDeliverableBadge(badge, deliverable, project);
-    };
-    badge.addEventListener("click", handleOpen);
-    badge.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        handleOpen(e);
-      }
-    });
+  // Due date badges - now on the left after title
+  createDeliverableDueBadges(deliverable, project).forEach((badge) => {
     leftSection.appendChild(badge);
-  }
+  });
 
   header.appendChild(leftSection);
 
   return header;
+}
+
+function createDeliverableDueBadge(deliverable, project, { field, stateClass, text, label }) {
+  const badge = el("div", {
+    className: `deliverable-due-badge ${stateClass} is-clickable`,
+    textContent: text,
+  });
+  badge.setAttribute("role", "button");
+  badge.setAttribute("tabindex", "0");
+  badge.setAttribute(
+    "title",
+    field === "hardDue"
+      ? "Hard deadline – must finish. Click to change."
+      : "Click to change due date"
+  );
+  badge.setAttribute("aria-label", label);
+  const handleOpen = (e) => {
+    e.stopPropagation();
+    showCalendarForDeliverableBadge(badge, deliverable, project, field);
+  };
+  badge.addEventListener("click", handleOpen);
+  badge.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleOpen(e);
+    }
+  });
+  return badge;
+}
+
+// Returns the internal-due badge, the hard-deadline badge, or both — a deliverable
+// can carry either date independently.
+function createDeliverableDueBadges(deliverable, project) {
+  const badges = [];
+
+  if (deliverable.due) {
+    const ds = dueState(deliverable.due);
+    badges.push(
+      createDeliverableDueBadge(deliverable, project, {
+        field: "due",
+        stateClass:
+          ds === "overdue" ? "overdue" : ds === "dueSoon" ? "due-soon" : "ok",
+        text: humanDate(deliverable.due).replace(/\//g, "/").toUpperCase(),
+        label:
+          ds === "overdue"
+            ? `Overdue – due ${humanDate(deliverable.due)}. Click to change due date.`
+            : `Due ${humanDate(deliverable.due)}. Click to change due date.`,
+      })
+    );
+  }
+
+  const hardDue = getHardDueStr(deliverable);
+  if (hardDue) {
+    const missed = isDeliverableHardDueMissed(deliverable);
+    badges.push(
+      createDeliverableDueBadge(deliverable, project, {
+        field: "hardDue",
+        stateClass: missed ? "hard critical" : "hard",
+        text: `🔒 ${humanDate(hardDue).replace(/\//g, "/").toUpperCase()}`,
+        label: missed
+          ? `Past hard deadline – ${humanDate(hardDue)}. Click to change hard deadline.`
+          : `Hard deadline ${humanDate(hardDue)}. Click to change hard deadline.`,
+      })
+    );
+  }
+
+  return badges;
 }
 
 function createExpandToggle(card) {
@@ -24484,9 +24559,10 @@ function buildProjectDeliverableRowEntries(items, projectListContextMap = null) 
         projectIndex,
         projectListContext,
         deliverable,
-        dueDate: parseDueStr(deliverable?.due),
+        dueDate: parseDueStr(getEffectiveDueStr(deliverable)),
         isPinnedDeliverable: isDeliverablePinned(deliverable),
         isCompleteDeliverable: isFinished(deliverable),
+        isHardDueMissed: isDeliverableHardDueMissed(deliverable),
       });
     });
   });
@@ -24560,6 +24636,12 @@ function compareProjectDeliverableRows(a, b) {
     return compareProjectDeliverableRowIdentity(a, b);
   }
 
+  // A missed hard deadline outranks everything else in the due sort — it is the
+  // one thing that genuinely cannot be pushed.
+  const aHardMissed = !!a?.isHardDueMissed;
+  const bHardMissed = !!b?.isHardDueMissed;
+  if (aHardMissed !== bHardMissed) return aHardMissed ? -1 : 1;
+
   if (!separateDeliverableCompletionGroups) {
     const mixedDueDiff = compareDueDateValues(
       a?.dueDate || null,
@@ -24598,8 +24680,8 @@ function sortProjectDeliverableRows(items) {
 
 function compareProjectDeliverableRowsByDueAsc(a, b) {
   const dueDiff = compareDueDateValues(
-    a?.dueDate || parseDueStr(a?.deliverable?.due) || null,
-    b?.dueDate || parseDueStr(b?.deliverable?.due) || null,
+    a?.dueDate || parseDueStr(getEffectiveDueStr(a?.deliverable)) || null,
+    b?.dueDate || parseDueStr(getEffectiveDueStr(b?.deliverable)) || null,
     "asc"
   );
   if (dueDiff) return dueDiff;
@@ -24641,8 +24723,9 @@ function getPinnedDeliverableOrderEntries(items = db) {
         projectIndex,
         deliverable,
         deliverableIndex,
-        dueDate: parseDueStr(deliverable?.due),
+        dueDate: parseDueStr(getEffectiveDueStr(deliverable)),
         isPinnedDeliverable: true,
+        isHardDueMissed: isDeliverableHardDueMissed(deliverable),
       });
     });
   });
@@ -25398,7 +25481,7 @@ function updateWeekNavLabel() {
 }
 
 function deliverableDueInWeek(deliverable, weekStart) {
-  const d = parseDueStr(deliverable?.due);
+  const d = parseDueStr(getEffectiveDueStr(deliverable));
   if (!d) return false;
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
@@ -25407,7 +25490,7 @@ function deliverableDueInWeek(deliverable, weekStart) {
 }
 
 function deliverableIsOverdueIncomplete(deliverable, weekStart) {
-  const d = parseDueStr(deliverable?.due);
+  const d = parseDueStr(getEffectiveDueStr(deliverable));
   if (!d) return false;
   return d < weekStart && !isFinished(deliverable);
 }
@@ -26183,7 +26266,7 @@ function render() {
     maxDate = null;
 
   getAllDeliverables().forEach(({ deliverable }) => {
-    const d = parseDueStr(deliverable?.due);
+    const d = parseDueStr(getEffectiveDueStr(deliverable));
     if (d) {
       if (d >= startOfWeek && d <= endOfWeek) dueThisWeek++;
       if (d >= startOfLastWeek && d <= endOfLastWeek) dueLastWeek++;
@@ -26306,6 +26389,7 @@ function getMatchContext(q, p) {
     };
     if (str(d.name).includes(q)) dCtx.fields.push("name");
     if (str(d.due).includes(q)) dCtx.fields.push("due");
+    if (str(d.hardDue).includes(q)) dCtx.fields.push("hardDue");
     const hasStatusMatch = (d.statuses || []).some((s) => str(s).includes(q));
     if (
       dCtx.fields.length ||
@@ -26480,7 +26564,7 @@ function onSaveProject() {
   // Validate all due dates first
   if (!validateAllDueDates()) {
     // Focus first invalid input
-    const firstInvalid = document.querySelector('.d-due.input-error');
+    const firstInvalid = document.querySelector('.d-due.input-error, .d-hard-due.input-error');
     if (firstInvalid) {
       firstInvalid.focus();
       // Scroll to the invalid input
@@ -26768,6 +26852,7 @@ function addDeliverableCard(deliverable, activeAnchorId, options = {}) {
   nameInput.addEventListener("input", () => refreshModalDeliverableSummary(card));
 
   card.querySelector(".d-due").value = deliverable.due || "";
+  card.querySelector(".d-hard-due").value = deliverable.hardDue || "";
 
   const activeInput = card.querySelector(".d-active");
   if (deliverable.active === true || (activeAnchorId && deliverableId === activeAnchorId)) {
@@ -26844,31 +26929,31 @@ function addDeliverableCard(deliverable, activeAnchorId, options = {}) {
   });
   statusContainer.appendChild(picker);
 
-  // Wire up calendar icon button and date validation
-  const calendarBtn = card.querySelector('.calendar-icon-btn');
-  const dueInput = card.querySelector('.d-due');
+  // Wire up calendar icon buttons and date validation for both date fields
+  card.querySelectorAll('.input-with-calendar').forEach((wrapper) => {
+    const calendarBtn = wrapper.querySelector('.calendar-icon-btn');
+    const dateInput = wrapper.querySelector('.d-due, .d-hard-due');
+    if (!calendarBtn || !dateInput) return;
 
-  if (calendarBtn && dueInput) {
     calendarBtn.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
-      showCalendarForInput(dueInput);
+      showCalendarForInput(dateInput);
+    };
+
+    const handleDateEdit = () => {
+      autoFormatDateInput(dateInput);
+      validateDueDateInput(dateInput);
+      validateDeliverableDateOrder(card);
+      refreshModalDeliverableSummary(card);
     };
 
     // Add auto-formatting and validation on blur
-    dueInput.addEventListener('blur', () => {
-      autoFormatDateInput(dueInput);
-      validateDueDateInput(dueInput);
-      refreshModalDeliverableSummary(card);
-    });
+    dateInput.addEventListener('blur', handleDateEdit);
 
     // Add validation on change
-    dueInput.addEventListener('change', () => {
-      autoFormatDateInput(dueInput);
-      validateDueDateInput(dueInput);
-      refreshModalDeliverableSummary(card);
-    });
-  }
+    dateInput.addEventListener('change', handleDateEdit);
+  });
 
   // Wire summary row toggle (chevron / row click, ignoring the remove button)
   const summary = card.querySelector(".deliverable-card-summary");
@@ -26935,7 +27020,12 @@ function refreshModalDeliverableSummary(card) {
     });
   }
 
+  const isCardFinished = Array.from(
+    card.querySelectorAll('.deliverable-status .st[aria-pressed="true"]')
+  ).some((b) => b.dataset.status === "Complete" || b.dataset.status === "Delivered");
+
   const dueInput = card.querySelector(".d-due");
+  const hardDueInput = card.querySelector(".d-hard-due");
   const dueHost = summary.querySelector(".deliverable-summary-due");
   if (dueHost) {
     dueHost.replaceChildren();
@@ -26946,6 +27036,15 @@ function refreshModalDeliverableSummary(card) {
       const badge = el("span", {
         className: `deliverable-due-badge ${cls}`,
         textContent: humanDate(dueStr),
+      });
+      dueHost.appendChild(badge);
+    }
+    const hardDueStr = (hardDueInput?.value || "").trim();
+    if (hardDueStr && parseDueStr(hardDueStr)) {
+      const missed = dueState(hardDueStr) === "overdue" && !isCardFinished;
+      const badge = el("span", {
+        className: `deliverable-due-badge hard${missed ? " critical" : ""}`,
+        textContent: `🔒 ${humanDate(hardDueStr)}`,
       });
       dueHost.appendChild(badge);
     }
@@ -27429,6 +27528,7 @@ function readForm() {
       : null;
     const name = card.querySelector(".d-name").value.trim();
     const due = card.querySelector(".d-due").value.trim();
+    const hardDue = card.querySelector(".d-hard-due").value.trim();
     const statuses = readStatusPickerFrom(
       card.querySelector(".deliverable-status")
     );
@@ -27478,6 +27578,7 @@ function readForm() {
       id: deliverableId,
       name,
       due,
+      hardDue,
       page: existingDeliverable?.page,
       notes: existingDeliverable?.notes || buildDeliverableNotesText(noteItems, ""),
       noteItems,
@@ -27683,6 +27784,13 @@ function hasActiveChecklistSelection() {
 
 function getGlobalPageSearchText(page) {
   const title = String(page?.title || "");
+  if (isCanvasPage(page?.page)) {
+    const nodeText = (page.page.canvas?.nodes || [])
+      .map((node) => String(node?.text || ""))
+      .filter(Boolean)
+      .join("\n");
+    return `${title}\n${nodeText}`;
+  }
   const body = pageHtmlToPlainText(page?.page?.html || "");
   return `${title}\n${body}`;
 }
@@ -27752,13 +27860,27 @@ function createGlobalPageCard(page, searchQuery = "") {
   const title = el("div", {
     className: "global-page-card-title",
   });
+  const isCanvas = isCanvasPage(page.page);
+  if (isCanvas) {
+    const icon = el("span", { className: "global-page-kind-icon", title: "Canvas" });
+    icon.innerHTML =
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="6" r="2.5"></circle><circle cx="19" cy="6" r="2.5"></circle><circle cx="12" cy="18" r="2.5"></circle><line x1="7" y1="7.5" x2="10.5" y2="16"></line><line x1="17" y1="7.5" x2="13.5" y2="16"></line></svg>';
+    title.appendChild(icon);
+  }
   title.appendChild(highlightText(titleText, query));
-  const previewText = pageHtmlToPlainText(page.page?.html || "");
   const preview = el("div", {
     className: "global-page-card-preview muted",
   });
-  const previewSnippet = createGlobalPageSearchSnippet(previewText, query);
-  preview.appendChild(highlightText(previewSnippet || "Empty page", query));
+  if (isCanvas) {
+    const count = page.page.canvas?.nodes?.length || 0;
+    preview.appendChild(
+      highlightText(count ? `Canvas · ${count} item${count === 1 ? "" : "s"}` : "Empty canvas", query)
+    );
+  } else {
+    const previewText = pageHtmlToPlainText(page.page?.html || "");
+    const previewSnippet = createGlobalPageSearchSnippet(previewText, query);
+    preview.appendChild(highlightText(previewSnippet || "Empty page", query));
+  }
   const del = createTabDeleteIcon("Delete page", (e) => {
     e.stopPropagation();
     deleteGlobalPage(page);
@@ -27807,10 +27929,80 @@ function createTabDeleteIcon(title, onClick) {
   return span;
 }
 
-function promptCreateGlobalPage() {
-  const name = prompt("Enter a title for the new page:");
+function openGlobalPageCreateMenu(anchor) {
+  const existing = document.getElementById("globalPageCreateMenu");
+  if (existing) {
+    existing.remove();
+    return;
+  }
+  const menu = el("div", {
+    className: "page-slash-menu",
+    id: "globalPageCreateMenu",
+    role: "menu",
+  });
+  const options = [
+    {
+      label: "Document",
+      hint: "Rich text page for notes and writing",
+      icon: "Aa",
+      kind: "",
+    },
+    {
+      label: "Canvas",
+      hint: "Freeform board for connecting ideas",
+      icon: "◇",
+      kind: "canvas",
+    },
+  ];
+  options.forEach((option) => {
+    const item = el("button", {
+      className: "page-slash-menu-item",
+      type: "button",
+      role: "menuitem",
+      onclick: () => {
+        cleanup();
+        promptCreateGlobalPage(option.kind);
+      },
+    });
+    item.appendChild(el("span", { className: "page-slash-menu-icon", textContent: option.icon }));
+    const line = el("span", { className: "page-slash-menu-line" });
+    line.appendChild(el("span", { textContent: option.label }));
+    line.appendChild(el("small", { className: "muted", textContent: ` ${option.hint}` }));
+    item.appendChild(line);
+    menu.appendChild(item);
+  });
+  document.body.appendChild(menu);
+  const rect = anchor?.getBoundingClientRect?.();
+  if (rect) {
+    menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+    menu.style.left = `${Math.round(
+      Math.min(rect.left, window.innerWidth - menu.offsetWidth - 12)
+    )}px`;
+  }
+  const cleanup = () => {
+    menu.remove();
+    document.removeEventListener("pointerdown", onOutside, true);
+    document.removeEventListener("keydown", onKey, true);
+  };
+  const onOutside = (e) => {
+    if (!menu.contains(e.target) && e.target !== anchor) cleanup();
+  };
+  const onKey = (e) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      cleanup();
+    }
+  };
+  document.addEventListener("pointerdown", onOutside, true);
+  document.addEventListener("keydown", onKey, true);
+  menu.querySelector("button")?.focus();
+}
+
+function promptCreateGlobalPage(kind = "") {
+  const label = kind === "canvas" ? "canvas" : "page";
+  const name = prompt(`Enter a title for the new ${label}:`);
   if (name === null) return;
-  const page = createGlobalPage({ title: name.trim() || "Untitled" });
+  const page = createGlobalPage({ title: name.trim() || "Untitled", kind });
   globalPages.push(page);
   activeGlobalPageId = page.id;
   saveGlobalPages();
@@ -28554,6 +28746,7 @@ window.__aciesAutomation = {
         id: deliverable.id || "",
         name: deliverable.name || "",
         due: deliverable.due || "",
+        hardDue: deliverable.hardDue || "",
         taskCount: Array.isArray(deliverable.tasks) ? deliverable.tasks.length : 0,
       })),
     };
@@ -29352,6 +29545,7 @@ const circuitBreakerState = {
   lastHandledTerminalJobId: "",
   lastPanelScheduleStatus: null,
   pasteTargetKind: "",
+  revealOnCompleteJobId: "",
 };
 
 function generateCircuitBreakerPanelId() {
@@ -30343,6 +30537,8 @@ async function handlePanelScheduleBackgroundUpdate(payload, { source = "push" } 
   }
 
   circuitBreakerState.lastHandledTerminalJobId = jobId;
+  const shouldReveal = circuitBreakerState.revealOnCompleteJobId === jobId;
+  circuitBreakerState.revealOnCompleteJobId = "";
   circuitBreakerState.activeJobId = "";
   const terminalActivityId =
     activityId || getActivityIdForTool("toolCircuitBreaker", { create: true });
@@ -30383,6 +30579,9 @@ async function handlePanelScheduleBackgroundUpdate(payload, { source = "push" } 
       openFolderPath,
       openFolderLabel: "Open Folder",
     });
+    if (shouldReveal && successCount > 0) {
+      void revealPanelScheduleOutput(payload.outputPath || openFolderPath);
+    }
     return;
   }
 
@@ -30487,39 +30686,60 @@ async function runCircuitBreakerInBackground() {
   });
   payload.activityId = activityId;
 
+  if (
+    await submitPanelScheduleJob({
+      payload,
+      activityId,
+      expectedPanelCount: panels.length,
+      outputFolderPath,
+      onError: () => {
+        circuitBreakerState.running = false;
+        updateCircuitBreakerUi();
+      },
+    })
+  ) {
+    closeCircuitBreaker();
+  }
+}
+
+// Shared by the Panel Schedule AI modal and the canvas "Convert to Panel Schedule"
+// flow. Returns true when the background job actually started.
+async function submitPanelScheduleJob({
+  payload,
+  activityId,
+  expectedPanelCount = 1,
+  outputFolderPath = "",
+  revealOnComplete = false,
+  onError = null,
+}) {
+  const bail = (message) => {
+    clearPanelScheduleStatusPoll();
+    circuitBreakerState.activeJobId = "";
+    circuitBreakerState.activeActivityId = "";
+    circuitBreakerState.revealOnCompleteJobId = "";
+    if (typeof onError === "function") onError();
+    failActivity(activityId, { message });
+    return false;
+  };
+
   try {
     const res = await window.pywebview.api.run_panel_schedule_background(payload);
     if (res?.status === "error") {
-      clearPanelScheduleStatusPoll();
-      circuitBreakerState.activeJobId = "";
-      circuitBreakerState.activeActivityId = "";
-      circuitBreakerState.running = false;
-      updateCircuitBreakerUi();
-      failActivity(activityId, {
-        message: res.message || "Failed to start Panel Schedule AI.",
-      });
-      return;
+      return bail(res.message || "Failed to start Panel Schedule AI.");
     }
 
     const jobId = String(res?.jobId || "").trim();
     if (!jobId) {
-      clearPanelScheduleStatusPoll();
-      circuitBreakerState.activeJobId = "";
-      circuitBreakerState.activeActivityId = "";
-      circuitBreakerState.running = false;
-      updateCircuitBreakerUi();
-      failActivity(activityId, {
-        message: "Panel Schedule AI did not return a job id.",
-      });
-      return;
+      return bail("Panel Schedule AI did not return a job id.");
     }
 
     const parsedPanelCount = Number(res?.panelCount);
     const jobPanelCount = Number.isFinite(parsedPanelCount)
       ? Math.max(1, parsedPanelCount)
-      : panels.length;
+      : expectedPanelCount;
     const runningMessage = `Running ${jobPanelCount} panel${jobPanelCount === 1 ? "" : "s"} in background...`;
     circuitBreakerState.activeJobId = jobId;
+    circuitBreakerState.revealOnCompleteJobId = revealOnComplete ? jobId : "";
     circuitBreakerState.activeActivityId = String(
       res?.activityId || activityId
     ).trim() || activityId;
@@ -30538,22 +30758,609 @@ async function runCircuitBreakerInBackground() {
       openFolderPath: outputFolderPath,
     });
     schedulePanelScheduleStatusPoll(jobId, 1000);
-    closeCircuitBreaker();
+    return true;
   } catch (e) {
-    clearPanelScheduleStatusPoll();
-    circuitBreakerState.activeJobId = "";
-    circuitBreakerState.activeActivityId = "";
-    circuitBreakerState.running = false;
-    updateCircuitBreakerUi();
-    failActivity(activityId, {
-      message: e?.message || "Failed to start Panel Schedule AI.",
-    });
+    return bail(e?.message || "Failed to start Panel Schedule AI.");
   }
 }
 
 window.handlePanelScheduleResult = async function (payload) {
   await handlePanelScheduleBackgroundUpdate(payload, { source: "push" });
 };
+
+async function revealPanelScheduleOutput(targetPath) {
+  const path = String(targetPath || "").trim();
+  if (!path || !window.pywebview?.api?.reveal_path) return;
+  try {
+    const res = await window.pywebview.api.reveal_path(path);
+    if (String(res?.status || "").toLowerCase() !== "success") {
+      throw new Error(res?.message || "Unable to open the output folder.");
+    }
+  } catch (e) {
+    toast(e?.message || "Couldn't open the output folder.");
+  }
+}
+
+// ---- Canvas selection -> Panel Schedule AI ----
+const CANVAS_PANEL_ROLE_LABELS = {
+  breaker: "Breaker photo",
+  as_built_schedule: "As-built schedule (printed)",
+  field_directory: "Field directory card",
+  ignore: "Skip",
+};
+const CANVAS_PANEL_DIRECTORY_ROLES = ["as_built_schedule", "field_directory"];
+
+function isCanvasPanelDirectoryRole(role) {
+  return CANVAS_PANEL_DIRECTORY_ROLES.includes(role);
+}
+
+// Mirrors _derive_canvas_panel_input_mode in main.py so correcting a role in the
+// dialog moves the mode with it.
+function deriveCanvasPanelInputMode(images) {
+  const usable = images.filter((image) => image.status === "ok");
+  const breakers = usable.filter((image) => image.role === "breaker").length;
+  const asBuilts = usable.filter((image) => image.role === "as_built_schedule").length;
+  const directories = usable.filter((image) => isCanvasPanelDirectoryRole(image.role)).length;
+
+  if (breakers === 0 && directories === 0) return "field_photos";
+  if (asBuilts > 0) return "existing_directory";
+  if (breakers === 0) return "existing_directory";
+  return "field_photos";
+}
+
+const canvasPanelScheduleState = {
+  initialized: false,
+  loading: false,
+  submitting: false,
+  error: "",
+  ownerKey: "",
+  panelName: "",
+  inputMode: "field_photos",
+  blocking: "",
+  blockingMessage: "",
+  summary: "",
+  modeTouched: false,
+  images: [],
+  notes: [],
+  folderToken: "",
+  outputFolder: "",
+  outputPath: "",
+  outputTimer: 0,
+  job: null, // { jobId, activityId, pageKey } while the AI runs in the background
+  pendingResult: null, // findings waiting for the user to review
+  pollTimer: 0,
+};
+
+// Clears the review form. The in-flight job and any unreviewed findings survive, so
+// closing the dialog never throws away an analysis the user already paid for.
+function resetCanvasPanelScheduleState() {
+  if (canvasPanelScheduleState.outputTimer) {
+    clearTimeout(canvasPanelScheduleState.outputTimer);
+  }
+  Object.assign(canvasPanelScheduleState, {
+    loading: false,
+    submitting: false,
+    error: "",
+    ownerKey: "",
+    panelName: "",
+    inputMode: "field_photos",
+    blocking: "",
+    blockingMessage: "",
+    summary: "",
+    modeTouched: false,
+    images: [],
+    notes: [],
+    folderToken: "",
+    outputFolder: "",
+    outputPath: "",
+    outputTimer: 0,
+  });
+}
+
+function initCanvasPanelScheduleDialog() {
+  if (canvasPanelScheduleState.initialized) return;
+  const dlg = document.getElementById("canvasPanelScheduleDlg");
+  if (!dlg) return;
+  canvasPanelScheduleState.initialized = true;
+
+  document
+    .getElementById("cpsCloseBtn")
+    ?.addEventListener("click", closeCanvasPanelScheduleDialog);
+  document
+    .getElementById("cpsCancelBtn")
+    ?.addEventListener("click", closeCanvasPanelScheduleDialog);
+  document
+    .getElementById("cpsConfirmBtn")
+    ?.addEventListener("click", () => void confirmCanvasPanelSchedule());
+
+  document.getElementById("cpsPanelName")?.addEventListener("input", (e) => {
+    canvasPanelScheduleState.panelName = e.target.value;
+    scheduleCanvasPanelScheduleOutputRefresh();
+    renderCanvasPanelScheduleDialog({ skipNameInput: true });
+  });
+
+  ["cpsInputModeField", "cpsInputModeExisting"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", (e) => {
+      if (!e.target.checked) return;
+      canvasPanelScheduleState.inputMode = e.target.value;
+      canvasPanelScheduleState.modeTouched = true;
+      renderCanvasPanelScheduleDialog();
+    });
+  });
+
+  document.getElementById("cpsImageList")?.addEventListener("change", (e) => {
+    const select = e.target.closest("select[data-cps-node-id]");
+    if (!select) return;
+    const image = canvasPanelScheduleState.images.find(
+      (item) => item.nodeId === select.dataset.cpsNodeId
+    );
+    if (!image) return;
+    image.role = select.value;
+    // Fixing a misread image should move the mode with it, unless the user has
+    // already overridden the mode by hand.
+    if (!canvasPanelScheduleState.modeTouched) {
+      canvasPanelScheduleState.inputMode = deriveCanvasPanelInputMode(
+        canvasPanelScheduleState.images
+      );
+    }
+    renderCanvasPanelScheduleDialog();
+  });
+
+  dlg.addEventListener("close", resetCanvasPanelScheduleState);
+}
+
+function closeCanvasPanelScheduleDialog() {
+  document.getElementById("canvasPanelScheduleDlg")?.close();
+}
+
+function getCanvasPanelSchedulePageKey() {
+  return `${pageEditorOwnerKey || "page"}::${pageEditorTarget?.id || ""}`;
+}
+
+function clearCanvasPanelClassificationPoll() {
+  if (canvasPanelScheduleState.pollTimer) {
+    clearTimeout(canvasPanelScheduleState.pollTimer);
+    canvasPanelScheduleState.pollTimer = 0;
+  }
+}
+
+function scheduleCanvasPanelClassificationPoll(jobId, delay = 1500) {
+  clearCanvasPanelClassificationPoll();
+  canvasPanelScheduleState.pollTimer = setTimeout(() => {
+    canvasPanelScheduleState.pollTimer = 0;
+    void pollCanvasPanelClassificationStatus(jobId);
+  }, delay);
+}
+
+async function pollCanvasPanelClassificationStatus(jobId) {
+  if (!jobId || canvasPanelScheduleState.job?.jobId !== jobId) return;
+  if (!window.pywebview?.api?.get_canvas_panel_classification_status) return;
+  try {
+    const record = await window.pywebview.api.get_canvas_panel_classification_status(jobId);
+    const status = String(record?.status || "").trim().toLowerCase();
+    if (status === "running" || status === "not_found") {
+      scheduleCanvasPanelClassificationPoll(jobId);
+      return;
+    }
+    handleCanvasPanelClassificationRecord(record);
+  } catch (e) {
+    scheduleCanvasPanelClassificationPoll(jobId);
+  }
+}
+
+// Entry point from the canvas context menu. The AI runs on a worker thread and the
+// findings arrive later, so nothing here blocks the canvas.
+async function openCanvasPanelScheduleDialog() {
+  // Findings already waiting from an earlier run: show them instead of re-analyzing.
+  if (canvasPanelScheduleState.pendingResult) {
+    showCanvasPanelScheduleFindings(canvasPanelScheduleState.pendingResult);
+    return;
+  }
+  // A run is already in flight: open the dialog so it fills in when the AI answers.
+  if (canvasPanelScheduleState.job) {
+    initCanvasPanelScheduleDialog();
+    const runningDlg = document.getElementById("canvasPanelScheduleDlg");
+    if (runningDlg && !runningDlg.open) {
+      canvasPanelScheduleState.loading = true;
+      showDialog(runningDlg);
+      renderCanvasPanelScheduleDialog();
+    }
+    return;
+  }
+
+  const imageNodes = getSelectedCanvasImageNodes();
+  if (!imageNodes.length) {
+    toast("Select at least one image on the canvas.");
+    return;
+  }
+  if (circuitBreakerState.activeJobId) {
+    toast("Panel Schedule AI is already running.");
+    return;
+  }
+  if (!window.pywebview?.api?.run_canvas_panel_classification_background) {
+    toast("Panel Schedule AI is unavailable in this environment.");
+    return;
+  }
+
+  initCanvasPanelScheduleDialog();
+  resetCanvasPanelScheduleState();
+  canvasPanelScheduleState.ownerKey = pageEditorOwnerKey || "page";
+  canvasPanelScheduleState.notes = getSelectedCanvasTextNodes()
+    .map((node) => String(node.text || "").trim())
+    .filter(Boolean);
+
+  const activityId = beginActivity({
+    activityId: createActivityId("canvasPanelSchedule"),
+    label: "Panel Schedule AI",
+    message: `Reading ${imageNodes.length} canvas image${imageNodes.length === 1 ? "" : "s"}...`,
+    progress: 15,
+  });
+
+  try {
+    const res = await window.pywebview.api.run_canvas_panel_classification_background(
+      canvasPanelScheduleState.ownerKey,
+      imageNodes.map((node) => ({ nodeId: node.id, assetPath: node.assetPath })),
+      canvasPanelScheduleState.notes
+    );
+    if (res?.status === "error" || !String(res?.jobId || "").trim()) {
+      failActivity(activityId, {
+        message: res?.message || "Could not start the panel schedule analysis.",
+      });
+      return;
+    }
+    canvasPanelScheduleState.job = {
+      jobId: String(res.jobId).trim(),
+      activityId,
+      pageKey: getCanvasPanelSchedulePageKey(),
+    };
+    canvasPanelScheduleState.loading = true;
+    updateActivity(activityId, {
+      message: "Sorting breaker photos from circuit directories...",
+      progress: 40,
+    });
+    scheduleCanvasPanelClassificationPoll(canvasPanelScheduleState.job.jobId);
+    toast("Analyzing the selection. You'll get the findings in the activity tray.");
+  } catch (e) {
+    failActivity(activityId, {
+      message: e?.message || "Could not start the panel schedule analysis.",
+    });
+  }
+}
+
+function handleCanvasPanelClassificationRecord(record) {
+  const jobId = String(record?.jobId || "").trim();
+  const job = canvasPanelScheduleState.job;
+  if (!jobId || !job || job.jobId !== jobId) return;
+
+  const status = String(record?.status || "").trim().toLowerCase();
+  if (status !== "success" && status !== "error") return;
+
+  clearCanvasPanelClassificationPoll();
+  canvasPanelScheduleState.job = null;
+  canvasPanelScheduleState.loading = false;
+
+  const result = record?.result || {};
+  if (status === "error" || result.status !== "success") {
+    const message =
+      result.message || record?.message || "The AI could not read this selection.";
+    failActivity(job.activityId, { message });
+    canvasPanelScheduleState.error = message;
+    const dlg = document.getElementById("canvasPanelScheduleDlg");
+    if (dlg?.open) renderCanvasPanelScheduleDialog();
+    return;
+  }
+
+  canvasPanelScheduleState.pendingResult = result;
+
+  const dlg = document.getElementById("canvasPanelScheduleDlg");
+  const otherDialogOpen = !!document.querySelector("dialog[open]") && !dlg?.open;
+  // Only steal focus if the user is still on the canvas they started from and is not
+  // busy in another dialog; otherwise the findings wait behind a tray button.
+  const showNow =
+    !!dlg?.open || (!otherDialogOpen && getCanvasPanelSchedulePageKey() === job.pageKey);
+
+  completeActivity(job.activityId, {
+    message: showNow
+      ? `Findings ready: ${result.panelName || "panel"}.`
+      : `Findings ready: ${result.panelName || "panel"}. Review when you're ready.`,
+    canvasPanelReview: !showNow,
+  });
+
+  if (showNow) showCanvasPanelScheduleFindings(result);
+}
+
+window.handleCanvasPanelClassificationResult = function (record) {
+  handleCanvasPanelClassificationRecord(record);
+};
+
+function showCanvasPanelScheduleFindings(result) {
+  initCanvasPanelScheduleDialog();
+  const dlg = document.getElementById("canvasPanelScheduleDlg");
+  if (!dlg) return;
+
+  canvasPanelScheduleState.pendingResult = null;
+  canvasPanelScheduleState.loading = false;
+  canvasPanelScheduleState.error = "";
+  canvasPanelScheduleState.panelName = String(result.panelName || "");
+  canvasPanelScheduleState.inputMode =
+    result.inputMode === "existing_directory" ? "existing_directory" : "field_photos";
+  canvasPanelScheduleState.blocking = String(result.blocking || "");
+  canvasPanelScheduleState.blockingMessage = String(result.blockingMessage || "");
+  canvasPanelScheduleState.summary = String(result.summary || "");
+  canvasPanelScheduleState.modeTouched = false;
+  canvasPanelScheduleState.images = Array.isArray(result.images) ? result.images : [];
+
+  if (!dlg.open) showDialog(dlg);
+  renderCanvasPanelScheduleDialog();
+  hydrateCanvasPanelScheduleThumbnails();
+  void refreshCanvasPanelScheduleOutputPath();
+}
+
+function hydrateCanvasPanelScheduleThumbnails() {
+  if (!window.pywebview?.api?.get_page_asset) return;
+  const list = document.getElementById("cpsImageList");
+  if (!list) return;
+  canvasPanelScheduleState.images.forEach((image) => {
+    const imgEl = list.querySelector(
+      `.cps-image-row[data-cps-node-id="${CSS.escape(String(image.nodeId))}"] .cps-image-thumb`
+    );
+    if (!imgEl) return;
+    window.pywebview.api
+      .get_page_asset(image.assetPath, 240)
+      .then((res) => {
+        if (res?.dataUrl) imgEl.src = res.dataUrl;
+      })
+      .catch(() => {});
+  });
+}
+
+function getCanvasPanelScheduleValidation() {
+  const state = canvasPanelScheduleState;
+  if (state.loading) return { ok: false, message: "" };
+  if (state.error) return { ok: false, message: state.error };
+  if (state.submitting) return { ok: false, message: "" };
+
+  const usable = state.images.filter((image) => image.status === "ok");
+  const breakers = usable.filter((image) => image.role === "breaker").length;
+  const directories = usable.filter((image) => isCanvasPanelDirectoryRole(image.role)).length;
+
+  if (state.inputMode === "existing_directory" && directories === 0) {
+    return {
+      ok: false,
+      message:
+        "Transcribe mode needs at least one As-built schedule or Field directory card image.",
+    };
+  }
+  if (state.inputMode === "field_photos" && (breakers === 0 || directories === 0)) {
+    return {
+      ok: false,
+      message:
+        "Field photo mode needs at least one Breaker photo and at least one As-built schedule or Field directory card.",
+    };
+  }
+  if (!state.panelName.trim()) {
+    return { ok: false, message: "Enter a panel name." };
+  }
+  if (!state.outputPath) {
+    return { ok: false, message: "Preparing the output file..." };
+  }
+  return { ok: true, message: "" };
+}
+
+function renderCanvasPanelScheduleRow(image) {
+  const row = el("div", {
+    className: `cps-image-row${image.status === "ok" ? "" : " is-unavailable"}`,
+    "data-cps-node-id": image.nodeId,
+  });
+  const thumb = el("img", { className: "cps-image-thumb", alt: "" });
+  const meta = el("div", { className: "cps-image-meta" });
+
+  const select = el("select", {
+    className: "cps-image-role",
+    "data-cps-node-id": image.nodeId,
+  });
+  Object.entries(CANVAS_PANEL_ROLE_LABELS).forEach(([value, label]) => {
+    select.appendChild(el("option", { value, textContent: label }));
+  });
+  select.value = image.role || "ignore";
+  select.disabled = image.status !== "ok";
+
+  const detail = el("span", {
+    className: "tiny muted cps-image-reason",
+    textContent:
+      image.status === "ok"
+        ? image.reason || ""
+        : image.message || "This image can't be used.",
+  });
+
+  meta.append(select);
+  if (image.status === "ok" && image.confidence) {
+    meta.appendChild(
+      el("span", {
+        className: "cps-chip",
+        "data-confidence": image.confidence,
+        textContent: image.confidence,
+      })
+    );
+  }
+  meta.appendChild(detail);
+  row.append(thumb, meta);
+  return row;
+}
+
+function renderCanvasPanelScheduleDialog({ skipNameInput = false } = {}) {
+  const state = canvasPanelScheduleState;
+  const loadingEl = document.getElementById("cpsLoading");
+  const errorEl = document.getElementById("cpsError");
+  const contentEl = document.getElementById("cpsContent");
+  if (!loadingEl || !errorEl || !contentEl) return;
+
+  loadingEl.hidden = !state.loading;
+  errorEl.hidden = !state.error;
+  errorEl.textContent = state.error;
+  contentEl.hidden = state.loading || !!state.error;
+
+  if (contentEl.hidden) {
+    const confirmBtnEarly = document.getElementById("cpsConfirmBtn");
+    if (confirmBtnEarly) confirmBtnEarly.disabled = true;
+    return;
+  }
+
+  const nameInput = document.getElementById("cpsPanelName");
+  if (nameInput && !skipNameInput) nameInput.value = state.panelName;
+
+  const fieldRadio = document.getElementById("cpsInputModeField");
+  const existingRadio = document.getElementById("cpsInputModeExisting");
+  if (fieldRadio) fieldRadio.checked = state.inputMode === "field_photos";
+  if (existingRadio) existingRadio.checked = state.inputMode === "existing_directory";
+
+  const list = document.getElementById("cpsImageList");
+  if (list) {
+    list.innerHTML = "";
+    state.images.forEach((image) => list.appendChild(renderCanvasPanelScheduleRow(image)));
+  }
+
+  const notesSection = document.getElementById("cpsNotesSection");
+  const summaryEl = document.getElementById("cpsSummary");
+  const noteList = document.getElementById("cpsNoteList");
+  if (notesSection && summaryEl && noteList) {
+    const hasNotes = !!state.summary || state.notes.length > 0;
+    notesSection.hidden = !hasNotes;
+    summaryEl.textContent = state.summary;
+    noteList.innerHTML = "";
+    state.notes.forEach((note) =>
+      noteList.appendChild(el("li", { className: "tiny muted", textContent: note }))
+    );
+  }
+
+  const outputEl = document.getElementById("cpsOutputPath");
+  if (outputEl) {
+    outputEl.textContent = state.outputPath || "Preparing...";
+    outputEl.dataset.empty = state.outputPath ? "false" : "true";
+  }
+
+  const validation = getCanvasPanelScheduleValidation();
+  const warningEl = document.getElementById("cpsWarning");
+  if (warningEl) {
+    const message = validation.ok ? "" : validation.message || state.blockingMessage;
+    warningEl.hidden = !message;
+    warningEl.textContent = message;
+  }
+
+  const confirmBtn = document.getElementById("cpsConfirmBtn");
+  if (confirmBtn) {
+    confirmBtn.disabled = !validation.ok;
+    confirmBtn.textContent = state.submitting
+      ? "Starting..."
+      : "Create panel schedule";
+  }
+}
+
+function scheduleCanvasPanelScheduleOutputRefresh() {
+  if (canvasPanelScheduleState.outputTimer) {
+    clearTimeout(canvasPanelScheduleState.outputTimer);
+  }
+  canvasPanelScheduleState.outputTimer = setTimeout(() => {
+    canvasPanelScheduleState.outputTimer = 0;
+    void refreshCanvasPanelScheduleOutputPath();
+  }, 300);
+}
+
+async function refreshCanvasPanelScheduleOutputPath() {
+  if (!window.pywebview?.api?.resolve_canvas_panel_schedule_output) return;
+  try {
+    const res = await window.pywebview.api.resolve_canvas_panel_schedule_output(
+      canvasPanelScheduleState.panelName,
+      canvasPanelScheduleState.folderToken
+    );
+    if (res?.status !== "success") return;
+    canvasPanelScheduleState.folderToken = String(res.folderToken || "");
+    canvasPanelScheduleState.outputFolder = String(res.outputFolder || "");
+    canvasPanelScheduleState.outputPath = String(res.outputPath || "");
+    renderCanvasPanelScheduleDialog({ skipNameInput: true });
+  } catch (e) {
+    /* the confirm button stays disabled until a path resolves */
+  }
+}
+
+async function confirmCanvasPanelSchedule() {
+  const state = canvasPanelScheduleState;
+  const validation = getCanvasPanelScheduleValidation();
+  if (!validation.ok) {
+    if (validation.message) toast(validation.message);
+    return;
+  }
+  if (circuitBreakerState.activeJobId) {
+    toast("Panel Schedule AI is already running.");
+    return;
+  }
+  if (!window.pywebview?.api?.run_panel_schedule_background) {
+    toast("Panel Schedule AI is unavailable in this environment.");
+    return;
+  }
+
+  const usable = state.images.filter((image) => image.status === "ok" && image.absPath);
+  const directoryPaths = usable
+    .filter((image) => isCanvasPanelDirectoryRole(image.role))
+    .map((image) => image.absPath);
+  // The analyzer forwards breaker + directory images to Gemini regardless of mode,
+  // but the existing-directory prompt only describes directory images.
+  const breakerPaths =
+    state.inputMode === "existing_directory"
+      ? []
+      : usable.filter((image) => image.role === "breaker").map((image) => image.absPath);
+
+  const panelName = state.panelName.trim() || "PANEL";
+  const outputFolderPath = state.outputFolder;
+  const payload = {
+    outputMode: "new",
+    outputPath: state.outputPath,
+    outputExtension: "xlsx",
+    panels: [
+      {
+        panelId: "canvas_panel_1",
+        panelName,
+        inputMode: state.inputMode,
+        breakerPaths,
+        directoryPaths,
+        breakerUploads: [],
+        directoryUploads: [],
+      },
+    ],
+    inputMode: state.inputMode,
+    breakerPaths,
+    directoryPaths,
+    panelName,
+  };
+
+  const activityId = beginActivity({
+    activityId: createActivityId("toolCircuitBreaker"),
+    toolId: "toolCircuitBreaker",
+    label: "Panel Schedule AI",
+    message: `Preparing panel schedule for ${panelName}...`,
+    progress: 10,
+    rerunDefaultPath: outputFolderPath,
+  });
+  payload.activityId = activityId;
+
+  state.submitting = true;
+  renderCanvasPanelScheduleDialog({ skipNameInput: true });
+
+  const started = await submitPanelScheduleJob({
+    payload,
+    activityId,
+    expectedPanelCount: 1,
+    outputFolderPath,
+    revealOnComplete: true,
+  });
+
+  state.submitting = false;
+  if (started) {
+    closeCanvasPanelScheduleDialog();
+  } else {
+    renderCanvasPanelScheduleDialog({ skipNameInput: true });
+  }
+}
 
 const debouncedSaveLightingSchedule = debounce(
   () => persistActiveLightingSchedule({ reason: "edit" }),
@@ -33702,7 +34509,7 @@ function getTimespanDateRange(timespan) {
       {
         let earliest = now;
         getAllDeliverables().forEach(({ deliverable }) => {
-          const d = parseDueStr(deliverable?.due);
+          const d = parseDueStr(getEffectiveDueStr(deliverable));
           if (d && d < earliest) earliest = d;
         });
         return { start: earliest, end: now };
@@ -33720,7 +34527,7 @@ function renderStats() {
 
   // Filter deliverables within the timespan
   const filteredDeliverables = allDeliverables.filter((d) => {
-    const dueDate = parseDueStr(d.due);
+    const dueDate = parseDueStr(getEffectiveDueStr(d));
     return dueDate && dueDate >= start && dueDate <= end;
   });
 
@@ -33732,7 +34539,7 @@ function renderStats() {
   const allCompletedDeliverables = allDeliverables
     .filter((d) => isFinished(d))
     .map((d) => ({
-      date: parseDueStr(d.due),
+      date: parseDueStr(getEffectiveDueStr(d)),
       ...d,
     }))
     .filter((d) => d.date);
@@ -33788,7 +34595,7 @@ function renderStats() {
 
   // Use global DB for forecast stats, not filtered
   allDeliverables.forEach((d) => {
-    const due = parseDueStr(d.due);
+    const due = parseDueStr(getEffectiveDueStr(d));
     if (due) {
       if (due >= weekStart && due <= weekEnd) dueThisWeek++;
       else if (
@@ -33808,7 +34615,7 @@ function renderStats() {
 
   allDeliverables.forEach((d) => {
     if (isFinished(d)) {
-      const due = parseDueStr(d.due);
+      const due = parseDueStr(getEffectiveDueStr(d));
       if (due) {
         if (due.getFullYear() === currentYear) completedThisYear++;
         if (due.getFullYear() === lastYear) completedLastYear++;
@@ -33843,7 +34650,7 @@ function renderStatsChart(projects, start, end, aggregation) {
   // Get completed projects with dates
   const completedProjects = projects
     .filter((p) => isFinished(p))
-    .map((p) => ({ date: parseDueStr(p.due), ...p }))
+    .map((p) => ({ date: parseDueStr(getEffectiveDueStr(p)), ...p }))
     .filter((p) => p.date);
 
   // Helper function to get period key for a date
@@ -34129,10 +34936,6 @@ function initTabbedInterfaces() {
       renderTimesheets();
     } else if (tab === "templates") {
       renderTemplates();
-    } else if (tab === "email") {
-      renderEmailInboxView();
-      renderFollowUpsView();
-      refreshEmailCaptureData();
     }
     updateProjectsBackToTopVisibility();
   });
@@ -35102,9 +35905,11 @@ function initEventListeners() {
   if (checklistsHelpBtn) checklistsHelpBtn.onclick = () => openHelp("checklists");
 
   const notesEmptyCreate = document.getElementById("notesEmptyStateCreateBtn");
-  if (notesEmptyCreate) notesEmptyCreate.onclick = promptCreateGlobalPage;
+  if (notesEmptyCreate) notesEmptyCreate.onclick = () => promptCreateGlobalPage();
   const globalPagesNewBtn = document.getElementById("globalPagesNewBtn");
-  if (globalPagesNewBtn) globalPagesNewBtn.onclick = promptCreateGlobalPage;
+  if (globalPagesNewBtn) {
+    globalPagesNewBtn.onclick = () => openGlobalPageCreateMenu(globalPagesNewBtn);
+  }
   const checklistsEmptyCreate = document.getElementById(
     "checklistsEmptyStateCreateBtn"
   );
@@ -35144,6 +35949,18 @@ function initEventListeners() {
     deliverableNotepadExportBtn.onclick = () =>
       exportSelectedDeliverablesToExcel();
   }
+  const deliverableNotepadSummaryBtn = document.getElementById(
+    "deliverableNotepadSummaryBtn"
+  );
+  if (deliverableNotepadSummaryBtn) {
+    deliverableNotepadSummaryBtn.onclick = () =>
+      generateDeliverableStatusBriefing();
+  }
+  document.querySelectorAll("[data-notepad-scope]").forEach((chip) => {
+    chip.addEventListener("click", () =>
+      setDeliverableNotepadScope(chip.dataset.notepadScope)
+    );
+  });
   const copyProjectLocallyFolderList = document.getElementById(
     "copyProjectLocallyFolderList"
   );
@@ -35493,6 +36310,10 @@ function initEventListeners() {
     }
   });
   document.getElementById("statsBtn").onclick = () => showStatsModal();
+  const exportDeliverablesBtn = document.getElementById("exportDeliverablesBtn");
+  if (exportDeliverablesBtn) {
+    exportDeliverablesBtn.onclick = () => openDeliverablesExcelDialog();
+  }
   const scratchpadBtn = document.getElementById("scratchpadBtn");
   if (scratchpadBtn) scratchpadBtn.onclick = () => toggleScratchpad();
   document.getElementById("settings_howToSetupBtn").onclick = () =>
@@ -36772,6 +37593,13 @@ function initEventListeners() {
       "stripPdfLayers",
       ["settings_publish_stripPdfLayers", "publish_modal_stripPdfLayers"],
     ],
+    [
+      "refreshExcelOleLinks",
+      [
+        "settings_publish_refreshExcelOleLinks",
+        "publish_modal_refreshExcelOleLinks",
+      ],
+    ],
   ].forEach(([settingKey, checkboxIds]) => {
     checkboxIds
       .map((id) => document.getElementById(id))
@@ -37054,7 +37882,6 @@ async function init() {
       await new Promise((r) => window.addEventListener("pywebviewready", r));
     initEventListeners();
     initTabbedInterfaces();
-    initEmailCaptureUi();
     initProjectsBackToTop();
     updateStickyOffsets();
     refreshAppUpdateStatus();
@@ -37119,8 +37946,6 @@ async function init() {
       updateTimesheetsDuplicateIndicator(
         getWeekEntries(formatWeekKey(currentTimesheetWeek))
       );
-      updateEmailTabBadge();
-      startEmailCaptureAutoScan();
 
       if (userSettings.showSetupHelp !== false) {
         setTimeout(() => showSetupHelpBanner(), 1000);
@@ -37136,6 +37961,9 @@ async function init() {
 let pageViewInitialized = false;
 let pageNav = { project: null, subpage: null, globalPage: null };
 let pageEditorTarget = null; // reference to the {html, updatedAt} object being edited
+// One-shot: set by the deliverable card's important-line button so the next page
+// render scrolls to the first flagged line instead of focusing the document end.
+let pendingImportantPageScroll = false;
 let pageEditorOwnerKey = "";
 let pageSaveTimer = null;
 let pageMiscSaveTimer = null;
@@ -37146,6 +37974,7 @@ let pageFindState = {
   query: "",
   matchCount: 0,
   activeIndex: -1,
+  matches: [],
 };
 let pageSlashState = {
   open: false,
@@ -37346,9 +38175,43 @@ function setPageSaveStatus(text) {
 }
 
 const PAGE_FIND_MATCH_SELECTOR = 'mark.page-find-match[data-page-find-match="true"]';
+const PAGE_FIND_HIGHLIGHT_NAME = "page-find-match";
+const PAGE_FIND_ACTIVE_HIGHLIGHT_NAME = "page-find-active";
+const PAGE_FIND_TEXT_BLOCK_SELECTOR = [
+  "p",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "li",
+  "pre",
+  "blockquote",
+  "td",
+  "th",
+  "summary",
+  "figcaption",
+  ".page-workbook",
+].join(",");
 
 function getPageFindRoots() {
   return [document.getElementById("pageTitle"), getPageEditorEl()].filter(Boolean);
+}
+
+function pageFindCssHighlightsAvailable() {
+  return (
+    typeof Highlight === "function" &&
+    !!globalThis.CSS?.highlights &&
+    typeof globalThis.CSS.highlights.set === "function" &&
+    typeof globalThis.CSS.highlights.delete === "function"
+  );
+}
+
+function clearPageFindCssHighlights() {
+  if (!pageFindCssHighlightsAvailable()) return;
+  globalThis.CSS.highlights.delete(PAGE_FIND_HIGHLIGHT_NAME);
+  globalThis.CSS.highlights.delete(PAGE_FIND_ACTIVE_HIGHLIGHT_NAME);
 }
 
 function unwrapPageFindHighlights(root) {
@@ -37363,15 +38226,29 @@ function unwrapPageFindHighlights(root) {
 }
 
 function clearPageFindHighlights({ updateUi = true } = {}) {
+  clearPageFindCssHighlights();
   getPageFindRoots().forEach(unwrapPageFindHighlights);
+  pageFindState.matches = [];
   pageFindState.matchCount = 0;
   pageFindState.activeIndex = -1;
   if (updateUi) updatePageFindUi();
 }
 
+function getPageFindTextBlock(node, root) {
+  let element = node?.parentElement || null;
+  let topLevelElement = element;
+  while (element && element !== root) {
+    topLevelElement = element;
+    if (element.matches?.(PAGE_FIND_TEXT_BLOCK_SELECTOR)) return element;
+    element = element.parentElement;
+  }
+  return topLevelElement || root;
+}
+
 function collectPageFindTextParts(root) {
   const parts = [];
   let text = "";
+  let previousBlock = null;
   if (!root) return { text, parts };
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
@@ -37386,8 +38263,13 @@ function collectPageFindTextParts(root) {
   let node = walker.nextNode();
   while (node) {
     const value = String(node.nodeValue || "");
+    const block = getPageFindTextBlock(node, root);
+    // A separator prevents a query from becoming a false match across unrelated
+    // paragraphs, table cells, list items, or other block-level content.
+    if (text && previousBlock && block !== previousBlock) text += "\n";
     parts.push({ node, start: text.length, end: text.length + value.length });
     text += value;
+    previousBlock = block;
     node = walker.nextNode();
   }
   return { text, parts };
@@ -37410,49 +38292,104 @@ function getPageFindRanges(text, query, startIndex = 0) {
   return ranges;
 }
 
-function wrapPageFindTextRange(node, start, end, matchIndex) {
-  if (!node || start >= end || !node.parentNode) return null;
-  let target = node;
-  if (end < target.nodeValue.length) target.splitText(end);
-  if (start > 0) target = target.splitText(start);
-  const mark = (target.ownerDocument || document).createElement("mark");
-  mark.className = "page-find-match";
-  mark.dataset.pageFindMatch = "true";
-  mark.dataset.pageFindIndex = String(matchIndex);
-  target.parentNode.insertBefore(mark, target);
-  mark.appendChild(target);
-  return mark;
+function createPageFindDomRange(parts, match) {
+  const startPart = parts.find(
+    (part) => match.start >= part.start && match.start < part.end
+  );
+  const endPart = parts.find(
+    (part) => match.end > part.start && match.end <= part.end
+  );
+  if (!startPart || !endPart) return null;
+  const doc = startPart.node.ownerDocument || document;
+  const range = doc.createRange();
+  try {
+    range.setStart(startPart.node, match.start - startPart.start);
+    range.setEnd(endPart.node, match.end - endPart.start);
+    return range;
+  } catch (_) {
+    range.detach?.();
+    return null;
+  }
 }
 
 function highlightPageFindMatchesInRoot(root, query, startIndex = 0) {
   const { text, parts } = collectPageFindTextParts(root);
   const ranges = getPageFindRanges(text, query, startIndex);
-  ranges
-    .slice()
-    .reverse()
-    .forEach((range) => {
-      parts
-        .filter((part) => part.end > range.start && part.start < range.end)
-        .reverse()
-        .forEach((part) => {
-          wrapPageFindTextRange(
-            part.node,
-            Math.max(range.start, part.start) - part.start,
-            Math.min(range.end, part.end) - part.start,
-            range.index
-          );
-        });
-    });
-  return startIndex + ranges.length;
+  const matches = ranges
+    .map((match) => ({
+      index: match.index,
+      range: createPageFindDomRange(parts, match),
+    }))
+    .filter((match) => !!match.range);
+  return {
+    matches,
+    nextIndex: startIndex + matches.length,
+  };
 }
 
-function getPageFindMatchElements(index = pageFindState.activeIndex) {
-  if (index < 0) return [];
-  return Array.from(
-    document.querySelectorAll(
-      `${PAGE_FIND_MATCH_SELECTOR}[data-page-find-index="${index}"]`
-    )
+function renderPageFindHighlights() {
+  if (!pageFindCssHighlightsAvailable()) return;
+  const ranges = pageFindState.matches.map((match) => match.range);
+  if (ranges.length) {
+    globalThis.CSS.highlights.set(
+      PAGE_FIND_HIGHLIGHT_NAME,
+      new Highlight(...ranges)
+    );
+  } else {
+    globalThis.CSS.highlights.delete(PAGE_FIND_HIGHLIGHT_NAME);
+  }
+}
+
+function getPageFindMatch(index = pageFindState.activeIndex) {
+  if (index < 0) return null;
+  return pageFindState.matches[index] || null;
+}
+
+function renderPageFindActiveHighlight(match) {
+  if (!pageFindCssHighlightsAvailable()) return;
+  globalThis.CSS.highlights.delete(PAGE_FIND_ACTIVE_HIGHLIGHT_NAME);
+  if (!match?.range) return;
+  const activeHighlight = new Highlight(match.range);
+  activeHighlight.priority = 1;
+  globalThis.CSS.highlights.set(
+    PAGE_FIND_ACTIVE_HIGHLIGHT_NAME,
+    activeHighlight
   );
+}
+
+function scrollPageFindMatchIntoView(match) {
+  const range = match?.range;
+  if (!range) return;
+  const rects = Array.from(range.getClientRects?.() || []);
+  const rect =
+    rects.find((candidate) => candidate.width || candidate.height) ||
+    range.getBoundingClientRect?.();
+  const scrollContainer = document.querySelector("#pageView .page-view-scroll");
+  if (scrollContainer && rect && (rect.width || rect.height)) {
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const targetTop =
+      scrollContainer.scrollTop +
+      (rect.top - containerRect.top) -
+      (scrollContainer.clientHeight - rect.height) / 2;
+    const maxTop = Math.max(
+      0,
+      scrollContainer.scrollHeight - scrollContainer.clientHeight
+    );
+    scrollContainer.scrollTo({
+      top: Math.max(0, Math.min(maxTop, targetTop)),
+      behavior: "smooth",
+    });
+    return;
+  }
+  const startElement =
+    range.startContainer?.nodeType === Node.ELEMENT_NODE
+      ? range.startContainer
+      : range.startContainer?.parentElement;
+  startElement?.scrollIntoView?.({
+    behavior: "smooth",
+    block: "center",
+    inline: "nearest",
+  });
 }
 
 function updatePageFindUi() {
@@ -37477,21 +38414,17 @@ function updatePageFindUi() {
 }
 
 function setPageFindActiveMatch(index, { scroll = true } = {}) {
-  document
-    .querySelectorAll(PAGE_FIND_MATCH_SELECTOR)
-    .forEach((mark) => mark.classList.remove("is-active"));
   if (!pageFindState.matchCount) {
     pageFindState.activeIndex = -1;
+    renderPageFindActiveHighlight(null);
     updatePageFindUi();
     return;
   }
   const count = pageFindState.matchCount;
   pageFindState.activeIndex = (index + count) % count;
-  const active = getPageFindMatchElements(pageFindState.activeIndex);
-  active.forEach((mark) => mark.classList.add("is-active"));
-  if (scroll && active[0]) {
-    active[0].scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-  }
+  const active = getPageFindMatch(pageFindState.activeIndex);
+  renderPageFindActiveHighlight(active);
+  if (scroll) scrollPageFindMatchIntoView(active);
   updatePageFindUi();
 }
 
@@ -37504,10 +38437,15 @@ function applyPageFindHighlights({ preserveIndex = true, scroll = false } = {}) 
     return;
   }
   let nextIndex = 0;
+  const matches = [];
   getPageFindRoots().forEach((root) => {
-    nextIndex = highlightPageFindMatchesInRoot(root, query, nextIndex);
+    const result = highlightPageFindMatchesInRoot(root, query, nextIndex);
+    matches.push(...result.matches);
+    nextIndex = result.nextIndex;
   });
-  pageFindState.matchCount = nextIndex;
+  pageFindState.matches = matches;
+  pageFindState.matchCount = matches.length;
+  renderPageFindHighlights();
   const activeIndex =
     preserveIndex && previousIndex >= 0
       ? Math.min(previousIndex, pageFindState.matchCount - 1)
@@ -37743,7 +38681,12 @@ async function flushPageSave() {
   }
   const editor = getPageEditorEl();
   const reactEditorActive = !!getProjectPagesEditorRoot()?.querySelector("#pageEditor");
-  if (!reactEditorActive && editor && pageEditorTarget) {
+  if (
+    !reactEditorActive &&
+    editor &&
+    pageEditorTarget &&
+    !isCanvasPage(pageEditorTarget)
+  ) {
     pageEditorTarget.html = serializePageHtml(editor);
     pageEditorTarget.updatedAt = new Date().toISOString();
   }
@@ -39062,6 +40005,24 @@ function showPageView() {
     (activeEditor || editor)?.focus?.();
   }, 0);
 }
+function setPageViewMode(mode) {
+  const canvas = mode === "canvas";
+  const canvasRoot = document.getElementById("pageCanvasRoot");
+  const scroll = document.querySelector("#pageView .page-view-scroll");
+  const find = document.getElementById("pageFind");
+  const publishBtn = document.getElementById("pagePublishPdfBtn");
+  if (canvasRoot) canvasRoot.hidden = !canvas;
+  if (scroll) scroll.hidden = canvas;
+  if (find) find.hidden = canvas;
+  if (publishBtn) publishBtn.hidden = canvas;
+  if (canvas && window.ProjectPagesEditor?.unmount) {
+    try {
+      window.ProjectPagesEditor.unmount();
+    } catch (e) {
+      console.warn("React page editor unmount failed:", e);
+    }
+  }
+}
 async function closePageView() {
   await flushPageSave();
   if (window.ProjectPagesEditor?.unmount) {
@@ -39071,6 +40032,8 @@ async function closePageView() {
       console.warn("React page editor unmount failed:", e);
     }
   }
+  resetPageCanvasState();
+  setPageViewMode("doc");
   if (pageFindRefreshTimer) {
     clearTimeout(pageFindRefreshTimer);
     pageFindRefreshTimer = null;
@@ -39082,6 +40045,7 @@ async function closePageView() {
   delete document.body.dataset.pageOpen;
   pageNav = { project: null, subpage: null, globalPage: null };
   pageEditorTarget = null;
+  pendingImportantPageScroll = false;
   clearPageSelectedImage();
   try {
     render();
@@ -39147,7 +40111,7 @@ async function persistProjectPagesEditorNow() {
     else render();
   } catch (_) {}
 }
-function createProjectSubpageFromEditor() {
+function createProjectSubpageFromEditor(kind = "") {
   const { project, subpage } = pageNav;
   if (!project) return;
   flushPageSave().then(() => {
@@ -39155,6 +40119,7 @@ function createProjectSubpageFromEditor() {
     const child = createProjectSubpage({
       title: "Untitled",
       parentId: subpage?.id || null,
+      kind: kind === "canvas" ? "canvas" : "",
       order: subpages.length,
     });
     subpages.push(child);
@@ -39213,6 +40178,10 @@ function setProjectPagesEditorDocument(context) {
         allow_multiple: false,
         file_types: ["Excel Files (*.xlsx;*.xlsm;*.xls;*.xlsb;*.csv)"],
       }),
+    onAttachEmailDrop: (event) => resolvePageEmailDropRef(event, buildPageEmailDropContext()),
+    onPickEmail: () => requestPageEmailRef(buildPageEmailDropContext()),
+    onOpenEmail: (attrs) => openPageEmailRef(attrs),
+    onDeleteEmail: (attrs) => deletePageEmailRef(attrs),
     onGetPageFileInfo: (fileRef) => window.pywebview.api.get_page_file_info(fileRef),
     onOpenPageFile: (fileRef) => window.pywebview.api.open_page_file(fileRef),
     onDeletePageFile: (fileRef) => window.pywebview.api.delete_page_file(fileRef),
@@ -39233,6 +40202,13 @@ function renderPageView() {
     pageEditorTarget = globalPage.page;
     pageEditorOwnerKey = `page_global_${globalPage.id || "x"}`;
     renderPageBreadcrumb(null, null);
+    if (isCanvasPage(pageEditorTarget)) {
+      setPageViewMode("canvas");
+      renderPageCanvasView();
+      setPageSaveStatus("");
+      return;
+    }
+    setPageViewMode("doc");
     if (
       setProjectPagesEditorDocument({
         documentKey: `global:${globalPage.id || "x"}`,
@@ -39266,7 +40242,11 @@ function renderPageView() {
   }
 
   if (!project) return;
-  project.subpages = normalizeProjectSubpages(project.subpages);
+  // Consume the one-shot here so no exit path below can leave it set for an
+  // unrelated page open.
+  const focusImportant = pendingImportantPageScroll;
+  pendingImportantPageScroll = false;
+  getProjectSubpages(project);
   const activeSubpage = subpage ? getProjectSubpageById(project, subpage.id) : null;
   pageNav.subpage = activeSubpage;
   const target = activeSubpage || project;
@@ -39280,6 +40260,14 @@ function renderPageView() {
 
   renderPageBreadcrumb(project, activeSubpage);
 
+  if (isCanvasPage(pageEditorTarget)) {
+    setPageViewMode("canvas");
+    renderPageCanvasView();
+    setPageSaveStatus("");
+    return;
+  }
+  setPageViewMode("doc");
+
   if (
     setProjectPagesEditorDocument({
       documentKey: activeSubpage
@@ -39291,6 +40279,7 @@ function renderPageView() {
       html: normalizeHtmlForProjectPagesEditor(target.page.html || ""),
       title: (activeSubpage ? activeSubpage.title : project.name) || "",
       childPages: getProjectPagesEditorChildren(project, activeSubpage),
+      focusImportant,
     })
   ) {
     setPageSaveStatus("");
@@ -39589,6 +40578,1277 @@ function ensurePageViewReady() {
       pageGoBack();
     }
   });
+}
+
+// ===================== Canvas pages (mind-map canvas) =====================
+const PAGE_CANVAS_MIN_SCALE = 0.2;
+const PAGE_CANVAS_MAX_SCALE = 2.5;
+const PAGE_CANVAS_DRAG_THRESHOLD_PX = 3;
+let pageCanvasInitialized = false;
+let pageCanvasState = {
+  selection: { nodes: [], edges: [] }, // id arrays, selection order preserved
+  editingNodeId: null,
+  pointer: null, // active gesture: { mode: "pan" | "marquee" | "node" | "resize" | "edge", ... }
+  spaceDown: false,
+};
+let canvasContextMenu = null;
+let canvasContextMenuHandlersReady = false;
+
+function getPageCanvasData() {
+  return isCanvasPage(pageEditorTarget) ? pageEditorTarget.canvas : null;
+}
+function getPageCanvasViewportEl() {
+  return document.getElementById("pageCanvasViewport");
+}
+function getPageCanvasNodesEl() {
+  return document.getElementById("pageCanvasNodes");
+}
+function getPageCanvasNodeEl(nodeId) {
+  return getPageCanvasNodesEl()?.querySelector(
+    `.page-canvas-node[data-node-id="${CSS.escape(String(nodeId))}"]`
+  );
+}
+function getPageCanvasEdgeGroupEl(edgeId) {
+  return document
+    .getElementById("pageCanvasEdgePaths")
+    ?.querySelector(`.page-canvas-edge-group[data-edge-id="${CSS.escape(String(edgeId))}"]`);
+}
+function getPageCanvasMarqueeEl() {
+  return document.getElementById("pageCanvasMarquee");
+}
+
+function resetPageCanvasState() {
+  pageCanvasState = {
+    selection: { nodes: [], edges: [] },
+    editingNodeId: null,
+    pointer: null,
+    spaceDown: false,
+  };
+  const draft = document.getElementById("pageCanvasEdgeDraft");
+  if (draft) draft.hidden = true;
+  const marquee = getPageCanvasMarqueeEl();
+  if (marquee) marquee.hidden = true;
+  hideCanvasContextMenu();
+}
+
+function queuePageCanvasSave() {
+  if (!pageEditorTarget) return;
+  pageEditorTarget.updatedAt = new Date().toISOString();
+  setPageSaveStatus("Saving...");
+  if (pageSaveTimer) clearTimeout(pageSaveTimer);
+  pageSaveTimer = setTimeout(async () => {
+    pageSaveTimer = null;
+    const ok = await persistActivePage();
+    setPageSaveStatus(ok ? "Saved" : "Save failed");
+  }, 700);
+}
+
+function getCanvasWorldPoint(e) {
+  const viewport = getPageCanvasViewportEl();
+  const canvas = getPageCanvasData();
+  if (!viewport || !canvas) return { x: 0, y: 0 };
+  const rect = viewport.getBoundingClientRect();
+  const view = canvas.view;
+  return {
+    x: (e.clientX - rect.left - view.x) / view.scale,
+    y: (e.clientY - rect.top - view.y) / view.scale,
+  };
+}
+function getCanvasViewportCenterWorldPoint() {
+  const viewport = getPageCanvasViewportEl();
+  const canvas = getPageCanvasData();
+  if (!viewport || !canvas) return { x: 0, y: 0 };
+  const rect = viewport.getBoundingClientRect();
+  const view = canvas.view;
+  return {
+    x: (rect.width / 2 - view.x) / view.scale,
+    y: (rect.height / 2 - view.y) / view.scale,
+  };
+}
+
+function updateCanvasViewTransform() {
+  const canvas = getPageCanvasData();
+  const world = document.getElementById("pageCanvasWorld");
+  if (!canvas || !world) return;
+  const { x, y, scale } = canvas.view;
+  world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+  const label = document.getElementById("pageCanvasZoomLabel");
+  if (label) label.textContent = `${Math.round(scale * 100)}%`;
+}
+
+function updateCanvasEmptyHint() {
+  const canvas = getPageCanvasData();
+  const hint = document.getElementById("pageCanvasEmptyHint");
+  if (hint) hint.hidden = !canvas || canvas.nodes.length > 0;
+}
+
+function getCanvasNodeById(nodeId) {
+  const canvas = getPageCanvasData();
+  return canvas?.nodes.find((node) => node.id === nodeId) || null;
+}
+
+function getCanvasNodeRect(node) {
+  const el = getPageCanvasNodeEl(node.id);
+  return {
+    x: node.x,
+    y: node.y,
+    w: el?.offsetWidth || node.w || 200,
+    h: el?.offsetHeight || node.h || 60,
+  };
+}
+
+function computeCanvasEdgePathBetween(rectA, rectB) {
+  const ca = { x: rectA.x + rectA.w / 2, y: rectA.y + rectA.h / 2 };
+  const cb = { x: rectB.x + rectB.w / 2, y: rectB.y + rectB.h / 2 };
+  const dx = cb.x - ca.x;
+  const dy = cb.y - ca.y;
+  let p1;
+  let p2;
+  let c1;
+  let c2;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    const sign = dx >= 0 ? 1 : -1;
+    p1 = { x: sign > 0 ? rectA.x + rectA.w : rectA.x, y: ca.y };
+    p2 = { x: sign > 0 ? rectB.x : rectB.x + rectB.w, y: cb.y };
+    const bend = Math.max(40, Math.abs(p2.x - p1.x) / 2);
+    c1 = { x: p1.x + sign * bend, y: p1.y };
+    c2 = { x: p2.x - sign * bend, y: p2.y };
+  } else {
+    const sign = dy >= 0 ? 1 : -1;
+    p1 = { x: ca.x, y: sign > 0 ? rectA.y + rectA.h : rectA.y };
+    p2 = { x: cb.x, y: sign > 0 ? rectB.y : rectB.y + rectB.h };
+    const bend = Math.max(40, Math.abs(p2.y - p1.y) / 2);
+    c1 = { x: p1.x, y: p1.y + sign * bend };
+    c2 = { x: p2.x, y: p2.y - sign * bend };
+  }
+  return `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`;
+}
+
+function updateCanvasEdgePath(edge) {
+  const from = getCanvasNodeById(edge.from);
+  const to = getCanvasNodeById(edge.to);
+  const group = getPageCanvasEdgeGroupEl(edge.id);
+  if (!from || !to || !group) return;
+  const d = computeCanvasEdgePathBetween(getCanvasNodeRect(from), getCanvasNodeRect(to));
+  group.querySelectorAll("path").forEach((path) => path.setAttribute("d", d));
+}
+
+function updateCanvasEdgesForNode(nodeId) {
+  const canvas = getPageCanvasData();
+  if (!canvas) return;
+  canvas.edges.forEach((edge) => {
+    if (edge.from === nodeId || edge.to === nodeId) updateCanvasEdgePath(edge);
+  });
+}
+
+function renderCanvasEdges() {
+  const canvas = getPageCanvasData();
+  const container = document.getElementById("pageCanvasEdgePaths");
+  if (!canvas || !container) return;
+  container.innerHTML = "";
+  canvas.edges.forEach((edge) => {
+    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    group.classList.add("page-canvas-edge-group");
+    group.dataset.edgeId = edge.id;
+    if (isCanvasEdgeSelected(edge.id)) {
+      group.classList.add("is-selected");
+    }
+    const hit = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    hit.classList.add("page-canvas-edge-hit");
+    const visible = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    visible.classList.add("page-canvas-edge");
+    visible.setAttribute("marker-end", "url(#pageCanvasArrowHead)");
+    group.appendChild(hit);
+    group.appendChild(visible);
+    container.appendChild(group);
+    updateCanvasEdgePath(edge);
+  });
+}
+
+function hydrateCanvasImageNode(node, imgEl) {
+  if (!node.assetPath || !window.pywebview?.api?.get_page_asset) return;
+  window.pywebview.api
+    .get_page_asset(node.assetPath)
+    .then((res) => {
+      if (res?.dataUrl) imgEl.src = res.dataUrl;
+    })
+    .catch(() => {});
+}
+
+function isCanvasNodeAutoWidth(node) {
+  return node.type === "text" && node.autoW !== false;
+}
+
+function applyCanvasNodeWidth(node, el) {
+  if (!el) return;
+  if (isCanvasNodeAutoWidth(node)) {
+    el.classList.add("is-auto-width");
+    el.style.width = "";
+  } else {
+    el.classList.remove("is-auto-width");
+    el.style.width = `${node.w}px`;
+  }
+}
+
+function renderCanvasNode(node) {
+  const el = document.createElement("div");
+  el.className = "page-canvas-node";
+  el.dataset.nodeId = node.id;
+  el.style.left = `${node.x}px`;
+  el.style.top = `${node.y}px`;
+  applyCanvasNodeWidth(node, el);
+  if (node.type === "image") {
+    el.style.height = `${node.h}px`;
+    const img = document.createElement("img");
+    img.className = "page-canvas-node-img";
+    img.alt = "";
+    img.draggable = false;
+    hydrateCanvasImageNode(node, img);
+    el.appendChild(img);
+  } else {
+    const text = document.createElement("div");
+    text.className = "page-canvas-node-text";
+    text.spellcheck = true;
+    text.textContent = node.text || "";
+    el.appendChild(text);
+  }
+  const connector = document.createElement("div");
+  connector.className = "page-canvas-node-connector";
+  connector.title = "Drag to another item to connect";
+  el.appendChild(connector);
+  const handle = document.createElement("div");
+  handle.className = "page-canvas-node-handle";
+  handle.title = "Drag to resize";
+  el.appendChild(handle);
+  if (isCanvasNodeSelected(node.id)) {
+    el.classList.add("is-selected");
+  }
+  return el;
+}
+
+function renderCanvasNodes() {
+  const canvas = getPageCanvasData();
+  const container = getPageCanvasNodesEl();
+  if (!canvas || !container) return;
+  container.innerHTML = "";
+  canvas.nodes.forEach((node) => container.appendChild(renderCanvasNode(node)));
+  updateCanvasEmptyHint();
+}
+
+function getCanvasSelection() {
+  const selection = pageCanvasState.selection;
+  if (!selection || !Array.isArray(selection.nodes) || !Array.isArray(selection.edges)) {
+    pageCanvasState.selection = { nodes: [], edges: [] };
+  }
+  return pageCanvasState.selection;
+}
+function getSelectedCanvasNodeIds() {
+  return getCanvasSelection().nodes;
+}
+function getSelectedCanvasNodes() {
+  return getSelectedCanvasNodeIds()
+    .map((id) => getCanvasNodeById(id))
+    .filter(Boolean);
+}
+function getSelectedCanvasImageNodes() {
+  return getSelectedCanvasNodes().filter((node) => node.type === "image" && node.assetPath);
+}
+function getSelectedCanvasTextNodes() {
+  return getSelectedCanvasNodes().filter((node) => node.type === "text");
+}
+function isCanvasNodeSelected(nodeId) {
+  return getCanvasSelection().nodes.includes(nodeId);
+}
+function isCanvasEdgeSelected(edgeId) {
+  return getCanvasSelection().edges.includes(edgeId);
+}
+function hasCanvasSelection() {
+  const selection = getCanvasSelection();
+  return selection.nodes.length > 0 || selection.edges.length > 0;
+}
+
+function refreshCanvasSelectionClasses() {
+  const selection = getCanvasSelection();
+  getPageCanvasNodesEl()
+    ?.querySelectorAll(".page-canvas-node")
+    .forEach((el) => {
+      el.classList.toggle("is-selected", selection.nodes.includes(el.dataset.nodeId));
+    });
+  document
+    .getElementById("pageCanvasEdgePaths")
+    ?.querySelectorAll(".page-canvas-edge-group")
+    .forEach((el) => {
+      el.classList.toggle("is-selected", selection.edges.includes(el.dataset.edgeId));
+    });
+}
+
+function setCanvasSelection({ nodes = [], edges = [] } = {}) {
+  pageCanvasState.selection = {
+    nodes: Array.from(new Set(nodes.filter(Boolean))),
+    edges: Array.from(new Set(edges.filter(Boolean))),
+  };
+  refreshCanvasSelectionClasses();
+}
+function setCanvasNodeSelection(nodeIds) {
+  setCanvasSelection({ nodes: Array.isArray(nodeIds) ? nodeIds : [nodeIds] });
+}
+function clearCanvasSelection() {
+  setCanvasSelection({});
+}
+function toggleCanvasNodeSelection(nodeId) {
+  const selection = getCanvasSelection();
+  const nodes = selection.nodes.includes(nodeId)
+    ? selection.nodes.filter((id) => id !== nodeId)
+    : [...selection.nodes, nodeId];
+  setCanvasSelection({ nodes, edges: selection.edges });
+}
+function toggleCanvasEdgeSelection(edgeId) {
+  const selection = getCanvasSelection();
+  const edges = selection.edges.includes(edgeId)
+    ? selection.edges.filter((id) => id !== edgeId)
+    : [...selection.edges, edgeId];
+  setCanvasSelection({ nodes: selection.nodes, edges });
+}
+
+function commitCanvasNodeEdit() {
+  const nodeId = pageCanvasState.editingNodeId;
+  if (!nodeId) return;
+  pageCanvasState.editingNodeId = null;
+  const node = getCanvasNodeById(nodeId);
+  const el = getPageCanvasNodeEl(nodeId);
+  const textEl = el?.querySelector(".page-canvas-node-text");
+  if (el) el.classList.remove("is-editing");
+  if (textEl) {
+    textEl.contentEditable = "false";
+    if (node) {
+      const text = textEl.innerText.replace(/ /g, " ").replace(/\n+$/, "");
+      if (text !== node.text) {
+        node.text = text;
+        queuePageCanvasSave();
+      }
+      textEl.textContent = node.text;
+    }
+  }
+  // Keep node.w in sync with the auto-sized box so edge routing and Fit stay correct.
+  if (node && el && isCanvasNodeAutoWidth(node)) {
+    const measured = Math.round(el.offsetWidth);
+    if (measured > 0) node.w = measured;
+  }
+  if (node) updateCanvasEdgesForNode(node.id);
+}
+
+function setCanvasTextEditable(textEl, editable) {
+  if (!editable) {
+    textEl.contentEditable = "false";
+    return;
+  }
+  // plaintext-only makes Enter insert a real newline and keeps pasted text unformatted.
+  try {
+    textEl.contentEditable = "plaintext-only";
+  } catch (_) {}
+  if (textEl.contentEditable !== "plaintext-only") textEl.contentEditable = "true";
+}
+
+function enterCanvasNodeEdit(nodeId) {
+  const node = getCanvasNodeById(nodeId);
+  const el = getPageCanvasNodeEl(nodeId);
+  const textEl = el?.querySelector(".page-canvas-node-text");
+  if (!node || node.type !== "text" || !el || !textEl) return;
+  if (pageCanvasState.editingNodeId === nodeId) return; // already editing: leave the caret alone
+  if (pageCanvasState.editingNodeId) {
+    commitCanvasNodeEdit();
+  }
+  pageCanvasState.editingNodeId = nodeId;
+  setCanvasNodeSelection([nodeId]);
+  el.classList.add("is-editing");
+  setCanvasTextEditable(textEl, true);
+  textEl.focus();
+  const range = document.createRange();
+  range.selectNodeContents(textEl);
+  range.collapse(false);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+function createCanvasTextNode(worldPt, { edit = true } = {}) {
+  const canvas = getPageCanvasData();
+  if (!canvas) return null;
+  const node = {
+    id: createId("cnode"),
+    type: "text",
+    x: Math.round(worldPt.x),
+    y: Math.round(worldPt.y),
+    w: 200,
+    h: 0,
+    text: "",
+    autoW: true,
+  };
+  canvas.nodes.push(node);
+  getPageCanvasNodesEl()?.appendChild(renderCanvasNode(node));
+  updateCanvasEmptyHint();
+  setCanvasNodeSelection([node.id]);
+  queuePageCanvasSave();
+  if (edit) enterCanvasNodeEdit(node.id);
+  return node;
+}
+
+function deleteCanvasNode(nodeId) {
+  deleteCanvasItems([nodeId], []);
+}
+
+function deleteCanvasEdge(edgeId) {
+  deleteCanvasItems([], [edgeId]);
+}
+
+function deleteCanvasItems(nodeIds, edgeIds) {
+  const canvas = getPageCanvasData();
+  if (!canvas) return;
+  const doomedNodes = new Set(nodeIds);
+  const doomedEdges = new Set(edgeIds);
+  if (!doomedNodes.size && !doomedEdges.size) return;
+  if (pageCanvasState.editingNodeId && doomedNodes.has(pageCanvasState.editingNodeId)) {
+    // Drop the pending edit rather than committing text onto a node we're deleting.
+    const editingEl = getPageCanvasNodeEl(pageCanvasState.editingNodeId);
+    editingEl?.classList.remove("is-editing");
+    pageCanvasState.editingNodeId = null;
+  } else {
+    commitCanvasNodeEdit();
+  }
+  canvas.nodes = canvas.nodes.filter((node) => !doomedNodes.has(node.id));
+  canvas.edges = canvas.edges.filter(
+    (edge) => !doomedEdges.has(edge.id) && !doomedNodes.has(edge.from) && !doomedNodes.has(edge.to)
+  );
+  const selection = getCanvasSelection();
+  pageCanvasState.selection = {
+    nodes: selection.nodes.filter((id) => !doomedNodes.has(id)),
+    edges: selection.edges.filter(
+      (id) => !doomedEdges.has(id) && canvas.edges.some((edge) => edge.id === id)
+    ),
+  };
+  renderCanvasNodes();
+  renderCanvasEdges();
+  queuePageCanvasSave();
+}
+
+function deleteCanvasSelection() {
+  const selection = getCanvasSelection();
+  deleteCanvasItems([...selection.nodes], [...selection.edges]);
+}
+
+function createCanvasEdge(fromId, toId) {
+  const canvas = getPageCanvasData();
+  if (!canvas || !fromId || !toId || fromId === toId) return;
+  const exists = canvas.edges.some(
+    (edge) =>
+      (edge.from === fromId && edge.to === toId) ||
+      (edge.from === toId && edge.to === fromId)
+  );
+  if (exists) return;
+  canvas.edges.push({ id: createId("cedge"), from: fromId, to: toId });
+  renderCanvasEdges();
+  queuePageCanvasSave();
+}
+
+function applyCanvasZoom(nextScaleRaw, focusClientX, focusClientY) {
+  const canvas = getPageCanvasData();
+  const viewport = getPageCanvasViewportEl();
+  if (!canvas || !viewport) return;
+  const view = canvas.view;
+  const nextScale = Math.min(
+    PAGE_CANVAS_MAX_SCALE,
+    Math.max(PAGE_CANVAS_MIN_SCALE, nextScaleRaw)
+  );
+  if (nextScale === view.scale) return;
+  const rect = viewport.getBoundingClientRect();
+  const fx = focusClientX - rect.left;
+  const fy = focusClientY - rect.top;
+  const worldX = (fx - view.x) / view.scale;
+  const worldY = (fy - view.y) / view.scale;
+  view.scale = nextScale;
+  view.x = fx - worldX * nextScale;
+  view.y = fy - worldY * nextScale;
+  updateCanvasViewTransform();
+  queuePageCanvasSave();
+}
+
+function fitCanvasView() {
+  const canvas = getPageCanvasData();
+  const viewport = getPageCanvasViewportEl();
+  if (!canvas || !viewport) return;
+  const view = canvas.view;
+  if (!canvas.nodes.length) {
+    view.x = 0;
+    view.y = 0;
+    view.scale = 1;
+    updateCanvasViewTransform();
+    queuePageCanvasSave();
+    return;
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  canvas.nodes.forEach((node) => {
+    const rect = getCanvasNodeRect(node);
+    minX = Math.min(minX, rect.x);
+    minY = Math.min(minY, rect.y);
+    maxX = Math.max(maxX, rect.x + rect.w);
+    maxY = Math.max(maxY, rect.y + rect.h);
+  });
+  const pad = 60;
+  const vw = viewport.clientWidth;
+  const vh = viewport.clientHeight;
+  const bw = Math.max(1, maxX - minX);
+  const bh = Math.max(1, maxY - minY);
+  const scale = Math.min(
+    PAGE_CANVAS_MAX_SCALE,
+    Math.max(PAGE_CANVAS_MIN_SCALE, Math.min((vw - pad * 2) / bw, (vh - pad * 2) / bh, 1.5))
+  );
+  view.scale = scale;
+  view.x = (vw - bw * scale) / 2 - minX * scale;
+  view.y = (vh - bh * scale) / 2 - minY * scale;
+  updateCanvasViewTransform();
+  queuePageCanvasSave();
+}
+
+async function insertCanvasImageFiles(files, worldPt) {
+  const canvas = getPageCanvasData();
+  if (!canvas || !window.pywebview?.api?.save_page_asset) return;
+  const imageFiles = Array.from(files || []).filter((file) =>
+    String(file.type || "").toLowerCase().startsWith("image/")
+  );
+  let offset = 0;
+  const insertedIds = [];
+  for (const file of imageFiles) {
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      if (!dataUrl.startsWith("data:image/")) continue;
+      const dims = await new Promise((resolve) => {
+        const probe = new Image();
+        probe.onload = () =>
+          resolve({ w: probe.naturalWidth || 300, h: probe.naturalHeight || 200 });
+        probe.onerror = () => resolve({ w: 300, h: 200 });
+        probe.src = dataUrl;
+      });
+      const res = await window.pywebview.api.save_page_asset(
+        pageEditorOwnerKey || "page",
+        dataUrl,
+        file.name || "image.png"
+      );
+      if (res?.status !== "success" || !res.assetPath) {
+        toast(res?.message || "Could not save image");
+        continue;
+      }
+      const scale = Math.min(1, 400 / dims.w);
+      const node = {
+        id: createId("cnode"),
+        type: "image",
+        x: Math.round(worldPt.x + offset),
+        y: Math.round(worldPt.y + offset),
+        w: Math.round(dims.w * scale),
+        h: Math.round(dims.h * scale),
+        assetPath: res.assetPath,
+      };
+      canvas.nodes.push(node);
+      getPageCanvasNodesEl()?.appendChild(renderCanvasNode(node));
+      insertedIds.push(node.id);
+      offset += 24;
+    } catch (e) {
+      console.warn("Canvas image insert failed:", e);
+    }
+  }
+  if (insertedIds.length) setCanvasNodeSelection(insertedIds);
+  updateCanvasEmptyHint();
+  queuePageCanvasSave();
+}
+
+function updateCanvasEdgeDraftPath(fromNode, worldPt) {
+  const draft = document.getElementById("pageCanvasEdgeDraft");
+  if (!draft) return;
+  const rect = getCanvasNodeRect(fromNode);
+  const target = { x: worldPt.x, y: worldPt.y, w: 0, h: 0 };
+  draft.setAttribute("d", computeCanvasEdgePathBetween(rect, target));
+  draft.hidden = false;
+}
+
+function findCanvasNodeElAtPoint(clientX, clientY) {
+  const el = document.elementFromPoint(clientX, clientY);
+  return el?.closest?.(".page-canvas-node") || null;
+}
+
+function isCanvasAdditiveEvent(e) {
+  return !!(e.ctrlKey || e.metaKey || e.shiftKey);
+}
+
+function updateCanvasMarqueeOverlay(gesture, e) {
+  const viewport = getPageCanvasViewportEl();
+  const marquee = getPageCanvasMarqueeEl();
+  if (!viewport || !marquee) return;
+  const rect = viewport.getBoundingClientRect();
+  const x1 = gesture.startX - rect.left;
+  const y1 = gesture.startY - rect.top;
+  const x2 = e.clientX - rect.left;
+  const y2 = e.clientY - rect.top;
+  marquee.style.left = `${Math.min(x1, x2)}px`;
+  marquee.style.top = `${Math.min(y1, y2)}px`;
+  marquee.style.width = `${Math.abs(x2 - x1)}px`;
+  marquee.style.height = `${Math.abs(y2 - y1)}px`;
+  marquee.hidden = false;
+}
+
+function applyCanvasMarqueeSelection(gesture, e) {
+  const canvas = getPageCanvasData();
+  if (!canvas) return;
+  const current = getCanvasWorldPoint(e);
+  const minX = Math.min(gesture.startWorld.x, current.x);
+  const maxX = Math.max(gesture.startWorld.x, current.x);
+  const minY = Math.min(gesture.startWorld.y, current.y);
+  const maxY = Math.max(gesture.startWorld.y, current.y);
+  const hits = canvas.nodes
+    .filter((node) => {
+      const rect = getCanvasNodeRect(node);
+      // Intersection, not containment: brushing an item is enough to grab it.
+      return (
+        rect.x < maxX && rect.x + rect.w > minX && rect.y < maxY && rect.y + rect.h > minY
+      );
+    })
+    .map((node) => node.id);
+  setCanvasSelection({
+    nodes: gesture.additive ? [...gesture.baseNodes, ...hits] : hits,
+    edges: gesture.additive ? gesture.baseEdges : [],
+  });
+}
+
+function endCanvasMarquee() {
+  const marquee = getPageCanvasMarqueeEl();
+  if (marquee) marquee.hidden = true;
+}
+
+function hideCanvasContextMenu() {
+  if (!canvasContextMenu) return;
+  canvasContextMenu.hidden = true;
+}
+
+function ensureCanvasContextMenu() {
+  if (canvasContextMenu) return canvasContextMenu;
+
+  const menu = el("div", {
+    className: "canvas-context-menu",
+    role: "menu",
+  });
+  menu.hidden = true;
+
+  const panelScheduleItem = el("button", {
+    className: "canvas-context-menu__item",
+    type: "button",
+    role: "menuitem",
+    textContent: "Convert to Panel Schedule with AI",
+    "data-canvas-menu-action": "panelSchedule",
+  });
+  menu.append(panelScheduleItem);
+
+  menu.addEventListener("click", (event) => {
+    const item = event.target.closest("button[data-canvas-menu-action]");
+    if (!item || item.disabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    hideCanvasContextMenu();
+    void openCanvasPanelScheduleDialog();
+  });
+
+  document.body.appendChild(menu);
+  canvasContextMenu = menu;
+
+  if (!canvasContextMenuHandlersReady) {
+    // pointerdown, not click: a right-click elsewhere never fires click, so a click
+    // listener would leave the menu stranded on screen.
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (
+          canvasContextMenu &&
+          !canvasContextMenu.hidden &&
+          !canvasContextMenu.contains(event.target)
+        ) {
+          hideCanvasContextMenu();
+        }
+      },
+      true
+    );
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") hideCanvasContextMenu();
+    });
+    window.addEventListener("resize", hideCanvasContextMenu);
+    document.addEventListener("scroll", hideCanvasContextMenu, true);
+    canvasContextMenuHandlersReady = true;
+  }
+
+  return menu;
+}
+
+function showCanvasContextMenu(event) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const menu = ensureCanvasContextMenu();
+  const imageCount = getSelectedCanvasImageNodes().length;
+  // Stays reachable with nothing selected while an analysis is running or its
+  // findings are still waiting to be reviewed.
+  const hasPendingWork =
+    !!canvasPanelScheduleState.job || !!canvasPanelScheduleState.pendingResult;
+  const item = menu.querySelector('button[data-canvas-menu-action="panelSchedule"]');
+  if (item) {
+    item.disabled = imageCount === 0 && !hasPendingWork;
+    item.textContent = canvasPanelScheduleState.pendingResult
+      ? "Review panel schedule findings"
+      : canvasPanelScheduleState.job
+        ? "Panel schedule analysis running..."
+        : "Convert to Panel Schedule with AI";
+    item.title = item.disabled ? "Select at least one image on the canvas." : "";
+  }
+
+  menu.hidden = false;
+  menu.style.visibility = "hidden";
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+
+  const viewportPadding = 8;
+  const rect = menu.getBoundingClientRect();
+  const left = Math.min(
+    Math.max(viewportPadding, event.clientX),
+    Math.max(viewportPadding, window.innerWidth - rect.width - viewportPadding)
+  );
+  const top = Math.min(
+    Math.max(viewportPadding, event.clientY),
+    Math.max(viewportPadding, window.innerHeight - rect.height - viewportPadding)
+  );
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  menu.style.visibility = "";
+  menu.querySelector("button[data-canvas-menu-action]:not([disabled])")?.focus();
+}
+
+function handleCanvasContextMenu(e) {
+  const canvas = getPageCanvasData();
+  if (!canvas) return;
+
+  const nodeEl = e.target?.closest?.(".page-canvas-node");
+  const nodeId = nodeEl?.dataset.nodeId || "";
+
+  // Leave the native menu (spell-check, paste) alone inside the box being edited.
+  if (
+    nodeId &&
+    pageCanvasState.editingNodeId === nodeId &&
+    e.target?.closest?.(".page-canvas-node-text")
+  ) {
+    return;
+  }
+  if (pageCanvasState.editingNodeId && pageCanvasState.editingNodeId !== nodeId) {
+    commitCanvasNodeEdit();
+  }
+
+  // Right-click selects the item under the cursor unless it is already selected.
+  if (nodeId && !isCanvasNodeSelected(nodeId)) setCanvasNodeSelection([nodeId]);
+  showCanvasContextMenu(e);
+}
+
+function handleCanvasPointerDown(e) {
+  const viewport = getPageCanvasViewportEl();
+  const canvas = getPageCanvasData();
+  if (!viewport || !canvas || pageCanvasState.pointer) return;
+  if (e.button !== 0 && e.button !== 1) return;
+
+  const nodeEl = e.target?.closest?.(".page-canvas-node");
+  const nodeId = nodeEl?.dataset.nodeId || null;
+  const node = nodeId ? getCanvasNodeById(nodeId) : null;
+  const panRequested = e.button === 1 || pageCanvasState.spaceDown;
+
+  // Keep default behavior (caret/selection) while typing inside a text node.
+  if (
+    !panRequested &&
+    node &&
+    pageCanvasState.editingNodeId === node.id &&
+    e.target.closest(".page-canvas-node-text")
+  ) {
+    return;
+  }
+  if (pageCanvasState.editingNodeId && pageCanvasState.editingNodeId !== nodeId) {
+    commitCanvasNodeEdit();
+  }
+
+  const additive = isCanvasAdditiveEvent(e);
+  const edgeGroup = e.target?.closest?.(".page-canvas-edge-group");
+  if (!panRequested && edgeGroup) {
+    const edgeId = edgeGroup.dataset.edgeId;
+    if (additive) toggleCanvasEdgeSelection(edgeId);
+    else setCanvasSelection({ edges: [edgeId] });
+    viewport.focus();
+    e.preventDefault();
+    return;
+  }
+
+  e.preventDefault();
+  viewport.focus();
+
+  // Ctrl/Cmd/Shift+click on an item toggles it in the selection without starting a drag.
+  if (!panRequested && node && additive) {
+    toggleCanvasNodeSelection(node.id);
+    return;
+  }
+
+  try {
+    viewport.setPointerCapture(e.pointerId);
+  } catch (_) {}
+
+  if (!panRequested && node && e.target.closest(".page-canvas-node-connector")) {
+    pageCanvasState.pointer = {
+      mode: "edge",
+      pointerId: e.pointerId,
+      fromId: node.id,
+      targetEl: null,
+    };
+    setCanvasNodeSelection([node.id]);
+    updateCanvasEdgeDraftPath(node, getCanvasWorldPoint(e));
+    return;
+  }
+
+  if (!panRequested && node && e.target.closest(".page-canvas-node-handle")) {
+    pageCanvasState.pointer = {
+      mode: "resize",
+      pointerId: e.pointerId,
+      nodeId: node.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: getCanvasNodeRect(node).w,
+      startH: node.h || getCanvasNodeRect(node).h,
+      aspect: node.type === "image" && node.h > 0 ? node.w / node.h : 0,
+      moved: false,
+    };
+    setCanvasNodeSelection([node.id]);
+    return;
+  }
+
+  if (!panRequested && node) {
+    // Dragging any selected item moves the whole selection; dragging an unselected
+    // item selects just it first.
+    const wasSelected = isCanvasNodeSelected(node.id);
+    const wasSoleSelection = wasSelected && getSelectedCanvasNodeIds().length === 1;
+    if (!wasSelected) setCanvasNodeSelection([node.id]);
+    const dragging = getSelectedCanvasNodes();
+    pageCanvasState.pointer = {
+      mode: "node",
+      pointerId: e.pointerId,
+      clickedId: node.id,
+      wasSoleSelection,
+      nodes: dragging.map((item) => ({ id: item.id, origX: item.x, origY: item.y })),
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+    dragging.forEach((item) => getPageCanvasNodeEl(item.id)?.classList.add("is-dragging"));
+    return;
+  }
+
+  if (panRequested) {
+    pageCanvasState.pointer = {
+      mode: "pan",
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: canvas.view.x,
+      origY: canvas.view.y,
+      moved: false,
+    };
+    viewport.classList.add("is-panning");
+    return;
+  }
+
+  // Empty space: rubber-band select. (Panning lives on space-drag / middle-drag.)
+  const selection = getCanvasSelection();
+  pageCanvasState.pointer = {
+    mode: "marquee",
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    startWorld: getCanvasWorldPoint(e),
+    additive,
+    baseNodes: [...selection.nodes],
+    baseEdges: [...selection.edges],
+    moved: false,
+  };
+  if (!additive) clearCanvasSelection();
+}
+
+function handleCanvasPointerMove(e) {
+  const gesture = pageCanvasState.pointer;
+  const canvas = getPageCanvasData();
+  if (!gesture || !canvas || e.pointerId !== gesture.pointerId) return;
+
+  if (gesture.mode === "pan") {
+    canvas.view.x = gesture.origX + (e.clientX - gesture.startX);
+    canvas.view.y = gesture.origY + (e.clientY - gesture.startY);
+    gesture.moved = true;
+    updateCanvasViewTransform();
+    return;
+  }
+  if (gesture.mode === "marquee") {
+    if (
+      !gesture.moved &&
+      Math.abs(e.clientX - gesture.startX) < PAGE_CANVAS_DRAG_THRESHOLD_PX &&
+      Math.abs(e.clientY - gesture.startY) < PAGE_CANVAS_DRAG_THRESHOLD_PX
+    ) {
+      return;
+    }
+    gesture.moved = true;
+    updateCanvasMarqueeOverlay(gesture, e);
+    applyCanvasMarqueeSelection(gesture, e);
+    return;
+  }
+  if (gesture.mode === "node") {
+    // Ignore jitter so a click that happens to wobble still counts as a click.
+    const screenDx = e.clientX - gesture.startX;
+    const screenDy = e.clientY - gesture.startY;
+    if (!gesture.moved && Math.abs(screenDx) < PAGE_CANVAS_DRAG_THRESHOLD_PX &&
+        Math.abs(screenDy) < PAGE_CANVAS_DRAG_THRESHOLD_PX) {
+      return;
+    }
+    // Round the delta once so items in the group keep their exact relative spacing.
+    const dx = Math.round(screenDx / canvas.view.scale);
+    const dy = Math.round(screenDy / canvas.view.scale);
+    gesture.moved = true;
+    gesture.nodes.forEach((entry) => {
+      const node = getCanvasNodeById(entry.id);
+      const el = getPageCanvasNodeEl(entry.id);
+      if (!node || !el) return;
+      node.x = entry.origX + dx;
+      node.y = entry.origY + dy;
+      el.style.left = `${node.x}px`;
+      el.style.top = `${node.y}px`;
+      updateCanvasEdgesForNode(node.id);
+    });
+    return;
+  }
+  if (gesture.mode === "resize") {
+    const node = getCanvasNodeById(gesture.nodeId);
+    const el = getPageCanvasNodeEl(gesture.nodeId);
+    if (!node || !el) return;
+    const dw = (e.clientX - gesture.startX) / canvas.view.scale;
+    node.w = Math.round(Math.max(60, gesture.startW + dw));
+    if (node.type === "text") {
+      // Dragging the handle pins an explicit width.
+      node.autoW = false;
+      el.classList.remove("is-auto-width");
+    }
+    el.style.width = `${node.w}px`;
+    if (gesture.aspect > 0) {
+      node.h = Math.round(node.w / gesture.aspect);
+      el.style.height = `${node.h}px`;
+    } else if (node.type === "image") {
+      const dh = (e.clientY - gesture.startY) / canvas.view.scale;
+      node.h = Math.round(Math.max(40, gesture.startH + dh));
+      el.style.height = `${node.h}px`;
+    }
+    gesture.moved = true;
+    updateCanvasEdgesForNode(node.id);
+    return;
+  }
+  if (gesture.mode === "edge") {
+    const fromNode = getCanvasNodeById(gesture.fromId);
+    if (!fromNode) return;
+    updateCanvasEdgeDraftPath(fromNode, getCanvasWorldPoint(e));
+    const targetEl = findCanvasNodeElAtPoint(e.clientX, e.clientY);
+    if (gesture.targetEl && gesture.targetEl !== targetEl) {
+      gesture.targetEl.classList.remove("is-edge-target");
+    }
+    if (targetEl && targetEl.dataset.nodeId !== gesture.fromId) {
+      targetEl.classList.add("is-edge-target");
+      gesture.targetEl = targetEl;
+    } else {
+      gesture.targetEl = null;
+    }
+  }
+}
+
+function handleCanvasPointerUp(e) {
+  const gesture = pageCanvasState.pointer;
+  const viewport = getPageCanvasViewportEl();
+  if (!gesture || e.pointerId !== gesture.pointerId) return;
+  pageCanvasState.pointer = null;
+  viewport?.classList.remove("is-panning");
+  try {
+    viewport?.releasePointerCapture(e.pointerId);
+  } catch (_) {}
+
+  if (gesture.mode === "pan") {
+    if (gesture.moved) queuePageCanvasSave();
+    return;
+  }
+  if (gesture.mode === "marquee") {
+    endCanvasMarquee();
+    return;
+  }
+  if (gesture.mode === "node") {
+    gesture.nodes.forEach((entry) =>
+      getPageCanvasNodeEl(entry.id)?.classList.remove("is-dragging")
+    );
+    if (gesture.moved) {
+      queuePageCanvasSave();
+      return;
+    }
+    // A click that didn't move: collapse a group to the clicked item, or — if that
+    // item was already the only thing selected — start editing it.
+    const clicked = getCanvasNodeById(gesture.clickedId);
+    if (gesture.nodes.length > 1) {
+      setCanvasNodeSelection([gesture.clickedId]);
+    } else if (gesture.wasSoleSelection && clicked?.type === "text") {
+      enterCanvasNodeEdit(gesture.clickedId);
+    }
+    return;
+  }
+  if (gesture.mode === "resize") {
+    if (gesture.moved) queuePageCanvasSave();
+    return;
+  }
+  if (gesture.mode === "edge") {
+    const draft = document.getElementById("pageCanvasEdgeDraft");
+    if (draft) draft.hidden = true;
+    gesture.targetEl?.classList.remove("is-edge-target");
+    const targetEl = findCanvasNodeElAtPoint(e.clientX, e.clientY);
+    const targetId = targetEl?.dataset.nodeId;
+    if (targetId && targetId !== gesture.fromId) {
+      createCanvasEdge(gesture.fromId, targetId);
+      setCanvasNodeSelection([targetId]);
+    }
+  }
+}
+
+function cancelCanvasGesture() {
+  const gesture = pageCanvasState.pointer;
+  const viewport = getPageCanvasViewportEl();
+  if (!gesture) return false;
+  pageCanvasState.pointer = null;
+  viewport?.classList.remove("is-panning");
+  if (gesture.mode === "edge") {
+    const draft = document.getElementById("pageCanvasEdgeDraft");
+    if (draft) draft.hidden = true;
+    gesture.targetEl?.classList.remove("is-edge-target");
+  }
+  if (gesture.mode === "marquee") {
+    endCanvasMarquee();
+    setCanvasSelection({ nodes: gesture.baseNodes, edges: gesture.baseEdges });
+  }
+  if (gesture.mode === "node") {
+    gesture.nodes.forEach((entry) =>
+      getPageCanvasNodeEl(entry.id)?.classList.remove("is-dragging")
+    );
+  }
+  return true;
+}
+
+function handleCanvasKeyDown(e) {
+  const canvas = getPageCanvasData();
+  if (!canvas) return;
+  const editing = !!pageCanvasState.editingNodeId;
+
+  if (e.key === " " && !editing) {
+    pageCanvasState.spaceDown = true;
+  }
+  if (e.key === "Escape") {
+    if (cancelCanvasGesture()) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (editing) {
+      e.preventDefault();
+      e.stopPropagation();
+      commitCanvasNodeEdit();
+      getPageCanvasViewportEl()?.focus();
+      return;
+    }
+    if (hasCanvasSelection()) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearCanvasSelection();
+      return;
+    }
+    return; // bubble up: page view handles Escape as "go back"
+  }
+  if (editing) {
+    // Enter inserts a newline in the box; never let it reach the page-level handlers.
+    if (e.key === "Enter") e.stopPropagation();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
+    e.preventDefault();
+    e.stopPropagation();
+    setCanvasNodeSelection(canvas.nodes.map((node) => node.id));
+    return;
+  }
+  if (e.key === "Delete" || e.key === "Backspace") {
+    if (!hasCanvasSelection()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    deleteCanvasSelection();
+    return;
+  }
+  if (e.key === "Enter") {
+    const selected = getSelectedCanvasNodes();
+    if (selected.length === 1 && selected[0].type === "text") {
+      e.preventDefault();
+      enterCanvasNodeEdit(selected[0].id);
+    }
+  }
+}
+
+function handleCanvasDblClick(e) {
+  const canvas = getPageCanvasData();
+  if (!canvas) return;
+  const nodeEl = e.target?.closest?.(".page-canvas-node");
+  if (nodeEl) {
+    const node = getCanvasNodeById(nodeEl.dataset.nodeId);
+    if (!node) return;
+    // Double-clicking the resize handle of a pinned text box returns it to auto-size.
+    if (e.target.closest(".page-canvas-node-handle")) {
+      if (node.type === "text" && node.autoW === false) {
+        node.autoW = true;
+        applyCanvasNodeWidth(node, nodeEl);
+        const measured = Math.round(nodeEl.offsetWidth);
+        if (measured > 0) node.w = measured;
+        updateCanvasEdgesForNode(node.id);
+        queuePageCanvasSave();
+      }
+      return;
+    }
+    if (node.type === "text") {
+      enterCanvasNodeEdit(node.id);
+    } else if (node.type === "image") {
+      const img = nodeEl.querySelector("img.page-canvas-node-img");
+      if (img?.src) {
+        openImagePreviewDialog({
+          dataUrl: img.src,
+          filename: "Image",
+          width: img.naturalWidth || 1,
+          height: img.naturalHeight || 1,
+        });
+      }
+    }
+    return;
+  }
+  if (e.target?.closest?.(".page-canvas-edge-group")) return;
+  createCanvasTextNode(getCanvasWorldPoint(e));
+}
+
+function handleCanvasWheel(e) {
+  const canvas = getPageCanvasData();
+  if (!canvas) return;
+  e.preventDefault();
+  const factor = Math.exp(-e.deltaY * 0.0016);
+  applyCanvasZoom(canvas.view.scale * factor, e.clientX, e.clientY);
+}
+
+function ensurePageCanvasReady() {
+  if (pageCanvasInitialized) return;
+  const viewport = getPageCanvasViewportEl();
+  if (!viewport) return;
+  pageCanvasInitialized = true;
+
+  viewport.addEventListener("pointerdown", handleCanvasPointerDown);
+  viewport.addEventListener("pointermove", handleCanvasPointerMove);
+  viewport.addEventListener("pointerup", handleCanvasPointerUp);
+  viewport.addEventListener("pointercancel", () => cancelCanvasGesture());
+  viewport.addEventListener("dblclick", handleCanvasDblClick);
+  viewport.addEventListener("contextmenu", handleCanvasContextMenu);
+  viewport.addEventListener("wheel", handleCanvasWheel, { passive: false });
+  viewport.addEventListener("keydown", handleCanvasKeyDown);
+  viewport.addEventListener("keyup", (e) => {
+    if (e.key === " ") pageCanvasState.spaceDown = false;
+  });
+
+  // Commit text edits when focus leaves the node being edited.
+  viewport.addEventListener("focusout", (e) => {
+    if (!pageCanvasState.editingNodeId) return;
+    const editingEl = getPageCanvasNodeEl(pageCanvasState.editingNodeId);
+    if (editingEl && e.relatedTarget && editingEl.contains(e.relatedTarget)) return;
+    commitCanvasNodeEdit();
+  });
+  viewport.addEventListener("input", (e) => {
+    if (!pageCanvasState.editingNodeId) return;
+    if (!e.target?.closest?.(".page-canvas-node-text")) return;
+    updateCanvasEdgesForNode(pageCanvasState.editingNodeId);
+  });
+
+  viewport.addEventListener("paste", (e) => {
+    const files = getPageClipboardImageFiles(e.clipboardData);
+    if (files.length) {
+      e.preventDefault();
+      insertCanvasImageFiles(files, getCanvasViewportCenterWorldPoint());
+    }
+  });
+  viewport.addEventListener("dragover", (e) => {
+    if (Array.from(e.dataTransfer?.types || []).includes("Files")) {
+      e.preventDefault();
+      viewport.classList.add("is-drop-target");
+    }
+  });
+  viewport.addEventListener("dragleave", () => {
+    viewport.classList.remove("is-drop-target");
+  });
+  viewport.addEventListener("drop", (e) => {
+    viewport.classList.remove("is-drop-target");
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) {
+      e.preventDefault();
+      insertCanvasImageFiles(files, getCanvasWorldPoint(e));
+    }
+  });
+
+  const titleInput = document.getElementById("pageCanvasTitle");
+  titleInput?.addEventListener("input", () => {
+    handleProjectPagesEditorTitleChange(titleInput.value);
+  });
+  titleInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      viewport.focus();
+    }
+  });
+
+  document.getElementById("pageCanvasAddTextBtn")?.addEventListener("click", () => {
+    createCanvasTextNode(getCanvasViewportCenterWorldPoint());
+  });
+  document.getElementById("pageCanvasAddImageBtn")?.addEventListener("click", () => {
+    document.getElementById("pageCanvasImageInput")?.click();
+  });
+  document.getElementById("pageCanvasImageInput")?.addEventListener("change", (e) => {
+    const files = e.target.files;
+    if (files?.length) insertCanvasImageFiles(files, getCanvasViewportCenterWorldPoint());
+    e.target.value = "";
+  });
+  document.getElementById("pageCanvasZoomFitBtn")?.addEventListener("click", fitCanvasView);
+}
+
+function renderPageCanvasView() {
+  ensurePageCanvasReady();
+  if (!isCanvasPage(pageEditorTarget)) return;
+  pageEditorTarget.canvas = normalizePageCanvas(pageEditorTarget.canvas);
+  resetPageCanvasState();
+  const { project, subpage, globalPage } = pageNav;
+  const titleInput = document.getElementById("pageCanvasTitle");
+  if (titleInput) {
+    titleInput.value =
+      (globalPage ? globalPage.title : subpage ? subpage.title : project?.name) || "";
+  }
+  renderCanvasNodes();
+  renderCanvasEdges();
+  updateCanvasViewTransform();
+  setTimeout(() => getPageCanvasViewportEl()?.focus(), 0);
 }
 
 init();

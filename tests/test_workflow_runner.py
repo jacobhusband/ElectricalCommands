@@ -429,6 +429,13 @@ class WorkflowToolDescriptorTests(unittest.TestCase):
             self.assertEqual("dwgFiles", req[0]["key"])
             self.assertEqual("dwgFiles", req[0]["type"])
 
+        publish_params = {
+            param["key"]: param for param in descriptors["publishDwgs"]["params"]
+        }
+        self.assertIn("refreshExcelOleLinks", publish_params)
+        self.assertEqual("bool", publish_params["refreshExcelOleLinks"]["type"])
+        self.assertTrue(publish_params["refreshExcelOleLinks"]["default"])
+
 
 class BuildWorkflowStepLaunchContextTests(unittest.TestCase):
     def setUp(self):
