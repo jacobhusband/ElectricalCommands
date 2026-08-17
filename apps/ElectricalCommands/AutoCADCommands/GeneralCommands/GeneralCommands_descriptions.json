@@ -1,0 +1,37 @@
+{
+    "commands": {
+        "OBJMASK": "Creates wipeout objects behind selected text, MText, tables, or polylines to mask the background.",
+        "VPFROMREG": "Creates a viewport in paperspace from a selected region in modelspace, with automatic scaling options.",
+        "LAYRED": "Sets selected layer, region entities, or XREF-related layers to red based on the chosen mode.",
+        "LAYGREEN": "Sets all layers belonging to a selected XREF to green.",
+        "AREALABEL": "Calculates the area of selected closed polylines and places square-foot labels at their centers.",
+        "ADDNOTE": "Adds a note from the Project Management app Notes tab to an existing or new MText object.",
+        "PROJECTCHECKLIST": "Opens a project-scoped checklist palette using checklist definitions from the desktop app and shared completion state for the current project.",
+        "PCL": "Alias for PROJECTCHECKLIST.",
+        "SETPANELLOCATION": "Stores a panel location in the current drawing for electrical drafting commands.",
+        "SPL": "Alias for SETPANELLOCATION.",
+        "SETSCALE": "Stores the current drawing scale for newly created electrical symbols and annotations.",
+        "SS": "Alias for SETSCALE.",
+        "SETPANELNAME": "Stores the panel name used by electrical drafting commands.",
+        "SPN": "Alias for SETPANELNAME.",
+        "HOMERUN": "Creates a scaled three-vertex Leader and panel-name MText using an interactive four-point workflow.",
+        "HR": "Alias for HOMERUN.",
+        "HRSETTINGS": "Opens a modeless palette for panel location, drawing scale, panel name, and home-run layer settings.",
+        "HRS": "Alias for HRSETTINGS.",
+        "R90": "Rotates selected objects 90 degrees around a specified base point.",
+        "R180": "Rotates selected objects 180 degrees around a specified base point.",
+        "R270": "Rotates selected objects 270 degrees around a specified base point.",
+        "R360": "Rotates selected objects 360 degrees around a specified base point.",
+        "RE": "Inserts the scaled RECEPT dynamic block facing east and prompts for its panel circuit label.",
+        "RN": "Inserts the scaled RECEPT dynamic block facing north and prompts for its panel circuit label.",
+        "RW": "Inserts the scaled RECEPT dynamic block facing west and prompts for its panel circuit label.",
+        "RS": "Inserts the scaled RECEPT dynamic block facing south and prompts for its panel circuit label."
+    },
+    "links": {
+        "OBJMASK": "https://brainy-seahorse-3c5.notion.site/OBJMASK-2b13fdbb662c802fb082e4095528ec06",
+        "VPFROMREG": "https://brainy-seahorse-3c5.notion.site/VPFROMREG-2b13fdbb662c805c963acf926dc03684",
+        "LAYRED": "https://brainy-seahorse-3c5.notion.site/LAYRED-3e8ae8f68ef04512b3c693c8b94d7503",
+        "LAYGREEN": "https://brainy-seahorse-3c5.notion.site/LAYGREEN-0401b0c14e7a4581b27371fdc7c635e7",
+        "AREALABEL": "https://brainy-seahorse-3c5.notion.site/AREALABEL-2b13fdbb662c80dca341f5624feaa488"
+    }
+}

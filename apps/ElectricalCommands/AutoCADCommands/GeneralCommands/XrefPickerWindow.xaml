@@ -1,0 +1,35 @@
+<Window x:Class="ElectricalCommands.XrefPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Quick XREF - Select File"
+        Height="400" Width="380"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Select an XREF file to attach:"
+                   FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+        <ListBox Grid.Row="1" x:Name="FileListBox"
+                 SelectionMode="Single"
+                 MouseDoubleClick="FileListBox_MouseDoubleClick"
+                 HorizontalContentAlignment="Stretch">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding DisplayName}" Margin="4,2"/>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="OK" Click="OK_Click" IsDefault="True" Padding="12,6" MinWidth="80"/>
+            <Button Content="Cancel" Click="Cancel_Click" IsCancel="True" Padding="12,6" MinWidth="80" Margin="8,0,0,0"/>
+        </StackPanel>
+    </Grid>
+</Window>

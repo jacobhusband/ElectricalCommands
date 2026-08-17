@@ -1,0 +1,7 @@
+{
+  "commands": {
+    "CSCHED": "Opens the Control Schedule editor to load, create, and update AutoCAD control schedule tables.",
+    "CONTROLSCHEDULE": "Alias for CSCHED. Opens the Control Schedule editor."
+  },
+  "links": {}
+}

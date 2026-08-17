@@ -1,0 +1,822 @@
+using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.Runtime;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+
+namespace ElectricalCommands
+{
+  /// <summary>
+  /// Data model for storing text object properties relative to a base point.
+  /// </summary>
+  public class TextInfoData
+  {
+    public string TextType { get; set; } // "DBText" or "MText"
+    public string TextContent { get; set; }
+    public double OffsetX { get; set; } // Offset from base point
+    public double OffsetY { get; set; }
+    public double OffsetZ { get; set; }
+    public double Height { get; set; }
+    public double Rotation { get; set; }
+    public string TextStyleName { get; set; }
+    public string Layer { get; set; }
+    public int ColorIndex { get; set; }
+
+    // DBText specific properties
+    public double WidthFactor { get; set; }
+    public double Oblique { get; set; }
+    public int HorizontalMode { get; set; }
+    public int VerticalMode { get; set; }
+    public double AlignmentOffsetX { get; set; }
+    public double AlignmentOffsetY { get; set; }
+    public double AlignmentOffsetZ { get; set; }
+
+    // MText specific properties
+    public double MTextWidth { get; set; }
+    public int Attachment { get; set; }
+  }
+
+  /// <summary>
+  /// Data model for storing raster image properties relative to a base point.
+  /// </summary>
+  public class ImageInfoData
+  {
+    public string ImageFileName { get; set; } // Just the filename, not full path
+    public double OffsetX { get; set; }
+    public double OffsetY { get; set; }
+    public double OffsetZ { get; set; }
+    public double ScaleX { get; set; }
+    public double ScaleY { get; set; }
+    public double Rotation { get; set; }
+    public string Layer { get; set; }
+  }
+
+  public partial class GeneralCommands
+  {
+    // ============================================================================
+    // EMBEDDED T24 FORM DATA - Hardcoded text and image information
+    // ============================================================================
+
+    /// <summary>
+    /// Embedded T24 text data for automatic form filling.
+    /// These are the constant text entries that will be placed on the T24 form.
+    /// </summary>
+    private static readonly List<TextInfoData> T24TextData2022 = new List<TextInfoData>
+    {
+      // Row 1 - Left column (Responsible Person info)
+      new TextInfoData { TextType = "MText", TextContent = "{NAME}", OffsetX = 2.4575724590123826, OffsetY = -4.605522133300136, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{COMPANY}", OffsetX = 2.4575724590123826, OffsetY = -4.78756234623763, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS1}", OffsetX = 2.4575724590123826, OffsetY = -4.968225407280139, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS2}", OffsetX = 2.4575724590123826, OffsetY = -5.141314963399362, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+
+      // Row 1 - Right column (Phone, License, Date)
+      new TextInfoData { TextType = "MText", TextContent = "{PHONE}", OffsetX = 7.015472016179885, OffsetY = -5.140839890951543, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{LICENSE}", OffsetX = 7.067721730676951, OffsetY = -4.962215889505831, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{DATE}", OffsetX = 7.0577125306994475, OffsetY = -4.790458176947315, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+
+      // Row 2 - Left column (Responsible Person info - duplicate section)
+      new TextInfoData { TextType = "MText", TextContent = "{NAME}", OffsetX = 2.4575724590123826, OffsetY = -2.177877868536209, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{COMPANY}", OffsetX = 2.4575724590123826, OffsetY = -2.489218470561264, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS1}", OffsetX = 2.4575724590123826, OffsetY = -2.7560817909954896, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS2}", OffsetX = 2.4575724590123826, OffsetY = -2.93997586225313, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+
+      // Row 2 - Right column (Phone, Date)
+      new TextInfoData { TextType = "MText", TextContent = "{PHONE}", OffsetX = 6.8598242698728455, OffsetY = -2.9268530282783622, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{DATE}", OffsetX = 6.8598242698728455, OffsetY = -2.5170374839403884, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+    };
+
+    private static readonly List<TextInfoData> T24TextData2025 = new List<TextInfoData>
+    {
+      // Row 2 - Left column (Responsible Person info)
+      new TextInfoData { TextType = "MText", TextContent = "{NAME}", OffsetX = 2.4575724590123826, OffsetY = -2.177877868536209, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{COMPANY}", OffsetX = 2.4575724590123826, OffsetY = -2.489218470561264, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS1}", OffsetX = 2.4575724590123826, OffsetY = -2.7560817909954896, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS2}", OffsetX = 2.4575724590123826, OffsetY = -2.93997586225313, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+
+      // Row 2 - Right column (Phone, Date)
+      new TextInfoData { TextType = "MText", TextContent = "{DATE}", OffsetX = 6.883854789430856, OffsetY = -2.4509716625377997, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{PHONE}", OffsetX = 6.8598242698728455, OffsetY = -2.9268530282783622, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+
+      // Row 1 - Left column (Responsible Person info)
+      new TextInfoData { TextType = "MText", TextContent = "{NAME}", OffsetX = 2.4575724590123826, OffsetY = -4.614056695121912, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{COMPANY}", OffsetX = 2.4575724590123826, OffsetY = -4.976356293061125, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS1}", OffsetX = 2.4575724590123826, OffsetY = -5.1570193541036335, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{ADDRESS2}", OffsetX = 2.4575724590123826, OffsetY = -5.330108910222856, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+
+      // Row 1 - Right column (Phone, License, Date)
+      new TextInfoData { TextType = "MText", TextContent = "{DATE}", OffsetX = 7.0577125306994475, OffsetY = -4.969382518623496, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{LICENSE}", OffsetX = 7.067721730676951, OffsetY = -5.141140231182012, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+      new TextInfoData { TextType = "MText", TextContent = "{PHONE}", OffsetX = 7.015472016179885, OffsetY = -5.319764232627724, Height = 0.10546875, TextStyleName = "Arial Narrow_1", Layer = "E-TEXT", ColorIndex = 256, Attachment = 1 },
+    };
+
+    /// <summary>
+    /// Embedded T24 signature image data.
+    /// Image files should be in the same folder as the DWG.
+    /// </summary>
+    private static readonly List<ImageInfoData> T24ImageData = new List<ImageInfoData>
+    {
+      // Signature image - Row 2 (upper section on form)
+      new ImageInfoData { ImageFileName = "WL_Sig_Blue_Small.gif", OffsetX = 7.081875433832849, OffsetY = -2.33079552101281, ScaleX = 0.4332543938729146, ScaleY = 0.16140849967814466, Rotation = 0.0, Layer = "0" },
+      // Signature image - Row 1 (lower section on form)
+      new ImageInfoData { ImageFileName = "WL_Sig_Blue_Small.gif", OffsetX = 7.081875433832849, OffsetY = -4.744404260423231, ScaleX = 0.4332543938729146, ScaleY = 0.16140849967814466, Rotation = 0.0, Layer = "0" },
+    };
+
+    // ============================================================================
+
+    // T24 COMMAND - Automated PDF insertion with text/image placement
+    // ============================================================================
+
+    /// <summary>
+    /// T24 command - Insert PDF sheets and automatically add text and images on the last page.
+    /// </summary>
+    [CommandMethod("T24")]
+    public void T24Command()
+    {
+      var (doc, db, ed) = Globals.GetGlobals();
+      if (doc == null) return;
+
+      try
+      {
+        // 1. Open file dialog for PDF selection
+        var ofd = new Microsoft.Win32.OpenFileDialog
+        {
+          Filter = "PDF Files (*.pdf)|*.pdf",
+          Title = "Select T24 PDF form to attach"
+        };
+        if (ofd.ShowDialog() != true) return;
+
+        string pdfPath = ofd.FileName;
+        string baseName = Path.GetFileNameWithoutExtension(pdfPath);
+        string defPrefix = BuildPdfDefinitionPrefixT24(baseName, pdfPath);
+
+        // 2. Get PDF page count
+        if (!TryGetPdfPageCountT24(pdfPath, out int pageCount))
+        {
+          ed.WriteMessage("\nUnable to determine PDF page count automatically.");
+          var pagePrompt = new PromptIntegerOptions("\nEnter the number of PDF pages to insert")
+          {
+            AllowZero = false,
+            AllowNegative = false,
+            LowerLimit = 1,
+            DefaultValue = 1
+          };
+          var countResult = ed.GetInteger(pagePrompt);
+          if (countResult.Status != PromptStatus.OK) return;
+          pageCount = countResult.Value;
+        }
+
+        ed.WriteMessage($"\nInserting {pageCount} PDF page(s)...");
+
+        // 3. Get anchor point with Manage option for templates
+        T24SignatureSettings signatureSettings = SignatureManager.LoadSettings();
+        T24TemplateEntry selectedTemplate = SignatureManager.ValidateAndGetTemplate(signatureSettings);
+        SignatureEntry selectedSignature = SignatureManager.GetSignatureForTemplate(signatureSettings, selectedTemplate);
+
+        Point3d anchorTR = Point3d.Origin;
+        bool pointSelected = false;
+
+        while (!pointSelected)
+        {
+          string templateName = selectedTemplate?.Name ?? "Default";
+          string signatureName = selectedSignature?.Name ?? "None";
+
+          PromptPointOptions ppo = new PromptPointOptions(
+              $"\nTemplate: [{templateName}] (Signature: {signatureName}) - Select top-right point or [Manage]: ");
+          ppo.Keywords.Add("Manage");
+          ppo.AllowNone = false;
+
+          PromptPointResult ppr = ed.GetPoint(ppo);
+
+          if (ppr.Status == PromptStatus.Keyword)
+          {
+            if (ppr.StringResult == "Manage")
+            {
+              // Open template manager dialog
+              var managerWindow = new SignatureManagerWindow(signatureSettings);
+              if (managerWindow.ShowDialog() == true)
+              {
+                // Reload settings after dialog
+                signatureSettings = SignatureManager.LoadSettings();
+                selectedTemplate = SignatureManager.ValidateAndGetTemplate(signatureSettings);
+                selectedSignature = SignatureManager.GetSignatureForTemplate(signatureSettings, selectedTemplate);
+                ed.WriteMessage($"\nTemplate updated: {selectedTemplate?.Name ?? "Default"}");
+              }
+            }
+          }
+          else if (ppr.Status == PromptStatus.OK)
+          {
+            anchorTR = ppr.Value;
+            pointSelected = true;
+          }
+          else
+          {
+            return; // User cancelled
+          }
+        }
+
+        // Track the last page's top-left corner
+        Point3d lastPageTopLeft = Point3d.Origin;
+        int successfulPages = 0;
+
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+          DBDictionary nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+          const string PDF_DICT_NAME = "ACAD_PDFDEFINITIONS";
+
+          DBDictionary pdfDict;
+          if (nod.Contains(PDF_DICT_NAME))
+          {
+            pdfDict = (DBDictionary)tr.GetObject(nod.GetAt(PDF_DICT_NAME), OpenMode.ForRead);
+          }
+          else
+          {
+            nod.UpgradeOpen();
+            pdfDict = new DBDictionary();
+            nod.SetAt(PDF_DICT_NAME, pdfDict);
+            tr.AddNewlyCreatedDBObject(pdfDict, true);
+          }
+
+          BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+          BlockTableRecord ps = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.PaperSpace], OpenMode.ForWrite);
+
+          double scalePerInch = InchesToDrawingUnitsT24(db.Insunits);
+
+          int perRow = 3;
+          int col = 0, row = 0;
+          Vector3d pageW = Vector3d.XAxis, pageH = Vector3d.YAxis;
+          bool firstPlaced = false;
+
+          // Loop through pages
+          for (int page = 1; page <= pageCount; page++)
+          {
+            string defKey = $"{defPrefix}_{page}";
+            ObjectId defId;
+            bool definitionCreated = false;
+
+            if (!pdfDict.Contains(defKey))
+            {
+              if (!pdfDict.IsWriteEnabled)
+              {
+                pdfDict.UpgradeOpen();
+              }
+
+              var pdfDef = new PdfDefinition
+              {
+                SourceFileName = pdfPath,
+                ItemName = page.ToString()
+              };
+
+              defId = pdfDict.SetAt(defKey, pdfDef);
+              tr.AddNewlyCreatedDBObject(pdfDef, true);
+              definitionCreated = true;
+            }
+            else
+            {
+              defId = pdfDict.GetAt(defKey);
+            }
+
+            var pref = new PdfReference
+            {
+              DefinitionId = defId,
+              Position = Point3d.Origin,
+              Rotation = 0.0,
+              Normal = Vector3d.ZAxis,
+              ScaleFactors = new Scale3d(scalePerInch)
+            };
+
+            try
+            {
+              ps.AppendEntity(pref);
+              tr.AddNewlyCreatedDBObject(pref, true);
+
+              Extents3d extents = pref.GeometricExtents;
+              double w = Math.Abs(extents.MaxPoint.X - extents.MinPoint.X);
+              double h = Math.Abs(extents.MaxPoint.Y - extents.MinPoint.Y);
+
+              if (w <= Tolerance.Global.EqualPoint || h <= Tolerance.Global.EqualPoint)
+              {
+                ed.WriteMessage($"\nStopped at page {page}. Assumed end of document.");
+                TryEraseReferenceT24(pref);
+                if (definitionCreated)
+                {
+                  TryRemoveDefinitionT24(pdfDict, defKey);
+                }
+                break;
+              }
+
+              Point3d pagePosition;
+
+              if (!firstPlaced)
+              {
+                pageW = new Vector3d(w, 0, 0);
+                pageH = new Vector3d(0, h, 0);
+
+                pagePosition = new Point3d(anchorTR.X - w, anchorTR.Y - h, 0);
+                pref.UpgradeOpen();
+                pref.Position = pagePosition;
+                pref.DowngradeOpen();
+
+                firstPlaced = true;
+              }
+              else
+              {
+                pagePosition = new Point3d(
+                    (anchorTR.X - pageW.X) - (col * pageW.X),
+                    (anchorTR.Y - pageH.Y) - (row * pageH.Y),
+                    0);
+
+                pref.UpgradeOpen();
+                pref.Position = pagePosition;
+                pref.DowngradeOpen();
+              }
+
+              // Track the last page's top-left corner
+              // Position is bottom-left, so top-left = position + height
+              lastPageTopLeft = new Point3d(pagePosition.X, pagePosition.Y + h, 0);
+
+              successfulPages++;
+              col++;
+              if (col >= perRow)
+              {
+                row++;
+                col = 0;
+              }
+            }
+            catch (System.Exception ex)
+            {
+              ed.WriteMessage($"\nAn error occurred while inserting page {page}: {ex.Message}");
+              TryEraseReferenceT24(pref);
+              if (definitionCreated)
+              {
+                TryRemoveDefinitionT24(pdfDict, defKey);
+              }
+              break;
+            }
+          }
+
+          tr.Commit();
+        }
+
+        if (successfulPages > 0)
+        {
+          ed.WriteMessage($"\nSuccessfully inserted {successfulPages} page(s).");
+
+          // 4. Now place text and images on the last page
+          ed.WriteMessage($"\nPlacing text on last page at top-left: ({lastPageTopLeft.X:F4}, {lastPageTopLeft.Y:F4})");
+
+          var textDataToUse = BuildT24TextDataForTemplate(selectedTemplate, signatureSettings?.SelectedLayout);
+          int textCount = CreateTextObjectsAtPoint(db, ed, textDataToUse, lastPageTopLeft, true);
+          ed.WriteMessage($"\nCreated {textCount} text object(s) with current date: {DateTime.Now:MM/dd/yyyy}");
+
+          // 5. Place images using selected signature
+          if (T24ImageData.Count > 0 && selectedSignature != null)
+          {
+            List<ImageInfoData> imageDataToUse;
+            string imageFolder;
+
+            if (File.Exists(selectedSignature.FilePath))
+            {
+              // Use selected signature - create modified image data list
+              imageDataToUse = T24ImageData.Select(img => new ImageInfoData
+              {
+                ImageFileName = Path.GetFileName(selectedSignature.FilePath),
+                OffsetX = img.OffsetX,
+                OffsetY = img.OffsetY,
+                OffsetZ = img.OffsetZ,
+                ScaleX = img.ScaleX,
+                ScaleY = img.ScaleY,
+                Rotation = img.Rotation,
+                Layer = img.Layer
+              }).ToList();
+
+              imageFolder = Path.GetDirectoryName(selectedSignature.FilePath);
+              ed.WriteMessage($"\nUsing signature: {selectedSignature.Name}");
+            }
+            else
+            {
+              // Signature file missing - use default from DWG folder as fallback
+              imageDataToUse = T24ImageData;
+              imageFolder = Path.GetDirectoryName(db.Filename);
+              ed.WriteMessage($"\nWarning: Signature file not found, using default from drawing folder.");
+            }
+
+            int imageCount = CreateImagesAtPoint(db, ed, imageDataToUse, lastPageTopLeft, imageFolder);
+            ed.WriteMessage($"\nCreated {imageCount} image(s).");
+          }
+        }
+        else
+        {
+          ed.WriteMessage("\nNo pages were inserted.");
+        }
+      }
+      catch (System.Exception ex)
+      {
+        ed.WriteMessage($"\nError: {ex.Message}");
+      }
+    }
+
+    // ============================================================================
+    // HELPER METHODS
+    // ============================================================================
+
+    /// <summary>
+    /// Builds T24 text data with template values applied.
+    /// </summary>
+    private List<TextInfoData> BuildT24TextDataForTemplate(T24TemplateEntry template, string layout)
+    {
+      var baseTextData = GetT24TextDataForLayout(layout);
+      if (template == null)
+        return baseTextData.Select(CloneTextInfoData).ToList();
+
+      string name = template.ResponsibleName ?? string.Empty;
+      string company = template.Company ?? string.Empty;
+      string address1 = template.AddressLine1 ?? string.Empty;
+      string address2 = template.AddressLine2 ?? string.Empty;
+      string phone = template.Phone ?? string.Empty;
+      string license = template.License ?? string.Empty;
+
+      return baseTextData.Select(info =>
+      {
+        var clone = CloneTextInfoData(info);
+        clone.TextContent = (clone.TextContent ?? string.Empty)
+          .Replace("{NAME}", name)
+          .Replace("{COMPANY}", company)
+          .Replace("{ADDRESS1}", address1)
+          .Replace("{ADDRESS2}", address2)
+          .Replace("{PHONE}", phone)
+          .Replace("{LICENSE}", license);
+        return clone;
+      }).ToList();
+    }
+
+    private static List<TextInfoData> GetT24TextDataForLayout(string layout)
+    {
+      string normalizedLayout = SignatureManager.NormalizeLayout(layout);
+      return normalizedLayout == SignatureManager.Layout2022 ? T24TextData2022 : T24TextData2025;
+    }
+
+    private static TextInfoData CloneTextInfoData(TextInfoData info)
+    {
+      return new TextInfoData
+      {
+        TextType = info.TextType,
+        TextContent = info.TextContent,
+        OffsetX = info.OffsetX,
+        OffsetY = info.OffsetY,
+        OffsetZ = info.OffsetZ,
+        Height = info.Height,
+        Rotation = info.Rotation,
+        TextStyleName = info.TextStyleName,
+        Layer = info.Layer,
+        ColorIndex = info.ColorIndex,
+        WidthFactor = info.WidthFactor,
+        Oblique = info.Oblique,
+        HorizontalMode = info.HorizontalMode,
+        VerticalMode = info.VerticalMode,
+        AlignmentOffsetX = info.AlignmentOffsetX,
+        AlignmentOffsetY = info.AlignmentOffsetY,
+        AlignmentOffsetZ = info.AlignmentOffsetZ,
+        MTextWidth = info.MTextWidth,
+        Attachment = info.Attachment
+      };
+    }
+
+    /// <summary>
+    /// Creates text objects at a specified base point from a list of TextInfoData.
+    /// </summary>
+    private int CreateTextObjectsAtPoint(Database db, Editor ed, List<TextInfoData> textDataList, Point3d basePoint, bool replaceDatePlaceholder)
+    {
+      int createdCount = 0;
+      string currentDate = DateTime.Now.ToString("MM/dd/yyyy");
+
+      using (Transaction tr = db.TransactionManager.StartTransaction())
+      {
+        BlockTableRecord currentSpace = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
+        TextStyleTable tst = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
+
+        foreach (TextInfoData info in textDataList)
+        {
+          try
+          {
+            // Find or use default text style
+            ObjectId textStyleId = db.Textstyle;
+            if (tst.Has(info.TextStyleName))
+            {
+              textStyleId = tst[info.TextStyleName];
+            }
+
+            // Replace date placeholder if requested
+            string textContent = info.TextContent;
+            if (replaceDatePlaceholder && (textContent.Contains("{DATE}") || textContent.Contains("{date}")))
+            {
+              textContent = textContent.Replace("{DATE}", currentDate).Replace("{date}", currentDate);
+            }
+
+            if (info.TextType == "DBText")
+            {
+              DBText newText = new DBText();
+              newText.SetDatabaseDefaults();
+              newText.TextString = textContent;
+              newText.Position = new Point3d(
+                basePoint.X + info.OffsetX,
+                basePoint.Y + info.OffsetY,
+                basePoint.Z + info.OffsetZ);
+              newText.Height = info.Height;
+              newText.Rotation = info.Rotation;
+              newText.TextStyleId = textStyleId;
+              newText.Layer = EnsureLayerExists(tr, db, info.Layer);
+              newText.ColorIndex = info.ColorIndex;
+              newText.WidthFactor = info.WidthFactor > 0 ? info.WidthFactor : 1.0;
+              newText.Oblique = info.Oblique;
+              newText.HorizontalMode = (TextHorizontalMode)info.HorizontalMode;
+              newText.VerticalMode = (TextVerticalMode)info.VerticalMode;
+              newText.AlignmentPoint = new Point3d(
+                basePoint.X + info.AlignmentOffsetX,
+                basePoint.Y + info.AlignmentOffsetY,
+                basePoint.Z + info.AlignmentOffsetZ);
+
+              currentSpace.AppendEntity(newText);
+              tr.AddNewlyCreatedDBObject(newText, true);
+              createdCount++;
+            }
+            else if (info.TextType == "MText")
+            {
+              MText newText = new MText();
+              newText.SetDatabaseDefaults();
+              newText.Contents = textContent;
+              newText.Location = new Point3d(
+                basePoint.X + info.OffsetX,
+                basePoint.Y + info.OffsetY,
+                basePoint.Z + info.OffsetZ);
+              newText.TextHeight = info.Height;
+              newText.Rotation = info.Rotation;
+              newText.TextStyleId = textStyleId;
+              newText.Layer = EnsureLayerExists(tr, db, info.Layer);
+              newText.ColorIndex = info.ColorIndex;
+              newText.Width = info.MTextWidth;
+              newText.Attachment = (AttachmentPoint)info.Attachment;
+
+              currentSpace.AppendEntity(newText);
+              tr.AddNewlyCreatedDBObject(newText, true);
+              createdCount++;
+            }
+          }
+          catch (System.Exception ex)
+          {
+            ed.WriteMessage($"\nWarning: Could not create text '{info.TextContent}': {ex.Message}");
+          }
+        }
+
+        tr.Commit();
+      }
+
+      return createdCount;
+    }
+
+    /// <summary>
+    /// Creates raster images at a specified base point from a list of ImageInfoData.
+    /// </summary>
+    private int CreateImagesAtPoint(Database db, Editor ed, List<ImageInfoData> imageDataList, Point3d basePoint, string imageFolder)
+    {
+      int createdCount = 0;
+
+      using (Transaction tr = db.TransactionManager.StartTransaction())
+      {
+        // Get or create image dictionary
+        DBDictionary nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+        const string IMG_DICT_NAME = "ACAD_IMAGE_DICT";
+
+        DBDictionary imgDict;
+        if (nod.Contains(IMG_DICT_NAME))
+        {
+          imgDict = (DBDictionary)tr.GetObject(nod.GetAt(IMG_DICT_NAME), OpenMode.ForWrite);
+        }
+        else
+        {
+          nod.UpgradeOpen();
+          imgDict = new DBDictionary();
+          nod.SetAt(IMG_DICT_NAME, imgDict);
+          tr.AddNewlyCreatedDBObject(imgDict, true);
+        }
+
+        BlockTableRecord currentSpace = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
+
+        foreach (ImageInfoData info in imageDataList)
+        {
+          try
+          {
+            string imagePath = Path.Combine(imageFolder, info.ImageFileName);
+
+            if (!File.Exists(imagePath))
+            {
+              ed.WriteMessage($"\nWarning: Image file not found: {imagePath}");
+              continue;
+            }
+
+            // Create or get image definition
+            string defKey = info.ImageFileName;
+            ObjectId imgDefId;
+
+            if (imgDict.Contains(defKey))
+            {
+              imgDefId = imgDict.GetAt(defKey);
+            }
+            else
+            {
+              RasterImageDef imgDef = new RasterImageDef();
+              imgDef.SourceFileName = imagePath;
+              imgDef.Load();
+
+              imgDefId = imgDict.SetAt(defKey, imgDef);
+              tr.AddNewlyCreatedDBObject(imgDef, true);
+            }
+
+            // Create image reference
+            RasterImage rasterImage = new RasterImage();
+            rasterImage.ImageDefId = imgDefId;
+
+            // Set position and scale using coordinate system
+            Point3d position = new Point3d(
+              basePoint.X + info.OffsetX,
+              basePoint.Y + info.OffsetY,
+              basePoint.Z + info.OffsetZ);
+
+            Vector3d uVec = new Vector3d(info.ScaleX, 0, 0);
+            Vector3d vVec = new Vector3d(0, info.ScaleY, 0);
+
+            if (info.Rotation != 0)
+            {
+              double cos = Math.Cos(info.Rotation);
+              double sin = Math.Sin(info.Rotation);
+              uVec = new Vector3d(info.ScaleX * cos, info.ScaleX * sin, 0);
+              vVec = new Vector3d(-info.ScaleY * sin, info.ScaleY * cos, 0);
+            }
+
+            rasterImage.Orientation = new CoordinateSystem3d(position, uVec, vVec);
+            rasterImage.Layer = EnsureLayerExists(tr, db, info.Layer);
+
+            currentSpace.AppendEntity(rasterImage);
+            tr.AddNewlyCreatedDBObject(rasterImage, true);
+
+            createdCount++;
+          }
+          catch (System.Exception ex)
+          {
+            ed.WriteMessage($"\nWarning: Could not create image '{info.ImageFileName}': {ex.Message}");
+          }
+        }
+
+        tr.Commit();
+      }
+
+      return createdCount;
+    }
+
+    /// <summary>
+    /// Helper to ensure a layer exists, returns "0" if the specified layer doesn't exist.
+    /// </summary>
+    private string EnsureLayerExists(Transaction tr, Database db, string layerName)
+    {
+      LayerTable lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+      if (lt.Has(layerName))
+      {
+        return layerName;
+      }
+      return "0";
+    }
+
+    // PDF helper methods (duplicated from InsertPDFSheets to avoid dependency issues)
+    private static bool TryGetPdfPageCountT24(string pdfPath, out int pageCount)
+    {
+      try
+      {
+        const int ReadLimitBytes = 4 * 1024 * 1024;
+
+        using (FileStream fs = new FileStream(pdfPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+          int bufferSize = (int)Math.Min(ReadLimitBytes, fs.Length);
+          if (bufferSize <= 0)
+          {
+            pageCount = 0;
+            return false;
+          }
+
+          byte[] buffer = new byte[bufferSize];
+          int bytesRead = fs.Read(buffer, 0, bufferSize);
+          if (bytesRead <= 0)
+          {
+            pageCount = 0;
+            return false;
+          }
+
+          string text = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+          int maxCount = 0;
+
+          foreach (Match match in Regex.Matches(text, @"/Type\s*/Pages\b[^>]*?/Count\s+(\d+)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+          {
+            if (int.TryParse(match.Groups[1].Value, out int candidate) && candidate > maxCount)
+            {
+              maxCount = candidate;
+            }
+          }
+
+          if (maxCount == 0)
+          {
+            foreach (Match match in Regex.Matches(text, @"/Count\s+(\d+)", RegexOptions.IgnoreCase))
+            {
+              if (int.TryParse(match.Groups[1].Value, out int candidate) && candidate > maxCount)
+              {
+                maxCount = candidate;
+              }
+            }
+          }
+
+          if (maxCount > 0)
+          {
+            pageCount = maxCount;
+            return true;
+          }
+        }
+      }
+      catch
+      {
+      }
+
+      pageCount = 0;
+      return false;
+    }
+
+    private static void TryEraseReferenceT24(PdfReference reference)
+    {
+      if (reference == null) return;
+      try
+      {
+        if (reference.ObjectId.IsNull) return;
+        if (!reference.IsWriteEnabled) reference.UpgradeOpen();
+        reference.Erase();
+      }
+      catch { }
+    }
+
+    private static void TryRemoveDefinitionT24(DBDictionary pdfDict, string defKey)
+    {
+      if (pdfDict == null) return;
+      try
+      {
+        if (!pdfDict.IsWriteEnabled) pdfDict.UpgradeOpen();
+        if (pdfDict.Contains(defKey))
+        {
+          pdfDict.Remove(defKey);
+        }
+      }
+      catch { }
+    }
+
+    private static string ComputeStableHashSuffixT24(string input)
+    {
+      using (var sha1 = SHA1.Create())
+      {
+        byte[] hash = sha1.ComputeHash(Encoding.UTF8.GetBytes(input.ToLowerInvariant()));
+        return BitConverter.ToString(hash, 0, 3).Replace("-", string.Empty);
+      }
+    }
+
+    private static string BuildPdfDefinitionPrefixT24(string baseName, string pdfPath)
+    {
+      const int MaxSafeNameLength = 160;
+
+      string safeName = Regex.Replace(baseName ?? string.Empty, @"[^A-Za-z0-9_-]+", "_").Trim('_', '-');
+      if (string.IsNullOrWhiteSpace(safeName))
+      {
+        safeName = "PDF";
+      }
+
+      if (safeName.Length > MaxSafeNameLength)
+      {
+        safeName = safeName.Substring(0, MaxSafeNameLength).Trim('_', '-');
+      }
+
+      return $"PDF_{safeName}_{ComputeStableHashSuffixT24(pdfPath)}";
+    }
+
+    private static double InchesToDrawingUnitsT24(UnitsValue u)
+    {
+      switch (u)
+      {
+        case UnitsValue.Inches: return 1.0;
+        case UnitsValue.Feet: return 1.0 / 12.0;
+        case UnitsValue.Millimeters: return 25.4;
+        case UnitsValue.Centimeters: return 2.54;
+        case UnitsValue.Meters: return 0.0254;
+        default: return 1.0;
+      }
+    }
+  }
+}

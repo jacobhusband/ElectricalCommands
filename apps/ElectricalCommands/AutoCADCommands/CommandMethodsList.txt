@@ -1,0 +1,77 @@
+ElectricalCommands.TextCommands
+- TA / TextAdd (AutoCADCommands\TextCommands\AddValueToText.cs:14)
+- TEXTADD / TextAdd (AutoCADCommands\TextCommands\AddValueToText.cs:13)
+- TEXTCOUNT / TextCount (AutoCADCommands\TextCommands\TextCount.cs:14)
+- TEXTINCREMENT / TextIncrement (AutoCADCommands\TextCommands\IncrementTextContent.cs:14)
+- TEXTREPLACE / TextReplace (AutoCADCommands\TextCommands\ReplaceTextContent.cs:12)
+- TEXTSELECT / TextSelect (AutoCADCommands\TextCommands\TextSelect.cs:11)
+- TEXTSUM / TextSum (AutoCADCommands\T24Commands\GetSumFromText.cs:11)
+- TEXTSUMEXPORT / TextSumExport (AutoCADCommands\T24Commands\GetSumFromTextExport.cs:16)
+- TI / TextIncrement (AutoCADCommands\TextCommands\IncrementTextContent.cs:15)
+- TN / TextReplace (AutoCADCommands\TextCommands\ReplaceTextContent.cs:13)
+- TS / TextSum (AutoCADCommands\T24Commands\GetSumFromText.cs:12)
+- TSE / TextSumExport (AutoCADCommands\T24Commands\GetSumFromTextExport.cs:17)
+
+ElectricalCommands.T24Commands
+- IMGSHEETS / InsertPNGImages (AutoCADCommands\T24Commands\InsertPNGImages.cs:15)
+- PDFSHEETS / IPDF (AutoCADCommands\T24Commands\InsertPDFSheets.cs:21)
+- QI / InsertPNGImages (AutoCADCommands\T24Commands\InsertPNGImages.cs:16)
+- QP / IPDF (AutoCADCommands\T24Commands\InsertPDFSheets.cs:22)
+- T24 / T24Command (AutoCADCommands\T24Commands\T24Command.cs:139)
+
+ElectricalCommands.GetAttributesCommands
+
+ElectricalCommands.GeneralCommands
+- ADDNOTE / AddNote (AutoCADCommands\GeneralCommands\AddNoteCommand.cs:18)
+- AREALABEL / AREACALCULATOR (AutoCADCommands\T24Commands\CalculateAreas.cs:12)
+- LG / TurnXrefLayersGreen (AutoCADCommands\GeneralCommands\TurnGreen.cs:12)
+- LAYGREEN / TurnXrefLayersGreen (AutoCADCommands\GeneralCommands\TurnGreen.cs:11)
+- LAYRED / TurnLayerRed (AutoCADCommands\GeneralCommands\TurnRed.cs:22)
+- LR / TurnLayerRed (AutoCADCommands\GeneralCommands\TurnRed.cs:23)
+- OBJMASK / WO (AutoCADCommands\GeneralCommands\WipeoutObjects.cs:11)
+- OM / WO (AutoCADCommands\GeneralCommands\WipeoutObjects.cs:12)
+- PCL / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:19)
+- PROJECTCHECKLIST / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:18)
+- QA / AREACALCULATOR (AutoCADCommands\T24Commands\CalculateAreas.cs:13)
+- QUICKXREF / QuickXref (AutoCADCommands\GeneralCommands\QuickXref.cs:14)
+- QVP / CREATEVIEWPORTFROMREGION (AutoCADCommands\GeneralCommands\CreateViewportFromRegion.cs:16)
+- QXR / QuickXref (AutoCADCommands\GeneralCommands\QuickXref.cs:15)
+- VPFROMREG / CREATEVIEWPORTFROMREGION (AutoCADCommands\GeneralCommands\CreateViewportFromRegion.cs:15)
+
+AutoCADCleanupTool.CleanCADCommands
+- -FINALIZE-CLEANUP / FinalizeCleanupCommand (AutoCADCommands\CleanCADCommands\FinalizeCleanupCommand.cs:16)
+- -FINALIZE-PURGEDEFS / FinalizePurgeDefsCommand (AutoCADCommands\CleanCADCommands\FinalizePurgeDefsCommand.cs:15)
+- CLEANCAD / RunCleanSheet (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:71)
+- CLEANPS / ListPaperSpaceXrefs (AutoCADCommands\CleanCADCommands\DetectPaperSpaceXrefsCommand.cs:16)
+- CLEANTBLK / RunCleanTitleBlock (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:16)
+- DETACHREMAININGXREFS / RemoveRemainingXrefs (AutoCADCommands\CleanCADCommands\DetachSpecialXrefsCommand.cs:14)
+- EMBEDIMAGES / EmbedImages (AutoCADCommands\CleanCADCommands\EmbedFromXrefsCommand.cs:178)
+- EMBEDPDFS / EmbedPdfs (AutoCADCommands\CleanCADCommands\EmbedFromPdfCommand.cs:15)
+- FINALIZE / FinalizeDrawingCommand (AutoCADCommands\CleanCADCommands\FinalizeDrawingCommand.cs:16)
+- KEEPONLYTITLEBLOCKMS / KeepOnlyTitleBlockInModelSpace (AutoCADCommands\CleanCADCommands\KeepOnlyTitleBlockCommand.cs:16)
+- REMOVEREMAININGXREFS / RemoveRemainingXrefs (AutoCADCommands\CleanCADCommands\DetachSpecialXrefsCommand.cs:15)
+- VP2PL / ViewportToPolyline_AllLayouts (AutoCADCommands\CleanCADCommands\ViewportToPolyline.cs:14)
+- ZOOMTOLASTTB / ZoomToLastTitleBlock (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:246)
+
+ElectricalCommands.LFSCommands
+- LFS / LightingFixtureSchedule (AutoCADCommands\T24Commands\LightingFixtureSchedule.cs:19)
+- LFSOPEN / LightingFixtureScheduleOpenPalette (AutoCADCommands\T24Commands\LightingFixtureSchedulePaletteHost.cs:85)
+- LFSPULL / LightingFixtureSchedulePull (AutoCADCommands\T24Commands\LightingFixtureScheduleSync.cs:37)
+- LFSPUSH / LightingFixtureSchedulePush (AutoCADCommands\T24Commands\LightingFixtureScheduleSync.cs:120)
+- TABLEANALYZE / TableAnalyze (AutoCADCommands\T24Commands\TableAnalyze.cs:18)
+- TBA / TableAnalyze (AutoCADCommands\T24Commands\TableAnalyze.cs:19)
+
+ElectricalCommands.ControlScheduleCommands
+- CONTROLSCHEDULE / OpenControlScheduleAlias (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:54)
+- CSCHED / OpenControlSchedule (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:44)
+- CSCHEDLOAD / LoadControlSchedule (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:124)
+- CSCHEDPLACE / PlaceControlSchedule (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:60)
+- CSCHEDUPDATE / UpdateControlSchedule (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:90)
+
+ElectricalCommands.PlotCommands
+- P22 / Plot22x34 (AutoCADCommands\PlotCommands\PlotCommands.cs:76)
+- P24 / Plot24x36 (AutoCADCommands\PlotCommands\PlotCommands.cs:70)
+- P30 / Plot30x42 (AutoCADCommands\PlotCommands\PlotCommands.cs:64)
+- P36 / Plot36x48 (AutoCADCommands\PlotCommands\PlotCommands.cs:58)
+- PLOTMOVE / PlotAndMove (AutoCADCommands\PlotCommands\PlotCommands.cs:88)
+- QM / PlotAndMove (AutoCADCommands\PlotCommands\PlotCommands.cs:89)

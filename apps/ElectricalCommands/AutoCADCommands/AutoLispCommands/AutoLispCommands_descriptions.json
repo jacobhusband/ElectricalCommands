@@ -1,0 +1,12 @@
+{
+    "commands": {
+        "CLEANUP": "Runs SETBYLAYER on all objects, PURGE ALL, and AUDIT with fixes to clean the current drawing.",
+        "REV": "Creates a revision cloud and delta tag on new layers with a live preview.",
+        "SUMLENGTHS": "Sums the lengths of selected lines, arcs, polylines, and reports the total."
+    },
+    "links": {
+        "CLEANUP": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "REV": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737",
+        "SUMLENGTHS": "https://brainy-seahorse-3c5.notion.site/AutoLispCommands-2b13fdbb662c80479711de7b33eb2737"
+    }
+}

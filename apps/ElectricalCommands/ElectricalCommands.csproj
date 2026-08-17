@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 
+    TargetFramework is removed here because it is inherited from Directory.Build.props 
+  -->
+  <PropertyGroup>
+    <!-- Any project-specific settings can go here -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="AutoCADCommands\CleanCADCommands\AutoCADCommands.CleanCADCommands.csproj" />
+    <ProjectReference Include="AutoCADCommands\GeneralCommands\AutoCADCommands.GeneralCommands.csproj" />
+    <ProjectReference Include="AutoCADCommands\GetAttributesCommands\AutoCADCommands.GetAttributesCommands.csproj" />
+    <ProjectReference Include="AutoCADCommands\T24Commands\AutoCADCommands.T24Commands.csproj" />
+    <ProjectReference Include="AutoCADCommands\TextCommands\AutoCADCommands.TextCommands.csproj" />
+    <ProjectReference Include="AutoCADCommands\PlotCommands\AutoCADCommands.PlotCommands.csproj" />
+  </ItemGroup>
+</Project>
