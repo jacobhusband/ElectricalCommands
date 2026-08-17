@@ -100,8 +100,9 @@ namespace ElectricalCommands
       {
         ElectricalDrawingSettingsStore.WriteScale(db, paperInchesPerFoot, displayText);
         double symbolSize = ResolveHomerunSymbolSize(paperInchesPerFoot);
+        double receptBlockScale = ResolveReceptBlockScale(paperInchesPerFoot);
         ed.WriteMessage(
-          $"\nDrawing scale set to {displayText}. New HR objects will use a {FormatNumber(symbolSize)}\" arrow and text height; existing objects are unchanged."
+          $"\nDrawing scale set to {displayText}. New HR objects will use a {FormatNumber(symbolSize)}\" arrow and text height; new RECEPT blocks will use X/Y/Z scale {FormatNumber(receptBlockScale)}. Existing objects are unchanged."
         );
         HomerunSettingsPalette.Refresh();
         HomerunSettingsPalette.SetStatus($"Scale set to {displayText}.");
@@ -148,7 +149,7 @@ namespace ElectricalCommands
       try
       {
         ElectricalDrawingSettingsStore.WritePanelName(db, panelName);
-        ed.WriteMessage($"\nPanel name set to {panelName}. HR labels will start with {BuildPanelLabel(panelName)}");
+        ed.WriteMessage($"\nPanel name set to {panelName}. HR and receptacle labels will start with {BuildPanelLabel(panelName)}");
         HomerunSettingsPalette.Refresh();
         HomerunSettingsPalette.SetStatus($"Panel name set to {panelName}.");
       }

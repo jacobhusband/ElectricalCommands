@@ -17,7 +17,15 @@
         "HOMERUN": "Creates a scaled three-vertex Leader and panel-name MText using an interactive four-point workflow.",
         "HR": "Alias for HOMERUN.",
         "HRSETTINGS": "Opens a modeless palette for panel location, drawing scale, panel name, and home-run layer settings.",
-        "HRS": "Alias for HRSETTINGS."
+        "HRS": "Alias for HRSETTINGS.",
+        "R90": "Rotates selected objects 90 degrees around a specified base point.",
+        "R180": "Rotates selected objects 180 degrees around a specified base point.",
+        "R270": "Rotates selected objects 270 degrees around a specified base point.",
+        "R360": "Rotates selected objects 360 degrees around a specified base point.",
+        "RE": "Inserts the scaled RECEPT dynamic block facing east and prompts for its panel circuit label.",
+        "RN": "Inserts the scaled RECEPT dynamic block facing north and prompts for its panel circuit label.",
+        "RW": "Inserts the scaled RECEPT dynamic block facing west and prompts for its panel circuit label.",
+        "RS": "Inserts the scaled RECEPT dynamic block facing south and prompts for its panel circuit label."
     },
     "links": {
         "OBJMASK": "https://brainy-seahorse-3c5.notion.site/OBJMASK-2b13fdbb662c802fb082e4095528ec06",
