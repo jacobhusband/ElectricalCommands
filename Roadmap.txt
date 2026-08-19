@@ -1,0 +1,536 @@
+================================================================================
+ACIES ENGINEERING - ELECTRICAL CAD AUTOMATION & AGENTIC AI ARCHITECTURE
+Technical Master Specification & Phased Engineering Roadmap
+================================================================================
+
+DISCIPLINE   : Electrical Engineering / MEP Systems Design
+COMPONENTS   : AutoCAD .NET (C#), Model Context Protocol (MCP), Python Orchestrator,
+               Multimodal Vision AI (Gemini Pro/Flash), Directed Circuit Graphs
+ENVIRONMENTS : Windows 10/11 Desktop, AutoCAD 2021-2026, accoreconsole.exe, APS
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. EXECUTIVE SUMMARY & MISSION STATEMENT
+2. END-TO-END SYSTEM TOPOLOGY & ARCHITECTURE
+3. AUTOCAD MODEL CONTEXT PROTOCOL (MCP) SERVER & IPC SPECIFICATION
+4. AUTOMATED ELECTRICAL SUBMITTAL REVIEW ENGINE (GEMINI VISION + PYMUPDF)
+5. AUTONOMOUS CROSS-DISCIPLINE RFI COPILOT (NEC 70 / TITLE 24)
+6. DIRECTED TOPOLOGICAL ELECTRICAL GRAPH ENGINE & REAL-TIME SYNC
+7. PANEL SCHEDULE, LOAD FLOW & EXCEL OLE SYNC ENGINE
+8. HEADLESS BATCH PROCESSING & NIGHTLY CI/CD (accoreconsole.exe)
+9. FORMAL DATA CONTRACTS & JSON SCHEMAS
+10. PHASED IMPLEMENTATION ROADMAP & SPRINT BREAKDOWN
+
+================================================================================
+1. EXECUTIVE SUMMARY & MISSION STATEMENT
+================================================================================
+Traditional Computer-Aided Design (CAD) automation in electrical consulting relies
+on isolated, user-initiated utility macros (e.g., custom C# commands for symbol
+scaling, layer filters, and manual Title 24 table exports). These tools operate
+as passive utilities rather than intelligent design partners.
+
+The ACIES Engineering Next-Gen Architecture elevates these discrete tools into an
+Autonomous Electrical Engineering Copilot. By wrapping the native C# AutoCAD engine
+with the open Model Context Protocol (MCP) and pairing it with multimodal reasoning
+models (Google Gemini), the platform achieves:
+  1. Real-Time Energy Code Validation: Instant Title 24 Lighting Power Density (LPD)
+     auditing and mandatory control verification during design.
+  2. Automated Submittal Audits: High-speed ingestion of 50-200 page manufacturer
+     cut sheets, validating critical parameters against project specifications
+     and CAD schedules with automated visual stamping.
+  3. Cross-Discipline RFI Resolution: Automated reconciliation between Mechanical
+     equipment schedules (M-sheets) and Electrical distribution (E-sheets), sizing
+     feeders, OCPDs, and disconnects per NEC Article 430/440.
+  4. Dynamic Topological Graph Sync: Continuous real-time calculations of voltage
+     drop, conduit fill, and panel load balancing directly driven by floor plan
+     drawing edits.
+  5. Nightly Headless QA/QC: Unattended batch verification via accoreconsole.exe
+     generating compliance reports and identifying drafting anomalies before
+     engineering seal.
+
+================================================================================
+2. END-TO-END SYSTEM TOPOLOGY & ARCHITECTURE
+================================================================================
+
++-------------------------------------------------------------------------------+
+|                             AI CLIENT LAYER                                  |
+|   Claude Desktop  /  Cursor IDE  /  Antigravity IDE  /  ProjectManagement UI  |
++---------------------------------------+---------------------------------------+
+                                        |
+                                        | (MCP Protocol: stdio / SSE)
+                                        v
++-------------------------------------------------------------------------------+
+|           CENTRAL AI ORCHESTRATOR & MCP GATEWAY (apps/ProjectManagement)      |
+|                                                                               |
+|  * MCP Tool Server & Routing Hub       * Multimodal Cut-Sheet Review Engine   |
+|  * NEC 70 / Title 24 Calculation Core  * Cross-Discipline Schedule Parser     |
+|  * SQLite Graph Sync & Project DB      * Nightly Batch Runner Coordinator     |
++-------------------+-----------------------------------+-----------------------+
+                    |                                   |
+   (IPC: Named Pipe / HTTP REST)             (Google Gemini Vision / APS API)
+                    |                                   |
+                    v                                   v
++------------------------------------+   +--------------------------------------+
+| AUTOCAD .NET C# ENGINE             |   | EXTERNAL CLOUD & AI SERVICES         |
+| (apps/ElectricalCommands)          |   |                                      |
+|                                    |   | * Google Gemini 2.5 / 3.0 Pro & Flash|
+| * IExtensionApplication IPC Server |   |   (High-DPI Visual Cut-Sheet OCR)    |
+| * Document.LockDocument() UI Sync  |   | * Autodesk Platform Services (APS)   |
+| * Native DWG Entity Graph Engine   |   |   (Optional Cloud Batch Automation)  |
+| * accoreconsole.exe Headless Host  |   |                                      |
++-------------------+----------------+   +--------------------------------------+
+                    |
+                    v
++-------------------------------------------------------------------------------+
+|                          PERSISTENCE & DATA CONTRACTS                         |
+|                                                                               |
+|  * DWG Extension Dictionaries & Named Object Dictionaries (NOD)               |
+|  * Project Database: shared/schema.sqlite                                     |
+|  * Formal JSON Schemas: shared/schemas/*.schema.json                          |
++-------------------------------------------------------------------------------+
+
+--------------------------------------------------------------------------------
+Layer Boundaries & Responsibilities:
+--------------------------------------------------------------------------------
+1. AI Client Layer: The conversational interface where electrical engineers and
+   designers submit natural language prompts, request compliance audits, or
+   upload submittal PDFs.
+2. Central Python MCP Gateway (apps/ProjectManagement): Hosts the MCP server,
+   translates high-level agent tasks into specific CAD tool calls, runs heavy
+   multimodal vision pipelines, evaluates NEC math, and manages project SQLite data.
+3. AutoCAD .NET C# Engine (apps/ElectricalCommands): Runs embedded within AutoCAD
+   or accoreconsole.exe. Listens on IPC channels, acquires document locks on the
+   main UI thread, and performs high-speed geometric queries, entity placements,
+   table updates, and attribute manipulations.
+4. Shared Storage & Contracts: Strict JSON schemas in `shared/schemas/` guarantee
+   type-safe, versioned interoperability between C# and Python.
+
+================================================================================
+3. AUTOCAD MODEL CONTEXT PROTOCOL (MCP) SERVER & IPC SPECIFICATION
+================================================================================
+To expose AutoCAD functionality to AI models safely and asynchronously, the C#
+extension implements a hybrid IPC server inside AutoCAD's runtime environment.
+
+--------------------------------------------------------------------------------
+3.1. IPC Transport & Thread Synchronization
+--------------------------------------------------------------------------------
+AutoCAD operates on a Single-Threaded Apartment (STA) UI model. Direct database
+modifications from background worker threads cause immediate access violations.
+
+Implementation Architecture:
+1. Transport Protocols:
+   - Primary: Windows Named Pipe `\\.\pipe\AciesCadIpc` (low latency, secure).
+   - Secondary / Debug: Localhost HTTP REST `http://127.0.0.1:8765/api/v1/cad/`.
+2. Lifecycle Hook:
+   - Hosted inside `IExtensionApplication.Initialize()` in C#.
+   - Launches an asynchronous listener thread without blocking CAD startup.
+3. Execution Dispatcher:
+   - Requests received on worker threads are posted to the AutoCAD UI thread via
+     `SynchronizationContext` or `Application.DocumentManager.MdiActiveDocument`.
+   - The dispatcher executes within a `using (doc.LockDocument())` and
+     `using (Transaction tr = db.TransactionManager.StartTransaction())` block.
+   - Comprehensive error wrapping catches and serializes AutoCAD exceptions into
+     standardized JSON error payloads.
+
+--------------------------------------------------------------------------------
+3.2. Core MCP Tool Catalog (C# <-> Python Contract)
+--------------------------------------------------------------------------------
+
+Tool 1: `cad_query_panel_schedule`
+  * Description: Queries the complete electrical configuration, connected loads,
+    breaker sizes, and phase balance for a named panelboard.
+  * Inputs:
+    {
+      "panelName": "LP-1",
+      "dwgPath": "optional/path/to/drawing.dwg"
+    }
+  * Returns: Schema-compliant `panel_schedule.schema.json` payload.
+
+Tool 2: `cad_audit_title24_space`
+  * Description: Extracts space boundary geometry, luminaire blocks, control
+    devices, calculates actual vs allowed LPD (W/sq ft) per Title 24 Table 140.6-B.
+  * Inputs:
+    {
+      "spaceHandleOrRoomNumber": "RM-102",
+      "codeYear": "2022",
+      "method": "AREA_CATEGORY_METHOD"
+    }
+  * Returns: Schema-compliant `title24_space.schema.json` payload.
+
+Tool 3: `cad_insert_device_layout`
+  * Description: Generates and places device blocks (receptacles, luminaires,
+    sensors) along a boundary polyline or grid with specified spacing and offsets.
+  * Inputs:
+    {
+      "boundaryHandle": "4A2F",
+      "deviceType": "RECEPTACLE_DUPLEX_GFCI",
+      "spacingFt": 12.0,
+      "wallOffsetInches": 18.0,
+      "layer": "E-POWR-DEVC"
+    }
+  * Returns:
+    {
+      "status": "SUCCESS",
+      "placedCount": 8,
+      "handles": ["5B01", "5B02", "5B03", ...]
+    }
+
+Tool 4: `cad_sync_circuit_graph`
+  * Description: Triggers a complete topological graph rebuild of the active DWG,
+    extracting panels, transformers, homeruns, and branch devices into SQLite.
+  * Inputs:
+    {
+      "fullProjectRescan": false
+    }
+  * Returns: Schema-compliant `circuit_graph.schema.json` payload.
+
+Tool 5: `cad_place_circuit_homerun`
+  * Description: Automatically draws arc/polyline homerun wire ticks and homerun
+    arrow pointing to target panelboard, assigning circuit metadata.
+  * Inputs:
+    {
+      "deviceHandles": ["5B01", "5B02", "5B03"],
+      "panelName": "LP-1",
+      "circuitNumber": 14,
+      "wireCallout": "2#12, 1#12G, 3/4\"C"
+    }
+  * Returns:
+    {
+      "status": "SUCCESS",
+      "homerunHandle": "6C10"
+    }
+
+================================================================================
+4. AUTOMATED ELECTRICAL SUBMITTAL REVIEW ENGINE (GEMINI VISION + PYMUPDF)
+================================================================================
+Electrical submittals routinely exceed 100 pages of dense manufacturer specification
+sheets. The automated review engine eliminates manual cut-sheet verification.
+
+--------------------------------------------------------------------------------
+4.1. Ingestion, OCR & Multimodal Vision Pipeline
+--------------------------------------------------------------------------------
+1. PDF Rasterization & Preprocessing:
+   - High-fidelity PDF rendering via `PyMuPDF` (fitz) at 300 DPI.
+   - Vector text extraction combined with high-resolution image rendering for
+     diagrammatic or tabular cut sheets.
+2. Multimodal Extraction (Google Gemini 2.5 / 3.0 Pro & Flash):
+   - Structured JSON schema enforcement using Gemini Structured Outputs.
+   - Target Electrical Extraction Schema:
+     * Luminaire Submittals: Fixture Type, Manufacturer, Model Number, Input Watts,
+       Delivered Lumens, CCT (2700K/3000K/3500K/4000K), CRI (>=90 for T24 JA8),
+       Dimming Protocol (0-10V down to 1% or 10%, DALI), Voltage (120-277V),
+       Listing/Certifications (UL, DLC, Title 24 JA8-2022).
+     * Gear Submittals: Voltage, Phase, Bus Ampacity, Main Breaker Trip, AIC Rating,
+       NEMA Enclosure Type (1, 3R, 4X), Copper vs Aluminum busbars.
+
+--------------------------------------------------------------------------------
+4.2. Discrepancy Matrix & Tolerance Verification
+--------------------------------------------------------------------------------
+The extracted vendor parameters are programmatically evaluated against the
+baseline established in CAD Drawing Schedules and CSI Division 26 Specifications:
+
+Review Decision Rules:
+  - APPROVED (Green):
+    All parameters match or exceed project requirements.
+  - APPROVED AS NOTED (Yellow):
+    Minor acceptable variance that does not compromise code or design intent
+    (e.g., driver dimming to 5% when 1% requested, provided room is non-critical).
+  - REVISE & RESUBMIT (Red):
+    Critical non-compliance:
+    * Voltage mismatch (e.g., 120V specified on 277V lighting circuit).
+    * Missing California Title 24 JA8 certification marking.
+    * Insufficient Short-Circuit AIC rating (e.g., 10kAIC supplied vs 22kAIC required).
+    * Missing emergency battery backup or step-dimming modules.
+
+--------------------------------------------------------------------------------
+4.3. Automated Visual Stamping & PDF Report Generation
+--------------------------------------------------------------------------------
+Using `PyMuPDF`, the review engine:
+1. Embeds the official ACIES Engineering Submittal Review Stamp on the cover
+   sheet with dynamic date, reviewer signature block, and review status.
+2. Draws colored bounding boxes around identified parameter discrepancies
+   directly on the manufacturer PDF pages with explanatory margin callouts.
+3. Generates a standalone Submittal Audit Report conforming to
+   `submittal_report.schema.json`.
+
+================================================================================
+5. AUTONOMOUS CROSS-DISCIPLINE RFI COPILOT (NEC 70 / TITLE 24)
+================================================================================
+Over 60% of electrical construction RFIs result from uncoordinated mechanical,
+plumbing, or architectural equipment changes. The RFI Copilot automates cross-
+discipline resolution.
+
+--------------------------------------------------------------------------------
+5.1. Multi-Discipline Document Ingestion
+--------------------------------------------------------------------------------
+The RFI Copilot ingests:
+  - Mechanical Schedules: M-501, M-601 (RTUs, AHUs, Fans, Chilers, Boilers).
+  - Plumbing Schedules: P-501 (Water Heaters, Sump Pumps, Booster Pumps).
+  - Electrical Power Plans: E-201, E-202, One-Line Diagrams, and Panel Schedules.
+  - Contractor RFI Question Text / PDF.
+
+--------------------------------------------------------------------------------
+5.2. NEC 70 Calculation & Sizing Rules
+--------------------------------------------------------------------------------
+When resolving equipment power mismatches, the AI Copilot applies rigorous NEC math:
+
+1. Motor Branch Circuit Protection (NEC Article 430.52):
+   - Sizing Inverse Time Circuit Breakers: \(I_{OCPD} \le 2.50 \times I_{FLC}\)
+   - Dual-Element Time-Delay Fuses: \(I_{Fuse} \le 1.75 \times I_{FLC}\)
+2. Air Conditioning & Refrigeration Equipment (NEC Article 440):
+   - Minimum Circuit Ampacity (MCA): Feeder Ampacity \(\ge \text{MCA}\)
+   - Maximum Overcurrent Protection (MOP): Breaker Size \(\le \text{MOP}\)
+3. Conductor Ampacity & Thermal Derating (NEC 310.15 & 310.16):
+   - Derating for ambient temperature and conduit bundling (>3 current-carrying
+     conductors).
+4. Equipment Grounding Conductor (NEC Table 250.122):
+   - Automatic up-sizing of ground conductor when phase conductors are enlarged
+     for voltage drop.
+5. Motor Disconnect Sizing (NEC 430.102):
+   - Horsepower-rated disconnect required within line-of-sight (<50 ft).
+
+--------------------------------------------------------------------------------
+5.3. Automated Dual Deliverables: Response Letter + CAD Revision Script
+--------------------------------------------------------------------------------
+Output 1: Formal Engineering RFI Response Document
+  - Formats: PDF and Microsoft Word (.docx).
+  - Contains complete engineering rationale, NEC code citations, calculation steps,
+    and formal sign-off block.
+
+Output 2: Executable AutoCAD Revision Script (.SCR / MCP Command)
+  - Automatically modifies the affected panelboard schedule table cells.
+  - Updates homerun wire callout tags and breaker labels on Electrical plans.
+  - Flags modified DWG entities with revision clouds and delta triangles.
+
+================================================================================
+6. DIRECTED TOPOLOGICAL ELECTRICAL GRAPH ENGINE & REAL-TIME SYNC
+================================================================================
+To eliminate manual recalculations when electrical layouts change, the platform
+implements a native in-memory Directed Topological Graph.
+
+--------------------------------------------------------------------------------
+6.1. Graph Topology & Physical Hierarchy
+--------------------------------------------------------------------------------
+Nodes represent physical electrical equipment; Edges represent physical conduit/wire:
+
+  [Utility Service Entrance]
+             |
+             v (Service Feeder)
+    [Main Switchboard MSB]
+             |
+             +-----------------------+
+             | (Feeder 480V)         | (Step-down Transformer 480V-208V/120V)
+             v                       v
+    [Distribution Panel HPP]       [Distribution Panel LP1]
+             |                               |
+      (Branch Homerun)                (Branch Homerun)
+             v                               v
+    [Motor / Disconnect]          [Daisy-Chained Receptacles & Lights]
+
+--------------------------------------------------------------------------------
+6.2. Physical Calculation Formulations
+--------------------------------------------------------------------------------
+1. Voltage Drop:
+   - Single-Phase (120V, 208V 1-ph, 240V, 277V):
+     \[
+     V_{\text{drop}} = \frac{2 \times K \times I \times L}{\text{Circular Mils}}
+     \]
+   - Three-Phase (208V 3-ph, 480V 3-ph):
+     \[
+     V_{\text{drop}} = \frac{\sqrt{3} \times K \times I \times L}{\text{Circular Mils}}
+     \]
+   - Where:
+     * \(K = 12.9\,\Omega\cdot\text{cmil/ft}\) for Copper at 75°C.
+     * \(K = 21.2\,\Omega\cdot\text{cmil/ft}\) for Aluminum at 75°C.
+     * \(L\) = Orthogonal Manhattan routing distance + 10 ft vertical rise.
+   - Compliance Limits: Branch circuit drop \(\le 3.0\%\); Total cumulative drop \(\le 5.0\%\).
+
+2. Conduit Fill (NEC Chapter 9, Tables 1, 4, 5):
+   - 1 Conductor: 53% max fill.
+   - 2 Conductors: 31% max fill.
+   - 3+ Conductors: 40% max fill.
+
+3. Available Short-Circuit Current (IEEE 1584 / Point-to-Point Method):
+   \[
+   f = \frac{1.732 \times L \times I_{\text{sc, source}}}{C \times n \times V_{\text{line}}}
+   \quad\text{and}\quad
+   I_{\text{sc, load}} = \frac{I_{\text{sc, source}}}{1 + f}
+   \]
+
+--------------------------------------------------------------------------------
+6.3. CAD Event Hooks & Hybrid Persistence
+--------------------------------------------------------------------------------
+- Real-Time Event Listeners: C# hooks into `Database.ObjectModified`,
+  `Database.ObjectAppended`, and `Database.ObjectErased`.
+- Moving a luminaire or adding receptacles automatically recalculates length,
+  voltage drop, and panel load in real time.
+- Hybrid Persistence:
+  * In-DWG: Extension Dictionaries & Named Object Dictionaries (NOD) preserve
+    persistent CAD entity handles (`ObjectId.Handle`).
+  * Cross-Drawing Project DB: `shared/schema.sqlite` holds the multi-sheet
+    system graph for instant query without opening all drawings.
+
+================================================================================
+7. PANEL SCHEDULE, LOAD FLOW & EXCEL OLE SYNC ENGINE
+================================================================================
+Provides bi-directional, loss-less synchronization between AutoCAD native tables,
+Excel OLE schedules, and the central circuit graph database.
+
+--------------------------------------------------------------------------------
+7.1. NEC Article 220 Demand Factor Processing
+--------------------------------------------------------------------------------
+Load classifications are grouped and factored according to NEC 220 rules:
+  1. Continuous Lighting (NEC 220.12): 100% connected load \(\times 1.25\).
+  2. Non-Dwelling Receptacles (NEC 220.44): First 10 kVA at 100%, remainder at 50%.
+  3. Motors (NEC 220.50): 125% of largest motor + 100% of all other motors.
+  4. Commercial Kitchen Equipment (NEC 220.56): Demand factors based on quantity:
+     - 1-2 units: 100%
+     - 3 units: 90%
+     - 4 units: 80%
+     - 5 units: 70%
+     - 6+ units: 65%
+  5. Space Heating vs Cooling (NEC 220.60): Omit the smaller of non-coincident loads.
+
+--------------------------------------------------------------------------------
+7.2. Dynamic Phase Balancing Algorithm
+--------------------------------------------------------------------------------
+- Objective: Minimize phase unbalance on 3-phase, 4-wire panelboards (Phase A, B, C).
+- Target: Phase unbalance percentage \(\le 5.0\%\):
+  \[
+  \text{Unbalance } \% = \frac{\max(V\!A_A, V\!A_B, V\!A_C) - \min(V\!A_A, V\!A_B, V\!A_C)}{\text{Average}(V\!A_A, V\!A_B, V\!A_C)} \times 100
+  \]
+- Automated Heuristic Optimizer: Evaluates 1-pole branch loads, swaps pole
+  assignments while maintaining breaker pairing constraints, and updates CAD tables.
+
+================================================================================
+8. HEADLESS BATCH PROCESSING & NIGHTLY CI/CD (accoreconsole.exe)
+================================================================================
+Automates quality assurance and compliance verification without opening the
+interactive AutoCAD GUI.
+
+--------------------------------------------------------------------------------
+8.1. Automated QA/QC Rule Suite
+--------------------------------------------------------------------------------
+- Rule QA-01: Uncircuited Device Audit
+  Flags any luminaire, receptacle, or mechanical disconnect lacking a homerun
+  or circuit number tag.
+- Rule QA-02: NEC 430.102 Disconnect Proximity Check
+  Verifies that every mechanical motor load has an electrical disconnect switch
+  within 50 feet and unobstructed line-of-sight.
+- Rule QA-03: NEC 210.8 GFCI Proximity Verification
+  Performs spatial buffer analysis: all convenience receptacles within 6 feet of
+  sinks, wet bars, or exterior doors must be GFCI protected.
+- Rule QA-04: Title 24 Mandatory Control Completeness
+  Validates that every enclosed space contains manual on/off switching, multi-level
+  dimming, and an occupancy/vacancy sensor.
+
+--------------------------------------------------------------------------------
+8.2. Title 24 Compliance Form Exporters
+--------------------------------------------------------------------------------
+- NRCC-LTI-E Generator: Exports official California Energy Commission compliance
+  forms (XML and PDF) with complete room-by-room LPD allowances and wattages.
+- NRCC-LTC-E Generator: Exports mandatory lighting control certificates of
+  compliance.
+
+--------------------------------------------------------------------------------
+8.3. Dual-Engine Execution Pipeline
+--------------------------------------------------------------------------------
+- Local Desktop Runner:
+  Managed by `apps/ProjectManagement` background workers invoking `accoreconsole.exe`
+  with custom script generation and log parsing.
+- Cloud Runner Interface:
+  Autodesk Platform Services (APS) Design Automation API integration for cloud-based
+  batch auditing of multi-user project repositories.
+
+================================================================================
+9. FORMAL DATA CONTRACTS & JSON SCHEMAS
+================================================================================
+Type-safe cross-application contracts are stored in `shared/schemas/`:
+
+1. `panel_schedule.schema.json`
+   - Defines bus ratings, voltages, breaker poles, phase loads, and demand summaries.
+2. `circuit_graph.schema.json`
+   - Defines node hierarchies, feeder edge specs, lengths, conduit fill, and voltage drops.
+3. `title24_space.schema.json`
+   - Defines room boundary polygons, occupancy categories, allowed/actual LPD, and controls.
+4. `submittal_report.schema.json`
+   - Defines PDF review matrices, parameter extractions, discrepancy flags, and stamp actions.
+5. `mcp_cad_tools.schema.json`
+   - Defines MCP tool declarations, inputs, outputs, and AutoCAD execution flags.
+
+================================================================================
+10. PHASED IMPLEMENTATION ROADMAP & SPRINT BREAKDOWN
+================================================================================
+
+--------------------------------------------------------------------------------
+PHASE 1: DATA CONTRACTS, SQLITE LAYER & STRUCTURED CAD EXPORTERS
+Target Timeline: Sprints 1 - 2
+--------------------------------------------------------------------------------
+- Sprint 1: Formal Schemas & SQLite Project Database
+  * Deliverable: Complete JSON schemas in `shared/schemas/`.
+  * Deliverable: SQLite project database initializer (`shared/schema.sqlite`).
+  * Files: `shared/schemas/*.json`, `apps/ProjectManagement/database.py`.
+- Sprint 2: Structured AutoCAD C# Extractors
+  * Deliverable: C# commands `EXPORTSCHEDULES`, `EXPORTTITLE24SPACES`, `EXPORTCIRCUITS`.
+  * Deliverable: Serialization of AutoCAD Table entities and block attributes to JSON.
+  * Files: `apps/ElectricalCommands/AutoCADCommands/GetAttributesCommands/`.
+
+--------------------------------------------------------------------------------
+PHASE 2: MULTIMODAL SUBMITTAL REVIEW ENGINE & STAMPING
+Target Timeline: Sprints 3 - 4
+--------------------------------------------------------------------------------
+- Sprint 3: Multimodal Vision Ingestion (Gemini + PyMuPDF)
+  * Deliverable: PDF cut-sheet rasterization and structured parameter extraction.
+  * Deliverable: Spec baseline parser for CSI Division 26 PDF documents.
+  * Files: `apps/ProjectManagement/submittal_review.py`, `apps/ProjectManagement/prompts/`.
+- Sprint 4: Discrepancy Matrix & Automated Visual Stamping
+  * Deliverable: Rules engine comparing vendor specs against CAD baseline.
+  * Deliverable: Dynamic PDF stamping and highlight annotations via PyMuPDF.
+  * Deliverable: Submittal Review tab in ProjectManagement Web UI.
+  * Files: `apps/ProjectManagement/index.html`, `apps/ProjectManagement/script.js`.
+
+--------------------------------------------------------------------------------
+PHASE 3: EMBEDDED AUTOCAD IPC & PYTHON MCP GATEWAY
+Target Timeline: Sprints 5 - 6
+--------------------------------------------------------------------------------
+- Sprint 5: AutoCAD C# Named Pipe / HTTP Listener
+  * Deliverable: Asynchronous IPC server hosted inside `IExtensionApplication`.
+  * Deliverable: Safe UI-thread dispatcher using `Document.LockDocument()`.
+  * Files: `apps/ElectricalCommands/AutoCADCommands/IpcServer/`.
+- Sprint 6: Python MCP Server & AI Agent Gateway
+  * Deliverable: FastMCP / MCP SDK implementation in `apps/ProjectManagement`.
+  * Deliverable: MCP tool adapters routing AI prompts to live AutoCAD sessions.
+  * Files: `apps/ProjectManagement/mcp_server.py`.
+
+--------------------------------------------------------------------------------
+PHASE 4: DIRECTED TOPOLOGICAL CIRCUIT GRAPH & PANEL SYNC
+Target Timeline: Sprints 7 - 8
+--------------------------------------------------------------------------------
+- Sprint 7: In-Memory Topological Circuit Graph Engine
+  * Deliverable: Directed graph data structure with voltage drop and conduit fill math.
+  * Deliverable: AutoCAD database event listeners (`ObjectModified`, `ObjectAppended`).
+  * Files: `apps/ElectricalCommands/AutoCADCommands/GraphEngine/`.
+- Sprint 8: Panel Schedule & Excel OLE Live Sync
+  * Deliverable: Bi-directional sync between CAD Tables, Excel OLE, and SQLite.
+  * Deliverable: NEC 220 demand factoring and automated phase load balancing optimizer.
+  * Files: `apps/ElectricalCommands/AutoCADCommands/ControlScheduleCommands/`.
+
+--------------------------------------------------------------------------------
+PHASE 5: CROSS-DISCIPLINE RFI COPILOT & NIGHTLY CI/CD SUITE
+Target Timeline: Sprints 9 - 10
+--------------------------------------------------------------------------------
+- Sprint 9: Cross-Discipline RFI Resolution Copilot
+  * Deliverable: Multi-schedule extractor (Mechanical M-501 vs Electrical E-201).
+  * Deliverable: NEC 430/440 calculation engine and formal response letter generator.
+  * Deliverable: Automated CAD script (.SCR) generation for drawing revisions.
+  * Files: `apps/ProjectManagement/rfi_copilot.py`.
+- Sprint 10: Headless Batch Auditing & CI/CD Runner
+  * Deliverable: Automated QA/QC rule checker via `accoreconsole.exe`.
+  * Deliverable: Title 24 NRCC-LTI-E / NRCC-LTC-E XML compliance report generator.
+  * Deliverable: Nightly batch runner scheduler in ProjectManagement desktop app.
+  * Files: `apps/ProjectManagement/PlotDWGs.ps1`, `apps/ProjectManagement/batch_audit.py`.
+
+================================================================================
+END OF TECHNICAL SPECIFICATION & ROADMAP
+================================================================================

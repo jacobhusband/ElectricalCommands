@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aciesengineering.com/schemas/submittal_report.schema.json",
+  "title": "SubmittalAuditReport",
+  "description": "Schema defining automated electrical manufacturer submittal review results, discrepancy matrices, and stamp actions for ACIES Engineering.",
+  "type": "object",
+  "required": [
+    "submittalId",
+    "projectName",
+    "equipmentType",
+    "vendorName",
+    "reviewStatus",
+    "timestamp",
+    "discrepancies",
+    "stampAction"
+  ],
+  "properties": {
+    "submittalId": { "type": "string" },
+    "projectName": { "type": "string" },
+    "specSection": { "type": "string", "description": "e.g. 26 51 00 Interior Lighting, 26 24 16 Panelboards" },
+    "equipmentType": { "type": "string" },
+    "vendorName": { "type": "string" },
+    "cutSheetPdfPath": { "type": "string" },
+    "stampedPdfPath": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "reviewStatus": {
+      "type": "string",
+      "enum": ["APPROVED", "APPROVED_AS_NOTED", "REVISE_AND_RESUBMIT", "REJECTED"]
+    },
+    "stampAction": {
+      "type": "object",
+      "required": ["decision", "reviewedBy", "summaryComments"],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["APPROVED", "APPROVED_AS_NOTED", "REVISE_AND_RESUBMIT", "REJECTED"]
+        },
+        "reviewedBy": { "type": "string", "default": "ACIES AI Submittal Review Engine" },
+        "summaryComments": { "type": "string" },
+        "pageReviewCoordinates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pageNumber": { "type": "integer" },
+              "boxX": { "type": "number" },
+              "boxY": { "type": "number" },
+              "boxWidth": { "type": "number" },
+              "boxHeight": { "type": "number" },
+              "annotationText": { "type": "string" },
+              "severity": { "type": "string", "enum": ["INFO", "WARNING", "CRITICAL"] }
+            }
+          }
+        }
+      }
+    },
+    "discrepancies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["parameterName", "cadSpecBaseline", "vendorExtractedValue", "compliance", "severity"],
+        "properties": {
+          "parameterName": { "type": "string", "description": "e.g. CCT, CRI, Dimming Range, Voltage, AIC Rating, JA8" },
+          "cadSpecBaseline": { "type": "string" },
+          "vendorExtractedValue": { "type": "string" },
+          "compliance": { "type": "string", "enum": ["MATCH", "DEVIATION_ACCEPTABLE", "NON_COMPLIANT"] },
+          "severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "BLOCKING"] },
+          "citationOrNote": { "type": "string" },
+          "sourcePdfPage": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

@@ -323,14 +323,41 @@ class PowerShellCadWrapperTests(unittest.TestCase):
         ):
             self.assertIn(expected, text)
 
-    def test_script_runner_debug_output_is_safe_for_legacy_windows_codecs(self):
+    def test_script_runner_uses_logging_instead_of_worker_thread_stdout(self):
         text = MAIN_PY_PATH.read_text(encoding="utf-8")
         replacement_line = "AutoCAD output with replacement character: \ufffd"
-        debug_line = f"DEBUG THREAD OUTPUT: {replacement_line!a}"
+        debug_line = f"CAD worker output: {replacement_line!a}"
 
-        self.assertIn('print(f"DEBUG THREAD OUTPUT: {line!a}")', text)
+        self.assertIn('logging.debug("CAD worker output for %r: %a", tool_id, line)', text)
+        self.assertNotIn('print(f"DEBUG THREAD OUTPUT:', text)
         self.assertNotIn("\ufffd", debug_line)
         debug_line.encode("cp1252")
+
+    def test_script_runner_tracks_non_daemon_workers_and_stops_them_on_exit(self):
+        text = MAIN_PY_PATH.read_text(encoding="utf-8")
+
+        for expected in (
+            "def stop_script_workers(self, timeout=8):",
+            "self._script_shutdown_event.set()",
+            "self._terminate_script_process(process)",
+            'name=f"cad-script-{tool_id}"',
+            "daemon=False,",
+            "api.stop_script_workers()",
+        ):
+            self.assertIn(expected, text)
+
+    def test_standalone_cad_launch_selects_files_before_starting_powershell(self):
+        text = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+
+        for expected in (
+            "async function resolveCadFilesBeforeLaunch(launchContext = null) {",
+            'if (source === "workroom" || existingFiles.length)',
+            "window.pywebview.api.select_files({",
+            'file_types: ["Drawing Files (*.dwg)", "All Files (*.*)"],',
+            "default_directory: getLaunchContextProjectRoot(context) || undefined,",
+            "launchContext = await resolveCadFilesBeforeLaunch(launchContext);",
+        ):
+            self.assertIn(expected, text)
 
     @unittest.skipUnless(sys.platform == "win32", "PowerShell STA relaunch is Windows-only")
     def test_sta_relaunch_preserves_files_list_path(self):

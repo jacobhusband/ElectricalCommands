@@ -35,6 +35,17 @@ import uuid
 from contextlib import closing
 from urllib.parse import parse_qs, urlencode, urlparse, unquote
 
+try:
+    from apps.ProjectManagement import database as db_layer
+    from apps.ProjectManagement import panel_schedule_sync as panel_sync_engine
+except ImportError:
+    try:
+        import database as db_layer
+        import panel_schedule_sync as panel_sync_engine
+    except ImportError:
+        db_layer = None
+        panel_sync_engine = None
+
 # Work around NumPy 2.x removing scalar aliases used by openpyxl.
 _NUMPY_ALIAS_MAP = {
     "short": "int16",
@@ -108,6 +119,7 @@ from openpyxl.worksheet.copier import WorksheetCopy
 from pydantic import BaseModel, Field
 from PIL import Image as PILImage, ImageOps, UnidentifiedImageError
 from lighting_plan import LightingPlanValidationError, analyze_lighting_plan
+from symbol_counter import SymbolCounterError, SymbolCounterService
 
 
 _PROJECT_PAGE_PDF_VOID_TAGS = frozenset({
@@ -3210,9 +3222,89 @@ class Api:
         self._panel_schedule_thread = None
         self._panel_schedule_job_record = None
         self._panel_schedule_job_lock = threading.Lock()
+        self._script_worker_lock = threading.Lock()
+        self._script_workers = set()
+        self._script_processes = set()
+        self._script_shutdown_event = threading.Event()
+        self._symbol_counter_service = SymbolCounterService(
+            get_app_data_path("symbol-counter-cache")
+        )
         if self.test_mode:
             logging.info(
                 "Api initialized in ACIES_TEST_MODE. CAD tools run in deterministic validation mode.")
+
+    def _get_symbol_counter_service(self):
+        service = getattr(self, "_symbol_counter_service", None)
+        if service is None:
+            service = SymbolCounterService(get_app_data_path("symbol-counter-cache"))
+            self._symbol_counter_service = service
+        return service
+
+    def prepare_symbol_count_documents(self, pdf_paths):
+        """Open one or more PDF drawing sets for an interactive count session."""
+        try:
+            data = self._get_symbol_counter_service().prepare_documents(pdf_paths or [])
+            return {'status': 'success', 'data': data}
+        except SymbolCounterError as e:
+            return {'status': 'error', 'message': str(e)}
+        except Exception as e:
+            logging.exception("Failed to prepare symbol-count documents")
+            return {'status': 'error', 'message': str(e)}
+
+    def get_symbol_count_page(self, session_id, page_id):
+        """Render one PDF page and return it as a browser-safe image."""
+        try:
+            data = self._get_symbol_counter_service().get_page(session_id, page_id)
+            return {'status': 'success', 'data': data}
+        except SymbolCounterError as e:
+            return {'status': 'error', 'message': str(e)}
+        except Exception as e:
+            logging.exception("Failed to render symbol-count page")
+            return {'status': 'error', 'message': str(e)}
+
+    def count_pdf_symbols(self, session_id, request):
+        """Find instances matching a user-selected PDF symbol."""
+        try:
+            data = self._get_symbol_counter_service().count(session_id, request or {})
+            return {'status': 'success', 'data': data}
+        except SymbolCounterError as e:
+            return {'status': 'error', 'message': str(e)}
+        except Exception as e:
+            logging.exception("PDF symbol matching failed")
+            return {'status': 'error', 'message': str(e)}
+
+    def export_symbol_count_results(self, session_id, symbols, output_path=None):
+        """Export reviewed symbol quantities and their audit trail to Excel."""
+        try:
+            service = self._get_symbol_counter_service()
+            if not output_path:
+                defaults = service.get_export_defaults(session_id)
+                window = webview.windows[0]
+                output_path = window.create_file_dialog(
+                    webview.FileDialog.SAVE,
+                    directory=defaults['directory'],
+                    save_filename=defaults['filename'],
+                    file_types=('Excel Files (*.xlsx)',),
+                )
+                if not output_path:
+                    return {'status': 'cancelled'}
+                if isinstance(output_path, (list, tuple)):
+                    output_path = output_path[0] if output_path else None
+            data = service.export_results(session_id, symbols or [], output_path)
+            return {'status': 'success', 'data': data}
+        except SymbolCounterError as e:
+            return {'status': 'error', 'message': str(e)}
+        except Exception as e:
+            logging.exception("Failed to export symbol-count results")
+            return {'status': 'error', 'message': str(e)}
+
+    def close_symbol_count_session(self, session_id):
+        try:
+            self._get_symbol_counter_service().close_session(session_id)
+            return {'status': 'success'}
+        except Exception as e:
+            logging.warning("Failed to close symbol-count session: %s", e)
+            return {'status': 'error', 'message': str(e)}
 
     # --- Application update helpers ---
     def _fetch_latest_release(self):
@@ -3605,16 +3697,105 @@ class Api:
             logging.error(f"Failed to uninstall {bundle_name}: {e}")
             return {'status': 'error', 'message': f"Failed to uninstall {bundle_name}: {e}"}
 
+    def _ensure_script_worker_state(self):
+        """Initializes CAD worker tracking for normal and test-created Api instances."""
+        if not hasattr(self, '_script_worker_lock') or self._script_worker_lock is None:
+            self._script_worker_lock = threading.Lock()
+        if not hasattr(self, '_script_workers') or self._script_workers is None:
+            self._script_workers = set()
+        if not hasattr(self, '_script_processes') or self._script_processes is None:
+            self._script_processes = set()
+        if not hasattr(self, '_script_shutdown_event') or self._script_shutdown_event is None:
+            self._script_shutdown_event = threading.Event()
+
+    def _terminate_script_process(self, process):
+        """Stops one script process and any child CAD processes it launched."""
+        if process is None or process.poll() is not None:
+            return
+
+        if sys.platform == 'win32':
+            try:
+                subprocess.run(
+                    ['taskkill.exe', '/PID', str(process.pid), '/T', '/F'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    check=False,
+                )
+            except Exception as e:
+                logging.warning(
+                    "Could not stop CAD script process tree %s with taskkill: %s",
+                    process.pid,
+                    e,
+                )
+
+        if process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            except Exception as e:
+                logging.warning(
+                    "Could not stop CAD script process %s: %s",
+                    getattr(process, 'pid', '<unknown>'),
+                    e,
+                )
+
+    def stop_script_workers(self, timeout=8):
+        """Stops active CAD scripts and waits briefly for their reader threads to exit."""
+        self._ensure_script_worker_state()
+        self._script_shutdown_event.set()
+        with self._script_worker_lock:
+            processes = list(self._script_processes)
+            workers = list(self._script_workers)
+
+        for process in processes:
+            self._terminate_script_process(process)
+
+        deadline = time.monotonic() + max(float(timeout or 0), 0)
+        current_thread = threading.current_thread()
+        for worker in workers:
+            if worker is current_thread or not worker.is_alive():
+                continue
+            remaining = max(deadline - time.monotonic(), 0)
+            if remaining <= 0:
+                break
+            worker.join(remaining)
+
+        still_running = [worker.name for worker in workers if worker.is_alive()]
+        if still_running:
+            logging.warning(
+                "CAD script workers did not stop before shutdown timeout: %s",
+                ', '.join(still_running),
+            )
+        return not still_running
+
     def _run_script_with_progress(self, command, tool_id, activity_id=None, wait=False):
         """
         Runs a script in a separate thread, captures its stdout, and sends
         progress updates to the frontend.
         """
+        self._ensure_script_worker_state()
+        if self._script_shutdown_event.is_set():
+            return {
+                'status': 'error',
+                'message': 'The application is shutting down and cannot start another CAD tool.',
+            }
+
         result_holder = {'status': 'started'}
 
         def script_runner():
+            process = None
             try:
-                print(f"DEBUG THREAD: Starting script for {tool_id!a}")
+                if self._script_shutdown_event.is_set():
+                    result_holder.update({
+                        'status': 'cancelled',
+                        'message': 'CAD tool stopped because the application closed.',
+                    })
+                    return
+                logging.info("CAD worker starting script for %r", tool_id)
                 startupinfo = None
                 if sys.platform == "win32":
                     startupinfo = subprocess.STARTUPINFO()
@@ -3656,15 +3837,23 @@ class Api:
                         command=command,
                     )
 
-                print(f"DEBUG THREAD: Process started, reading output...")
+                with self._script_worker_lock:
+                    self._script_processes.add(process)
+                if self._script_shutdown_event.is_set():
+                    self._terminate_script_process(process)
+                logging.info(
+                    "CAD worker process started for %r (pid=%s)",
+                    tool_id,
+                    process.pid,
+                )
                 last_progress_error = ""
                 for line in iter(process.stdout.readline, ''):
                     line = line.strip()
                     # PowerShell/AutoCAD output can contain replacement characters
                     # that a bundled Windows app's legacy stdout codec cannot encode.
                     # This output is diagnostic only, so escape non-ASCII characters
-                    # before printing rather than aborting the CAD worker thread.
-                    print(f"DEBUG THREAD OUTPUT: {line!a}")
+                    # before logging rather than aborting the CAD worker thread.
+                    logging.debug("CAD worker output for %r: %a", tool_id, line)
                     if line.startswith("PROGRESS:"):
                         message = line[len("PROGRESS:"):].strip()
                         if message.startswith("TRACE"):
@@ -3677,22 +3866,33 @@ class Api:
                         if message.startswith("ERROR:"):
                             last_progress_error = message[len(
                                 "ERROR:"):].strip() or message
-                        self._notify_tool_status(
-                            tool_id,
-                            message,
-                            activity_id=activity_id,
-                        )
+                        if not self._script_shutdown_event.is_set():
+                            self._notify_tool_status(
+                                tool_id,
+                                message,
+                                activity_id=activity_id,
+                            )
 
                 process.stdout.close()
                 return_code = process.wait()
-                print(f"DEBUG THREAD: Process finished with return code {return_code}")
+                logging.info(
+                    "CAD worker process for %r finished with return code %s",
+                    tool_id,
+                    return_code,
+                )
                 self._trace_cad_auto_select(
                     'script_subprocess_exit',
                     tool_id=tool_id,
                     return_code=return_code,
                 )
 
-                if return_code == 0:
+                if self._script_shutdown_event.is_set():
+                    result_holder.update({
+                        'status': 'cancelled',
+                        'message': 'CAD tool stopped because the application closed.',
+                        'returnCode': return_code,
+                    })
+                elif return_code == 0:
                     self._notify_tool_status(
                         tool_id,
                         "DONE",
@@ -3721,22 +3921,42 @@ class Api:
                     })
 
             except Exception as e:
-                print(f"DEBUG THREAD ERROR: {e!a}")
-                import traceback
-                traceback.print_exc()
-                logging.error(f"Failed to execute script for {tool_id}: {e}")
-                self._notify_tool_status(
-                    tool_id,
-                    f"ERROR: {str(e)}",
-                    activity_id=activity_id,
-                )
+                logging.exception("Failed to execute script for %s", tool_id)
+                if not self._script_shutdown_event.is_set():
+                    self._notify_tool_status(
+                        tool_id,
+                        f"ERROR: {str(e)}",
+                        activity_id=activity_id,
+                    )
                 result_holder.update({
                     'status': 'error',
                     'message': str(e),
                 })
+            finally:
+                if process is not None:
+                    if process.stdout is not None and not process.stdout.closed:
+                        try:
+                            process.stdout.close()
+                        except Exception:
+                            pass
+                    with self._script_worker_lock:
+                        self._script_processes.discard(process)
+                with self._script_worker_lock:
+                    self._script_workers.discard(threading.current_thread())
 
-        thread = threading.Thread(target=script_runner)
-        thread.start()
+        thread = threading.Thread(
+            target=script_runner,
+            name=f"cad-script-{tool_id}",
+            daemon=False,
+        )
+        with self._script_worker_lock:
+            self._script_workers.add(thread)
+        try:
+            thread.start()
+        except Exception:
+            with self._script_worker_lock:
+                self._script_workers.discard(thread)
+            raise
         if wait:
             thread.join()
             return dict(result_holder)
@@ -6703,6 +6923,95 @@ Return ONLY the JSON object.
             logging.error(f"Error saving tasks: {e}")
             return {'status': 'error', 'message': str(e)}
 
+    def get_panel_schedules(self, project_id):
+        """Retrieves list of panel schedules for a project from unified SQLite DB."""
+        try:
+            if db_layer is None:
+                return {'status': 'error', 'message': 'Database layer is unavailable.', 'panels': []}
+            db_layer.init_db()
+            panels = db_layer.list_panel_schedules(str(project_id or ''))
+            return {'status': 'success', 'panels': panels}
+        except Exception as e:
+            logging.error(f"Error fetching panel schedules: {e}")
+            return {'status': 'error', 'message': str(e), 'panels': []}
+
+    def get_panel_schedule_detail(self, panel_id):
+        """Retrieves full panel schedule details with circuits."""
+        try:
+            if db_layer is None:
+                return {'status': 'error', 'message': 'Database layer is unavailable.'}
+            db_layer.init_db()
+            panel = db_layer.get_panel_schedule(str(panel_id or ''))
+            if not panel:
+                return {'status': 'not_found', 'message': f'Panel not found: {panel_id}'}
+            return {'status': 'success', 'panel': panel}
+        except Exception as e:
+            logging.error(f"Error fetching panel schedule detail: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def sync_project_panel_schedules(self, project_id, workbook_path=None):
+        """Syncs panel schedule workbook into unified SQLite DB for a project."""
+        try:
+            if db_layer is None or panel_sync_engine is None:
+                return {'status': 'error', 'message': 'Database or Sync Engine layer is unavailable.'}
+            db_layer.init_db()
+            p_id = str(project_id or '').strip()
+            w_path = str(workbook_path or '').strip()
+            
+            if not w_path:
+                tasks = _read_json_file_strict(TASKS_FILE) if os.path.exists(TASKS_FILE) else []
+                proj = next((p for p in tasks if str(p.get('id') or p.get('number') or '') == p_id), None)
+                if proj and proj.get('path'):
+                    candidate = os.path.join(proj['path'], 'Panels.xlsx')
+                    if os.path.exists(candidate):
+                        w_path = candidate
+                    else:
+                        candidate_elec = os.path.join(proj['path'], 'Electrical', 'Panels.xlsx')
+                        if os.path.exists(candidate_elec):
+                            w_path = candidate_elec
+
+            if not w_path or not os.path.exists(w_path):
+                return {'status': 'error', 'message': f'Panel schedule workbook not found at: {w_path or "default project directory"}'}
+
+            synced = panel_sync_engine.sync_panel_workbook_to_db(p_id, w_path)
+            return {'status': 'success', 'syncedCount': len(synced), 'panels': synced}
+        except Exception as e:
+            logging.error(f"Error syncing panel schedules: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def import_cad_schedule_export(self, project_id, export_json_path):
+        """Imports CAD export JSON generated by EXPORTSCHEDULES command."""
+        try:
+            if db_layer is None:
+                return {'status': 'error', 'message': 'Database layer is unavailable.'}
+            db_layer.init_db()
+            p_id = str(project_id or '').strip()
+            exp_path = str(export_json_path or '').strip()
+            if not os.path.exists(exp_path):
+                return {'status': 'error', 'message': f'Export JSON not found at: {exp_path}'}
+            
+            with open(exp_path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            
+            dwg_path = payload.get('DrawingPath', '')
+            dwg_record = None
+            if dwg_path:
+                dwg_record = db_layer.upsert_drawing(p_id, dwg_path)
+
+            ole_frames = payload.get('OleFrames', [])
+            tables = payload.get('Tables', [])
+            
+            return {
+                'status': 'success',
+                'drawing': dwg_record,
+                'oleCount': len(ole_frames),
+                'tableCount': len(tables),
+                'payload': payload
+            }
+        except Exception as e:
+            logging.error(f"Error importing CAD schedule export: {e}")
+            return {'status': 'error', 'message': str(e)}
+
     def get_lighting_schedule_sync(self, dwg_path):
         """Read project-specific light fixture schedule sync JSON near the DWG."""
         try:
@@ -6959,6 +7268,7 @@ Return ONLY the JSON object.
                     "T24Output.json must contain a JSON array of room entries.")
 
             rows = []
+            explicit_total = None
             for idx, item in enumerate(payload, start=1):
                 if not isinstance(item, dict):
                     raise ValueError(
@@ -6979,13 +7289,17 @@ Return ONLY the JSON object.
                     raise ValueError(
                         f"Entry #{idx} has non-finite or negative SquareFeet: {square_feet_raw!r}.")
 
-                rows.append({
-                    "roomType": room_type,
-                    "squareFeet": round(square_feet, 4)
-                })
+                if room_type.upper() == "TOTAL":
+                    explicit_total = round(square_feet, 4)
+                else:
+                    rows.append({
+                        "roomType": room_type,
+                        "squareFeet": round(square_feet, 4)
+                    })
 
-            total_square_feet = round(
+            calculated_total = round(
                 sum(row["squareFeet"] for row in rows), 4)
+            total_square_feet = explicit_total if explicit_total is not None else calculated_total
             mtime = os.path.getmtime(normalized_path)
             modified = datetime.datetime.fromtimestamp(mtime).isoformat()
 
@@ -15055,6 +15369,35 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
         temp_file.close()
         return temp_file.name
 
+    def _select_cad_files_in_app(self, default_directory=''):
+        """Uses the app-owned picker so hidden PowerShell never owns file selection."""
+        selection = self.select_files({
+            'allow_multiple': True,
+            'file_types': ['Drawing Files (*.dwg)', 'All Files (*.*)'],
+            'default_directory': default_directory or None,
+        })
+        if not isinstance(selection, dict) or selection.get('status') != 'success':
+            return selection if isinstance(selection, dict) else {
+                'status': 'error',
+                'message': 'Could not open the DWG file picker.',
+            }
+
+        file_paths = self._normalize_dwg_file_paths(
+            selection.get('paths'), require_exists=True)
+        if not file_paths:
+            return {'status': 'cancelled', 'paths': []}
+
+        return {
+            'status': 'success',
+            'paths': file_paths,
+            'selection': {
+                'files_list_path': self._write_files_list_temp(file_paths),
+                'folder_path': self._get_shared_parent_folder(file_paths),
+                'count': len(file_paths),
+                'resolution_mode': 'app_file_picker',
+            },
+        }
+
     def _source_display_path(self, source):
         if not isinstance(source, dict):
             return ''
@@ -16338,6 +16681,36 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
                 project_path=fallback_context.get('project_path') or '',
                 discipline=fallback_context.get('discipline') or '',
             )
+        if not auto_selection:
+            self._notify_tool_status(
+                'toolPublishDwgs',
+                "Select DWG files to publish...",
+                activity_id=activity_id,
+            )
+            picker_result = self._select_cad_files_in_app(
+                self._resolve_launch_context_default_directory(
+                    launch_context,
+                    allow_workroom=True,
+                )
+            )
+            if picker_result.get('status') == 'cancelled':
+                return {
+                    'status': 'cancelled',
+                    'activityId': str(activity_id or '').strip(),
+                }
+            if picker_result.get('status') != 'success':
+                error_message = picker_result.get('message') or 'Could not select DWG files.'
+                self._notify_tool_status(
+                    'toolPublishDwgs',
+                    f"ERROR: {error_message}",
+                    activity_id=activity_id,
+                )
+                return {
+                    'status': 'error',
+                    'message': error_message,
+                    'activityId': str(activity_id or '').strip(),
+                }
+            auto_selection = picker_result['selection']
         command = self._build_powershell_script_command(
             script_path,
             '-AcadCore',
@@ -16358,9 +16731,15 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             ])
             selected_count = auto_selection.get('count')
             if isinstance(selected_count, int) and selected_count > 0:
+                selection_mode = auto_selection.get('resolution_mode') or 'workroom'
+                selection_message = (
+                    f"Using selected DWGs ({selected_count})..."
+                    if selection_mode == 'app_file_picker'
+                    else f"Using auto-selected DWGs ({selected_count}) via {selection_mode}..."
+                )
                 self._notify_tool_status(
                     'toolPublishDwgs',
-                    f"Using auto-selected DWGs ({selected_count}) via {auto_selection.get('resolution_mode') or 'workroom'}...",
+                    selection_message,
                     activity_id=activity_id,
                 )
         elif default_directory:
@@ -16461,6 +16840,36 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
                 project_path=fallback_context.get('project_path') or '',
                 discipline=fallback_context.get('discipline') or '',
             )
+        if not auto_selection:
+            self._notify_tool_status(
+                'toolManageLayers',
+                "Select DWG files to update...",
+                activity_id=activity_id,
+            )
+            picker_result = self._select_cad_files_in_app(
+                self._resolve_launch_context_default_directory(
+                    launch_context,
+                    allow_workroom=True,
+                )
+            )
+            if picker_result.get('status') == 'cancelled':
+                return {
+                    'status': 'cancelled',
+                    'activityId': str(activity_id or '').strip(),
+                }
+            if picker_result.get('status') != 'success':
+                error_message = picker_result.get('message') or 'Could not select DWG files.'
+                self._notify_tool_status(
+                    'toolManageLayers',
+                    f"ERROR: {error_message}",
+                    activity_id=activity_id,
+                )
+                return {
+                    'status': 'error',
+                    'message': error_message,
+                    'activityId': str(activity_id or '').strip(),
+                }
+            auto_selection = picker_result['selection']
         command = self._build_powershell_script_command(
             script_path,
             '-AcadCore',
@@ -16479,9 +16888,15 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             ])
             selected_count = auto_selection.get('count')
             if isinstance(selected_count, int) and selected_count > 0:
+                selection_mode = auto_selection.get('resolution_mode') or 'workroom'
+                selection_message = (
+                    f"Using selected DWGs ({selected_count})..."
+                    if selection_mode == 'app_file_picker'
+                    else f"Using auto-selected DWGs ({selected_count}) via {selection_mode}..."
+                )
                 self._notify_tool_status(
                     'toolManageLayers',
-                    f"Using auto-selected DWGs ({selected_count}) via {auto_selection.get('resolution_mode') or 'workroom'}...",
+                    selection_message,
                     activity_id=activity_id,
                 )
         elif default_directory:
@@ -17130,17 +17545,22 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
 
 # --- Main Application Setup ---
 if __name__ == '__main__':
+    # Ensure current working directory is set to ProjectManagement folder so relative paths (styles.css, script.js, assets) resolve properly
+    os.chdir(str(BASE_DIR))
     api = Api()
+    index_html_path = str(BASE_DIR / 'index.html')
     window = webview.create_window(
         'ACIES Desktop Application',
-        'index.html',
+        index_html_path,
         js_api=api,
         width=1400,
         height=900,
         resizable=True,
         min_size=(1024, 768)
     )
-    # --- FIX: Removed the line that caused the circular reference ---
-    webview.start()
-    # Cleanup subprocesses on exit
-    api.stop_circuit_breaker_server()
+    try:
+        webview.start()
+    finally:
+        # Stop worker-owned subprocesses before Python begins interpreter shutdown.
+        api.stop_script_workers()
+        api.stop_circuit_breaker_server()

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aciesengineering.com/schemas/mcp_cad_tools.schema.json",
+  "title": "McpCadToolContracts",
+  "description": "Schema defining Model Context Protocol (MCP) tool declarations, inputs, and outputs for the AutoCAD IPC integration in ACIES Engineering.",
+  "type": "object",
+  "required": ["tools"],
+  "properties": {
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "description", "parameters", "returns"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "type": "string", "enum": ["QUERY", "AUDIT", "DRAFTING", "CALCULATION", "BATCH"] },
+          "requiresDocumentLock": { "type": "boolean", "default": true },
+          "parameters": {
+            "type": "object",
+            "required": ["type", "properties"],
+            "properties": {
+              "type": { "type": "string", "const": "object" },
+              "properties": { "type": "object" },
+              "required": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string", "enum": ["SUCCESS", "ERROR", "WARNING"] },
+              "payload": { "type": "object" },
+              "errorMessage": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

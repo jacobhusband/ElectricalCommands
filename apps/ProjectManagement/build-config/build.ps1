@@ -106,6 +106,15 @@ try {
     Write-Host "Using Python: $venvPython" -ForegroundColor Gray
     Write-Host "Using PyInstaller spec: $pyInstallerSpecPath" -ForegroundColor Gray
     Ensure-HeifBuildDependencies -PythonPath $venvPython -RequirementsPath $requirementsPath
+    if (-not (Test-PythonImports -PythonPath $venvPython -Modules @("numpy", "cv2"))) {
+        Write-Host "Missing Symbol Counter build dependencies. Installing from requirements.txt..." -ForegroundColor Yellow
+        Invoke-CheckedCommand -Description "pip install -r requirements.txt" -Command {
+            & $venvPython -m pip install -r $requirementsPath
+        }
+    }
+    if (-not (Test-PythonImports -PythonPath $venvPython -Modules @("numpy", "cv2"))) {
+        throw "Symbol Counter build dependencies (numpy and cv2) are unavailable in .venv."
+    }
     Invoke-CheckedCommand -Description "PyInstaller availability check" -Command { & $venvPython -m PyInstaller --version | Out-Null }
 
     $wireSizerDir = Join-Path $projectRoot "WireSizerApplication"
@@ -196,6 +205,8 @@ try {
         (Join-Path $bundleInternal "index.html"),
         (Join-Path $bundleInternal "styles.css"),
         (Join-Path $bundleInternal "script.js"),
+        (Join-Path $bundleInternal "symbol_counter.css"),
+        (Join-Path $bundleInternal "symbol_counter_ui.js"),
         (Join-Path $bundleInternal "CircuitBreakerAI\ElectricalPanels\Template.xlsx"),
         (Join-Path $bundleInternal "WireSizerApplication\dist\index.html"),
         (Join-Path $bundleInternal "project-pages-editor\dist\project-pages-editor.js")

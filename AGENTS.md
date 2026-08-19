@@ -75,3 +75,156 @@ ACIES-Tools/
 2. **Preserve Comments & Standards**: Maintain existing CAD layering conventions, ACIES engineering standards, and docstrings.
 3. **Paths**: Use relative paths from repository root or project roots; avoid hardcoded user paths in source files.
 4. **No Destructive Overwrites**: Test builds using the portable .NET SDK before finalizing changes.
+
+---
+
+## 5. Typical ACIES Engineering Project Directory Structure
+
+Standard directory template referenced across `ProjectManagement` workflows and CAD tools (defined in `shared/templates/project_folder_structure.json`):
+
+```text
+<Drive>:/<Client>/<Account>/<Year>/<ProjectNumber> <ProjectName>, <Address>/
+├── Arch/                         # Incoming architectural background revisions (e.g. 'YYYY-MM-DD DD60', '_Design directions')
+├── Archive/                      # Historical milestone snapshots (dated YYYY-MM-DD)
+├── BGD/                          # Cleaned/converted background working assets
+├── CAD Release/                  # Cleaned/bound DWGs for consultant/contractor distribution
+├── Documents/                    # Administrative & coordination records
+│   ├── Applicable Codes/
+│   ├── ASR/
+│   ├── Change Order/
+│   ├── Commissioning/
+│   ├── Contacts/
+│   ├── Correspondence/
+│   ├── Plan check comments/
+│   ├── Project Schedule/
+│   └── Transmittals/
+├── Electrical/                   # Electrical engineering working files
+│   ├── Calculations/             # Fault calcs, voltage drop, load calcs
+│   ├── Checkset/                 # Dated QA/QC review prints (YYYY-MM-DD)
+│   ├── Clean CAD/                # Processed base CAD files
+│   ├── Markups/                  # Engineering redlines
+│   ├── Product Literature/       # Cut sheets and fixture specifications
+│   ├── Title 24/                 # Energy calculations & compliance forms
+│   ├── <ProjectNumber> Panels.xls# Active panel schedule workbook
+│   ├── T24Output.json            # Title 24 lighting metadata
+│   └── E00.00-E08.00 *.dwg       # Active working electrical sheets
+├── Mechanical/                   # Mechanical (HVAC) design files (M-1.dwg - M-5.dwg, Load Calc, Ventilation, etc.)
+├── Plumbing/                     # Plumbing design files (P-0.dwg - P-3.dwg, .dst sheet sets)
+├── PDF/                          # Published submittal packages (e.g. 'YYYY-MM-DD MEP CD90', 'YYYY-MM-DD MEP IFP')
+├── RFI/                          # Requests for Information logs and responses
+├── Submittals/                   # Contractor submittals by discipline (Electrical/, Mechanical/, Plumbing/)
+├── Survey/                       # Field investigation notes & photos ('YYYY-MM-DD Discipline (Initials)/Photos')
+└── Xrefs/                        # Working CAD references (x-TB.dwg, COVER SHEET.dwg, A01-xx to A11-xx bases)
+```
+
+---
+
+## 6. Submittal Review Workflow & Engineering Standards
+
+When performing electrical submittal reviews across ACIES projects, execute the following standardized procedure:
+
+### Step 1: Locate Submittal Packages
+- Locate incoming submittal packages in `<ProjectRoot>/Submittals/Electrical/YYYY-MM-DD <Description>/` (e.g. `Submittals/Electrical/2026-08-11 Lighting and Controls/`).
+- Identify the equipment category (Lighting, Controls, Switchgear, Panelboards, Transformers, etc.).
+
+### Step 2: Retrieve Baseline Design Documents (PDF Only)
+- Retrieve the latest issued electrical drawing set from `<ProjectRoot>/PDF/YYYY-MM-DD <Discipline> <Milestone>/` (e.g., `PDF/2025-12-22 MEP IFP/`).
+- **PDF-Only Process**: Submittal reviews are conducted strictly using PDF drawings and PDF cut sheets—do **not** open or access CAD/DWG files for submittal reviews.
+- Identify the relevant schedule and plan sheets in the PDF set (Lighting Fixture Schedule, Lighting Control Schedule, Single Line Diagram / Panel Schedules).
+
+### Step 3: Proactive PDF Markup & Duplication for Working Copy
+- **Automatic Execution on Review Request**: Whenever a submittal review is requested, immediately perform the engineering analysis AND automatically generate the marked-up working copy PDF:
+  - Pattern: `<OriginalSubmittalName> (<Initials>).pdf`
+  - Example: `Lighting Submittal.pdf` → `Lighting Submittal (JH).pdf` (for Jacob Husband / JH).
+- **Summary Cover Sheet**: Insert a blank page at the very beginning (above page 1) to host the review stamp and notation:
+  - **No Automated Stamping**: Do **not** place or embed the review stamp programmatically. The reviewer (Jacob) manually places and signs the ACIES interactive stamp in Bluebeam Revu at the end of the review.
+  - Place a concise text box in the lower section of the cover page (underneath the area reserved for the stamp):
+    - `Notation: See comments for architect to confirm on sheets: #, #, #.` (listing specific sheet numbers).
+- **Selective Page Comments & Markup Style**:
+  - Add comments to individual fixture/device pages **only when comments, corrections, or confirmations are needed**.
+  - If **No Exceptions are Taken** for a fixture type and no architect confirmation is needed, do **not** add any comments to that page.
+  - **Annotation Style & Formatting Rules**:
+    - **"ACIES:" Prefix on All Comments**: Every comment text box MUST start with `"ACIES: "` so the engineering firm is explicitly clear on all notations.
+    - **Centered Text & Auto-Resized Boxes**: Text within all comment boxes must be horizontally centered, and text box dimensions must be auto-resized to fit the text content tightly and cleanly with balanced padding.
+    - **Clean Text Boxes Only**: Place clean, well-positioned rectangular text boxes (yellow fill background, crisp red border, red text).
+    - **NO Arrows**: Do **not** place arrows, lines with arrows, or pointer callout leaders as they can be inaccurately placed.
+    - **NO Extra Rectangles / Bounding Boxes**: Do **not** draw extra rectangles or bounding outlines around tables, model headers, or text blocks.
+    - **Phrasing Conventions**:
+      - `"ACIES: Confirm finish with architect"`
+      - `"ACIES: Confirm fixture length and mounting with architect"`
+      - `"ACIES: Confirm mounting with architect"`
+      - `"ACIES: CORRECTION REQUIRED: Provide Double-Face model ..."`
+- Keep all comments and stamp elements in Bluebeam Revu **unflattened/modifiable** during drafting and review iterations.
+
+### Step 4: Discipline-Specific Review Guidelines
+- **a. Lighting Submittals**:
+  - Compare lighting fixture schedule specifications on the PDF sheet (catalog/part numbers, voltage, wattage/lumens, CCT, CRI, dimming type 0-10V/DALI/Triac, JA8/Title 24 rating) to the submittal cut sheets.
+  - **Single-Face vs. Double-Face Verification**:
+    - Cross-reference the architectural RCP sheet (`A04-xx`) and electrical lighting plan (`E02.00`).
+    - **Single Face**: Graphic symbol has solid hatch in **one quadrant**.
+    - **Double Face**: Graphic symbol has solid hatch in **two opposite quadrants**.
+  - **Emergency Power Architecture (Integral Battery vs. Central Inverter)**:
+    - Distinguish whether emergency lighting utilizes **Integral Emergency Battery Packs** (e.g., fixtures with `E`, `-EM`, or 90-minute internal packs) or a **Central Battery Inverter / Micro Inverter**.
+    - Cross-examine the **Lighting Plan (`E02.00`)**, **Lighting Fixture Schedule (`E05.00`)**, and the **Power Plan (`E01.00`) / Single Line Diagram (`E07.00`)** to verify the central battery/inverter location, electrical feed, and circuiting.
+  - Note any discrepancies against baseline schedules.
+  - Add explicit review comments for the **Architect** to confirm aesthetics & mounting: finish, color, trim options, housing style, CCT, and ceiling/wall mounting details.
+  - **Confirm with the Project Manager (PM)** if any technical or electrical specification differs from the design schedule.
+- **b. Lighting Controls Submittals**:
+  - Compare control schedule, device schedule, and sequence of operations on the PDF sheet to the submittal cut sheets and shop wiring diagrams.
+  - Check device types, dimming protocols, power packs, emergency transfer devices (UL 924 relays), occupancy/daylight sensor coverage, and low-voltage cabling.
+  - Note any discrepancies against baseline schedules.
+  - Add explicit review comments for the **Architect** to confirm aesthetics & physical placement: faceplate finish, color, housing style, wall station layouts, and sensor mounting (ceiling vs. wall).
+  - **Confirm with the Project Manager (PM)** if any specification differs from the design control schedule.
+- **c. Switchgear / Distribution Equipment Submittals**:
+  - Compare shop drawings against Single Line Diagram (SLD) and specifications on the PDF drawing set.
+  - Verify Service Voltage, Phase, Wire count (e.g., 120/208V 3PH 4W or 277/480V 3PH 4W).
+  - Verify Bus Rating (Amps), Bus Material (Copper vs. Aluminum), and Short-Circuit AIC rating (e.g., 10kAIC, 22kAIC, 65kAIC).
+  - Verify Main Device (MCB rating, trip settings, ground fault protection GFP if applicable, or MLO).
+  - Verify NEMA enclosure type (NEMA 1 indoor, NEMA 3R outdoor, NEMA 4X), dimensions, clearances, and utility metering/CT compartment compliance.
+  - Verify SPD (Surge Protective Device) ratings and feeder breaker sizes/poles against SLD.
+- **d. Panel Schedules / Panelboard Submittals**:
+  - Cross-examine submittal panel schedules directly against the PDF Single Line Diagram / Panel Schedule sheets.
+  - Verify Panel Designation/Name (LP1, HP1, PP1, etc.), Mains Rating (Amps), Main Type (MCB vs MLO), Voltage, Phase, and Bus configuration.
+  - Verify AIC Rating against calculated available fault current.
+  - Verify Branch Breaker schedule: circuit count, pole numbers (1P, 2P, 3P), trip ampacities, and specialty breaker types (AFCI, GFCI, DFCI).
+  - Verify Enclosure mounting (surface vs. flush), NEMA rating, and feed-through / sub-feed lugs.
+
+### Step 5: Manual Stamping & Action Decisions
+- The reviewer (Jacob) manually places and signs the automated ACIES company interactive stamp in Bluebeam Revu:
+  - **Stamp Path**: `C:\ProgramData\Bluebeam Software\Bluebeam Revu\21\Stamps\ACIES_GENERIC_INTERACTIVE.pdf`
+  - Populate the **Project ID / Project Number** and reviewer metadata.
+  - Mark the appropriate review decision box (*"No Exceptions Taken"*, *"Make Corrections Noted"*, or *"Revise and Resubmit"*).
+
+### Step 6: Finalize, Rename as (ACIES), Flatten & Issue
+- Once review markups and stamping are finalized and ready for transmittal:
+  1. Save a copy of the marked-up PDF with the company tag `(ACIES)` in parentheses in place of the reviewer's initials:
+     - Pattern: `<OriginalSubmittalName> (ACIES).pdf`
+     - Example: `Lighting Submittal (JH).pdf` → `Lighting Submittal (ACIES).pdf`
+  2. **Flatten** all markups and stamp elements in Bluebeam Revu.
+  3. Save the finalized, flattened PDF prior to distribution/sending out.
+
+---
+
+## 7. Bank of America (BofA) Prototype Standards (Gold Standard)
+
+- **Standard Reference File**: [`shared/standards/bank_of_america_prototype_specs.md`](file:///c:/Users/JacobH/Documents/dev/ACIES-Tools/shared/standards/bank_of_america_prototype_specs.md)
+- **Hierarchy of Authority**: The prototypical lighting fixture schedule and lighting control device schedule defined in `bank_of_america_prototype_specs.md` serve as the **Gold Standard** across all Bank of America projects. Individual project drawing schedules and specifications are secondary to what is defined in the BofA prototype standard.
+- **Fixture Catalog Baselines (3500K CCT Standard)**:
+  - **D-1**: Lithonia Lighting `UPLD-12IN-35K-90CRI-WH` / `UPLD 22IN SWW4 90CRI WH` (120V, 6W, 3500K, 90 CRI, Rocker switch — replaces discontinued UCEL)
+  - **H / HE**: Lithonia Lighting `ZL1N-L48-3000LM-FST-MVOLT-35K-80CRI-WH-HC36` / `...-E7W-...` (120V, 33W, 3000LM, 3500K, 4' chain-hung strip)
+  - **R-11.8**: Focal Point `FSM2L-FL-750LF-35K-1C-UNV-LD1-G2/TF-WH-8'` (8' recessed linear, 750 lm/ft, 3500K, 0-10V)
+  - **R-14 / R-14E**: Focal Point `FLC33D-SO-1300L-120V-LD1-1C` + `LC33-SO-1300L-35K-DNS-WFL-CD-WH` (3.5" sq open downlight, 1300L/700L, 3500K, 0-10V)
+  - **R-15**: Focal Point `FLC33W-SO-700L-120V-LD1-1C` + `LC33-SO-700L-35K-WWS-CD-WH` (3.5" sq wall wash, 700L, 3500K, 0-10V)
+  - **R-16 / R-16E**: Focal Point `FLC66D-SF-1000L-120V-LD1-1C` + `LC66-SQ-1000L-35K-DN-CD-WH` (6" sq open downlight, 1500L, 3500K, 0-10V)
+  - **R-19 / R-19E**: Focal Point `FLUL-24-PS-3000L-35K-1C-UNV-LD1-G-WH` / `...-3500L-...-B310-WH` (2x4 architectural troffer, 3000L/3500L, 3500K, 0-10V)
+  - **X**: Acuity Brands `EDGR-1-R-EL` / `EDGR-2-R-EL` (Recessed ceiling edge-lit LED exit sign, red letters, battery backup)
+- **Control Device Baselines**:
+  - **Wall Switches**: Legrand / Wattstopper `DSW-301` (Dual Tech Line-Voltage Wall Switch Occupancy Sensor)
+  - **Digital Wall Stations**: Legrand / Wattstopper `LMDM-101` (Dimmer), `LMSW-105` (4-Button Scene Switch)
+  - **Sensors**: Legrand / Wattstopper `LMPC-100` (360° Ceiling PIR), `LMPX-100` (90° PIR), `D1` (DLM Daylight Sensor)
+  - **Room Controllers**: Legrand / Wattstopper `LMRC-211` (1-Relay 0-10V Dimming), `LMRC-212` (2-Relay 0-10V Dimming), `LMPL-201` (Plug Load / Non-lighting)
+
+
+
+
+

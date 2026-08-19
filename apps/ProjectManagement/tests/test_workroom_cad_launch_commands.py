@@ -1,11 +1,12 @@
 import io
 import sys
 import tempfile
+import threading
 import types
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 
 def _ensure_google_genai_stub():
@@ -216,6 +217,39 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
                 trace_result["entries"][1]["file_paths"],
             )
 
+    def test_script_worker_is_non_daemon_and_stops_cleanly(self):
+        progress_seen = threading.Event()
+
+        def record_status(_tool_id, message, activity_id=None):
+            if message == "ready":
+                progress_seen.set()
+
+        command = [
+            sys.executable,
+            "-u",
+            "-c",
+            "import time; print('PROGRESS: ready', flush=True); time.sleep(30)",
+        ]
+        with patch.object(self.api, "_trace_cad_auto_select"), patch.object(
+            self.api,
+            "_notify_tool_status",
+            side_effect=record_status,
+        ):
+            result = self.api._run_script_with_progress(command, "toolPublishDwgs")
+            self.assertEqual("started", result["status"])
+            self.assertTrue(progress_seen.wait(10), "CAD worker did not report startup progress")
+
+            with self.api._script_worker_lock:
+                workers = list(self.api._script_workers)
+            self.assertEqual(1, len(workers))
+            self.assertFalse(workers[0].daemon)
+
+            self.assertTrue(self.api.stop_script_workers(timeout=10))
+
+        with self.api._script_worker_lock:
+            self.assertEqual(set(), self.api._script_workers)
+            self.assertEqual(set(), self.api._script_processes)
+
     def test_resolve_workroom_context_accepts_snake_case_project_path(self):
         with tempfile.TemporaryDirectory(prefix="acies-context-path-") as temp_dir:
             selected_path = str(Path(temp_dir) / "260001 Example")
@@ -240,6 +274,41 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
 
         self.assertEqual(str(Path(temp_dir)), result)
 
+    def test_app_cad_picker_writes_valid_dwg_list_for_hidden_script(self):
+        with tempfile.TemporaryDirectory(prefix="acies-app-cad-picker-") as temp_dir:
+            temp_path = Path(temp_dir)
+            first_dwg = temp_path / "E001.dwg"
+            second_dwg = temp_path / "E002.DWG"
+            ignored_file = temp_path / "notes.txt"
+            for path in (first_dwg, second_dwg, ignored_file):
+                path.write_text("", encoding="utf-8")
+
+            with patch.object(
+                self.api,
+                "select_files",
+                return_value={
+                    "status": "success",
+                    "paths": [str(first_dwg), str(ignored_file), str(second_dwg)],
+                },
+            ) as picker_mock:
+                result = self.api._select_cad_files_in_app(temp_dir)
+
+            self.assertEqual("success", result["status"])
+            self.assertEqual(2, result["selection"]["count"])
+            picker_mock.assert_called_once_with({
+                "allow_multiple": True,
+                "file_types": ["Drawing Files (*.dwg)", "All Files (*.*)"],
+                "default_directory": temp_dir,
+            })
+            files_list_path = Path(result["selection"]["files_list_path"])
+            try:
+                self.assertEqual(
+                    [str(first_dwg), str(second_dwg)],
+                    files_list_path.read_text(encoding="utf-8").splitlines(),
+                )
+            finally:
+                files_list_path.unlink(missing_ok=True)
+
     def _run_tool(self, case, auto_selection, auto_select_enabled=True):
         captured = []
         with patch.object(self.api, "get_user_settings", return_value=case["settings"]), patch.object(
@@ -263,6 +332,17 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
             self.api,
             "_run_script_with_progress",
             side_effect=lambda command, tool_id, **kwargs: captured.append((command, tool_id, kwargs)),
+        ), patch.object(
+            self.api,
+            "_select_cad_files_in_app",
+            return_value={
+                "status": "success",
+                "selection": {
+                    "files_list_path": AUTO_SELECTED_FILES_LIST,
+                    "count": 2,
+                    "resolution_mode": "app_file_picker",
+                },
+            },
         ), patch.object(self.api, "_notify_tool_status") as notify_mock:
             result = getattr(self.api, case["method_name"])({"source": "workroom"})
         return result, captured, notify_mock
@@ -355,7 +435,7 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
                 activity_id=None,
             )
 
-    def test_workroom_cad_tools_preserve_manual_fallback_when_auto_selection_is_empty(self):
+    def test_workroom_cad_tools_use_app_picker_when_auto_selection_is_empty(self):
         for case in TOOL_CASES:
             with self.subTest(method=case["method_name"]):
                 result, captured, notify_mock = self._run_tool(case, auto_selection=None)
@@ -368,16 +448,29 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
                 self.assertEqual(case["tool_id"], tool_id)
                 self.assertEqual({"activity_id": None}, kwargs)
                 self.assertIsInstance(command, list)
-                self.assertNotIn("-FilesListPath", command)
+                self.assertIn("-FilesListPath", command)
+                self.assertEqual(
+                    AUTO_SELECTED_FILES_LIST,
+                    command[command.index("-FilesListPath") + 1],
+                )
 
                 for expected_arg in case["expected_args"]:
                     self.assertIn(expected_arg, command)
 
-                notify_mock.assert_called_once_with(
-                    case["tool_id"],
-                    FALLBACK_STATUS_MESSAGE,
-                    activity_id=None,
+                selection_message = (
+                    "Select DWG files to publish..."
+                    if case["tool_id"] == "toolPublishDwgs"
+                    else "Select DWG files to update..."
                 )
+                notify_mock.assert_has_calls([
+                    call(case["tool_id"], FALLBACK_STATUS_MESSAGE, activity_id=None),
+                    call(case["tool_id"], selection_message, activity_id=None),
+                    call(
+                        case["tool_id"],
+                        "Using selected DWGs (2)...",
+                        activity_id=None,
+                    ),
+                ])
 
     def test_publish_tool_can_disable_pdf_layer_cleanup(self):
         publish_case = next(
@@ -426,7 +519,7 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
         refresh_arg_index = command.index("-RefreshExcelOleLinks")
         self.assertEqual("0", command[refresh_arg_index + 1])
 
-    def test_projects_tab_cad_tools_pass_default_directory_for_manual_picker(self):
+    def test_projects_tab_cad_tools_use_app_picker_with_project_directory(self):
         default_directory = r"C:\Projects\260243 BofA - Eastport Plaza"
 
         for case in TOOL_CASES:
@@ -448,6 +541,20 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
                     self.api,
                     "_run_script_with_progress",
                     side_effect=lambda command, tool_id, **kwargs: captured.append((command, tool_id, kwargs)),
+                ), patch.object(
+                    self.api,
+                    "_select_cad_files_in_app",
+                    return_value={
+                        "status": "success",
+                        "selection": {
+                            "files_list_path": AUTO_SELECTED_FILES_LIST,
+                            "count": 1,
+                            "resolution_mode": "app_file_picker",
+                        },
+                    },
+                ) as picker_mock, patch.object(
+                    self.api,
+                    "_notify_tool_status",
                 ):
                     result = getattr(self.api, case["method_name"])(
                         {"source": "projects-tab", "projectPath": default_directory}
@@ -461,12 +568,13 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
                 self.assertEqual(case["tool_id"], tool_id)
                 self.assertEqual({"activity_id": None}, kwargs)
                 self.assertIsInstance(command, list)
-                self.assertNotIn("-FilesListPath", command)
-                self.assertIn("-DefaultDirectory", command)
+                self.assertIn("-FilesListPath", command)
                 self.assertEqual(
-                    default_directory,
-                    command[command.index("-DefaultDirectory") + 1],
+                    AUTO_SELECTED_FILES_LIST,
+                    command[command.index("-FilesListPath") + 1],
                 )
+                self.assertNotIn("-DefaultDirectory", command)
+                picker_mock.assert_called_once_with(default_directory)
 
                 for expected_arg in case["expected_args"]:
                     self.assertIn(expected_arg, command)

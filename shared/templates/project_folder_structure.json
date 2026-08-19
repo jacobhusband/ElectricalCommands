@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ACIES Typical Project Folder Structure",
+  "description": "Standard directory hierarchy and file conventions for ACIES Engineering project folders.",
+  "root_pattern": "<Drive>:/<Client>/<Account>/<Year>/<ProjectNumber> <ProjectName>, <Address>",
+  "directories": {
+    "Arch": {
+      "description": "Architectural background drawings and design updates received from client/architect",
+      "naming_convention": "YYYY-MM-DD <Phase/Description> (e.g., '2025-06-11 DD60', '2025-09-08 CD90 E update')",
+      "special_folders": ["_Design directions"]
+    },
+    "Archive": {
+      "description": "Dated project snapshots, superseded drawings, and milestone backups",
+      "naming_convention": "YYYY-MM-DD (e.g., '2025-08-08', '2026-02-04')",
+      "subdirectories": ["Arch", "Electrical", "Mechanical", "Plumbing", "Xrefs"]
+    },
+    "BGD": {
+      "description": "Cleaned and converted CAD background working assets"
+    },
+    "CAD Release": {
+      "description": "Cleaned/bound DWGs prepared for consultant or contractor distribution"
+    },
+    "Documents": {
+      "description": "Project coordination, administration, contracts, and code records",
+      "subdirectories": [
+        "Applicable Codes",
+        "ASR",
+        "Change Order",
+        "Commissioning",
+        "Contacts",
+        "Correspondence",
+        "Plan check comments",
+        "Project Schedule",
+        "Transmittals"
+      ]
+    },
+    "Electrical": {
+      "description": "Electrical engineering design files, sheets, and calculation workbooks",
+      "subdirectories": [
+        "Calculations",
+        "Checkset",
+        "Clean CAD",
+        "Markups",
+        "Product Literature",
+        "Title 24"
+      ],
+      "standard_drawings": [
+        "E00.00 Cover sheet.dwg",
+        "E01.00 Power.dwg",
+        "E02.00 Lighting.dwg",
+        "E04.00 Specification.dwg",
+        "E05.00 Schedules.dwg",
+        "E06.00 LTG Details.dwg",
+        "E07.00 SLD Panel Schedules.dwg",
+        "E08.00 Energy Compliance Forms.dwg"
+      ],
+      "standard_files": [
+        "<ProjectNumber> Panels.xls",
+        "T24Output.json",
+        "plot.log"
+      ]
+    },
+    "Mechanical": {
+      "description": "Mechanical (HVAC) engineering and design files",
+      "subdirectories": [
+        "Archive",
+        "Calculations/Load Calc",
+        "Calculations/Ventilation",
+        "Compliance Forms",
+        "PDF",
+        "Product Literature",
+        "Submittal Cad"
+      ],
+      "standard_drawings": [
+        "M-1.dwg",
+        "M-2.dwg",
+        "M-2D.dwg",
+        "M-3.dwg",
+        "M-4.dwg",
+        "M-5.dwg"
+      ]
+    },
+    "Plumbing": {
+      "description": "Plumbing engineering and design files",
+      "subdirectories": [
+        "Archive",
+        "Calculations",
+        "PDF",
+        "Product Literature"
+      ],
+      "standard_drawings": [
+        "P-0.dwg",
+        "P-1.dwg",
+        "P-2.dwg",
+        "P-3.dwg"
+      ],
+      "sheet_set": "<ProjectName>.dst"
+    },
+    "PDF": {
+      "description": "Issued milestone sets and submittal packages",
+      "naming_convention": "YYYY-MM-DD <Discipline> <Milestone> (e.g., '2025-08-13 MEP CD90', '2025-12-22 MEP IFP')",
+      "special_folders": ["_Permit Appln forms"],
+      "cad_deliverables": "CAD/E, CAD/M, CAD/P"
+    },
+    "RFI": {
+      "description": "Requests for Information logs, contractor queries, and engineering responses"
+    },
+    "Submittals": {
+      "description": "Shop drawing and product data submittal tracking by discipline",
+      "subdirectories": [
+        "Electrical",
+        "Mechanical",
+        "Plumbing"
+      ],
+      "naming_convention": "YYYY-MM-DD <Description> (e.g., '2026-08-11 Lighting and Controls')"
+    },
+    "Survey": {
+      "description": "Field investigation notes, photos, and existing condition records",
+      "naming_convention": "YYYY-MM-DD <Discipline> (<Initials>) (e.g., '2025-03-31 E (JH)', '2025-03-31_NC (MP)')",
+      "subdirectories": ["Photos", "Exterior", "Interior", "Roof"]
+    },
+    "Xrefs": {
+      "description": "External reference DWGs attached to working sheets",
+      "standard_files": [
+        "x-TB.dwg",
+        "COVER SHEET.dwg",
+        "A00-xx (General / Index / Site)",
+        "A01-xx (Demo Plans)",
+        "A02-xx (Construction Plans)",
+        "A03-xx (Power & Comm Backgrounds)",
+        "A04-xx (Reflected Ceiling Plans - RCP)",
+        "A05-xx (Finish Plans)",
+        "A06-xx (Furniture Plans)",
+        "A11-xx (Enlarged Plans / Elevations)"
+      ]
+    }
+  }
+}

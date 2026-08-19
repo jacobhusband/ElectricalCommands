@@ -1,0 +1,117 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  
+  <PropertyGroup>
+    <Configuration>Release</Configuration>
+    <PackageId>Electrical.AutoCAD.AuditCommands</PackageId>
+    <Description>Dynamic pre-flight scope questionnaire and QA/QC audit engine for AutoCAD</Description>
+    <AssemblyName>AutoCADCommands.AuditCommands</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AutoCADBundleName>ElectricalCommands.AuditCommands</AutoCADBundleName>
+    <AutoCADBundleVersion>$(Version)</AutoCADBundleVersion>
+    <AutoCADBundleDescription>Dynamic pre-flight scope questionnaire and QA/QC audit engine for AutoCAD.</AutoCADBundleDescription>
+    <AutoCADBundleAuthor>ACIES Engineering</AutoCADBundleAuthor>
+    <AutoCADBundleProductCode>{7f9b8c2e-4d5a-4e6f-9a1b-3c5d7e9f1a2b}</AutoCADBundleProductCode>
+    <AutoCADCompanyUrl>www.acies.engineering</AutoCADCompanyUrl>
+    <AutoCADCompanyEmail>jacob.h@acies.engineering</AutoCADCompanyEmail>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="*.cs" />
+  </ItemGroup>
+
+  <!-- WPF XAML Pages -->
+  <ItemGroup>
+    <Page Include="ProjectAuditWindow.xaml" />
+  </ItemGroup>
+
+  <!-- Embedded JSON Master Catalog -->
+  <ItemGroup>
+    <EmbeddedResource Include="master_audit_catalog.json" />
+  </ItemGroup>
+
+  <Target Name="CreateAutoCADBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' == 'net48'">
+    <PropertyGroup>
+      <BundleDir>$(AutoCADBundleRoot)\$(AutoCADBundleName).bundle</BundleDir>
+      <BundleContentsDir>$(BundleDir)\Contents</BundleContentsDir>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(BundleContentsDir)" />
+
+    <PropertyGroup>
+      <PackageContents><![CDATA[<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+  SchemaVersion="1.0"
+  AutodeskProduct="AutoCAD"
+  ProductType="Application"
+  Name="$(AutoCADBundleName)"
+  Description="$(AutoCADBundleDescription)"
+  AppVersion="$(AutoCADBundleVersion)"
+  Author="$(AutoCADBundleAuthor)"
+  Icon=""
+  OnlineDocumentation=""
+  ProductCode="$(AutoCADBundleProductCode)"
+  UpgradeCode="{a9e8d7c6-b5a4-4f3e-8d2c-1b0a9f8e7d6c}"
+  HelpFile="">
+  <CompanyDetails
+    Name="$(AutoCADBundleAuthor)"
+    Url="$(AutoCADCompanyUrl)"
+    Email="$(AutoCADCompanyEmail)" />
+  
+  <!-- COMPONENT 1: AutoCAD 2025+ (.NET 8) -->
+  <Components Description="AutoCAD 2025+">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R25.0" />
+    <ComponentEntry
+      AppName="$(AssemblyName)"
+      ModuleName="Contents\net8.0-windows\$(AssemblyName).dll"
+      AppDescription="$(AutoCADBundleDescription)"
+      LoadOnAutoCADStartup="True"
+      LoadOnCommandInvocation="True">
+      <Commands>
+        <Command Global="*" Local="*" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+
+  <!-- COMPONENT 2: AutoCAD 2021-2024 (.NET 4.8) -->
+  <Components Description="AutoCAD 2021-2024">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.0" SeriesMax="R24.9" />
+    <ComponentEntry
+      AppName="$(AssemblyName)"
+      ModuleName="Contents\net48\$(AssemblyName).dll"
+      AppDescription="$(AutoCADBundleDescription)"
+      LoadOnAutoCADStartup="True"
+      LoadOnCommandInvocation="True">
+      <Commands>
+        <Command Global="*" Local="*" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+
+</ApplicationPackage>]]></PackageContents>
+    </PropertyGroup>
+
+    <WriteLinesToFile File="$(BundleDir)\PackageContents.xml" Lines="$(PackageContents)" Overwrite="true" Encoding="utf-8" />
+  </Target>
+
+  <!-- 
+    FILE COPY TARGET
+    Copies the Main DLL *AND* all dependency DLLs (NuGet packages) to the bundle folder.
+  -->
+  <Target Name="CopyDllsToBundle" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <BundleDir>$(AutoCADBundleRoot)\$(AutoCADBundleName).bundle</BundleDir>
+      <TargetSubFolder>$(BundleDir)\Contents\$(TargetFramework)</TargetSubFolder>
+    </PropertyGroup>
+    
+    <MakeDir Directories="$(TargetSubFolder)" />
+    
+    <!-- Copy the Main Output DLL -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(TargetSubFolder)" />
+
+    <!-- Copy all Dependencies (NuGet DLLs like Newtonsoft.Json, etc.) -->
+    <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFolder="$(TargetSubFolder)" />
+  </Target>
+
+</Project>

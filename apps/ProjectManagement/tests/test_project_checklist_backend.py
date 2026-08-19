@@ -191,13 +191,6 @@ class ProjectChecklistBackendTests(unittest.TestCase):
 
 
 class ProjectChecklistMetadataTests(unittest.TestCase):
-    def test_frontend_plugin_override_lists_project_checklist_commands(self):
-        script = (REPO_ROOT / "script.js").read_text(encoding="utf-8")
-
-        self.assertIn('order: ["PROJECTCHECKLIST", "PCL", "OBJMASK"', script)
-        self.assertIn("PROJECTCHECKLIST:", script)
-        self.assertIn("PCL: \"Alias for PROJECTCHECKLIST.\"", script)
-
     def test_autocad_command_and_description_metadata_exist(self):
         command_file = (
             ELECTRICAL_COMMANDS_ROOT
@@ -213,83 +206,56 @@ class ProjectChecklistMetadataTests(unittest.TestCase):
         )
         descriptions = json.loads(descriptions_path.read_text(encoding="utf-8"))
 
-        self.assertIn('[CommandMethod("PROJECTCHECKLIST", CommandFlags.Modal)]', command_file)
-        self.assertIn('[CommandMethod("PCL", CommandFlags.Modal)]', command_file)
+        self.assertIn('[CommandMethod("CHECKLIST", CommandFlags.Session)]', command_file)
+        self.assertIn('[CommandMethod("CHECKLISTS", CommandFlags.Session)]', command_file)
+        self.assertIn('[CommandMethod("PROJECTCHECKLIST", CommandFlags.Session)]', command_file)
+        self.assertIn('[CommandMethod("PCL", CommandFlags.Session)]', command_file)
+        self.assertIn("CHECKLIST", descriptions["commands"])
+        self.assertIn("CHECKLISTS", descriptions["commands"])
         self.assertIn("PROJECTCHECKLIST", descriptions["commands"])
         self.assertIn("PCL", descriptions["commands"])
 
-    def test_autocad_store_uses_desktop_documents_app_data_folder(self):
+    def test_autocad_store_uses_folder_scoped_json_storage(self):
         store_file = (
             ELECTRICAL_COMMANDS_ROOT
             / "AutoCADCommands"
             / "GeneralCommands"
             / "ProjectChecklistStore.cs"
         ).read_text(encoding="utf-8")
-        resolve_body = store_file.split("internal static string ResolveAppDataFolder()", 1)[1]
-        resolve_body = resolve_body.split("internal static string ResolveDatabasePath()", 1)[0]
 
-        self.assertIn('Environment.GetEnvironmentVariable("USERPROFILE")', store_file)
-        self.assertIn('Path.Combine(userProfile, "Documents")', store_file)
-        self.assertNotIn("SpecialFolder.MyDocuments", resolve_body)
-        self.assertIn("MigrateLegacyProjectChecklistDatabase(appFolder)", resolve_body)
-        self.assertIn("File.Copy(legacyDbPath, canonicalDbPath", store_file)
+        self.assertIn('checklist_state.json', store_file)
+        self.assertIn('LoadFolderState', store_file)
+        self.assertIn('SaveFolderState', store_file)
+        self.assertIn('LoadAllChecklists', store_file)
+        self.assertIn('GetBuiltInChecklists', store_file)
+        self.assertIn('LastActiveChecklistId', store_file)
+        self.assertIn('Pre-flight Electrical Checklist', store_file)
+        self.assertIn('Electrical General Checklist', store_file)
 
-    def test_autocad_definition_loader_reports_empty_state_reasons(self):
-        store_file = (
+    def test_autocad_wpf_window_implements_interactive_ui(self):
+        xaml_file = (
             ELECTRICAL_COMMANDS_ROOT
             / "AutoCADCommands"
             / "GeneralCommands"
-            / "ProjectChecklistStore.cs"
+            / "ProjectChecklistWindow.xaml"
         ).read_text(encoding="utf-8")
-        palette_file = (
+        cs_file = (
             ELECTRICAL_COMMANDS_ROOT
             / "AutoCADCommands"
             / "GeneralCommands"
-            / "ProjectChecklistPaletteControl.cs"
+            / "ProjectChecklistWindow.xaml.cs"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("LoadChecklistDefinitionsResult", store_file)
-        self.assertIn("Checklist definitions file was not found at", store_file)
-        self.assertIn("contains zero checklists", store_file)
-        self.assertIn("could not be read", store_file)
-        self.assertIn("_emptyDefinitionMessage", palette_file)
-
-    def test_autocad_palette_preserves_order_and_wraps_text(self):
-        palette_file = (
-            ELECTRICAL_COMMANDS_ROOT
-            / "AutoCADCommands"
-            / "GeneralCommands"
-            / "ProjectChecklistPaletteControl.cs"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("private readonly FlowLayoutPanel _itemsPanel;", palette_file)
-        self.assertIn("FlowDirection = System.Windows.Forms.FlowDirection.TopDown", palette_file)
-        self.assertIn("WrapContents = false", palette_file)
-        self.assertNotIn("Controls.SetChildIndex(row", palette_file)
-        self.assertIn("TextFormatFlags.WordBreak", palette_file)
-        self.assertIn("GetChecklistRowWidth()", palette_file)
-        self.assertIn("private readonly Timer _resizeTimer;", palette_file)
-        self.assertIn("QueueLayoutRefresh();", palette_file)
-        self.assertIn("RefreshItemLayout()", palette_file)
-        self.assertIn("ApplyWrappedCheckboxSize(checkbox, width)", palette_file)
-        self.assertIn("ApplyWrappedLabelSize(label, width)", palette_file)
-        self.assertIn("Math.Max(\n        40,", palette_file)
-        self.assertIn("MeasureWrappedTextHeight(checkbox.Text, checkbox.Font, textWidth) + 16", palette_file)
-        self.assertIn("MinimumSize = new Size(125, 360)", palette_file)
-
-    def test_autocad_palette_initializes_resize_timer_before_size_handler(self):
-        palette_file = (
-            ELECTRICAL_COMMANDS_ROOT
-            / "AutoCADCommands"
-            / "GeneralCommands"
-            / "ProjectChecklistPaletteControl.cs"
-        ).read_text(encoding="utf-8")
-
-        timer_index = palette_file.index("_resizeTimer = new Timer { Interval = 80 };")
-        handler_index = palette_file.index("_itemsPanel.SizeChanged +=")
-        self.assertLess(timer_index, handler_index)
-        self.assertIn("if (_resizeTimer == null)", palette_file)
-        self.assertIn("if (_itemsPanel == null || _itemsPanel.IsDisposed)", palette_file)
+        self.assertIn('x:Class="ElectricalCommands.ProjectChecklistWindow"', xaml_file)
+        self.assertIn('ChecklistComboBox', xaml_file)
+        self.assertIn('SearchTextBox', xaml_file)
+        self.assertIn('HideCompletedCheckBox', xaml_file)
+        self.assertIn('ChecklistProgressBar', xaml_file)
+        self.assertIn('ResetChecklistButton', xaml_file)
+        self.assertIn('SaveStateToDisk()', cs_file)
+        self.assertIn('ProjectChecklistStore.SaveFolderState', cs_file)
+        self.assertIn('SwitchFolderOrDrawing', cs_file)
+        self.assertIn('_state.LastActiveChecklistId', cs_file)
 
 
 if __name__ == "__main__":

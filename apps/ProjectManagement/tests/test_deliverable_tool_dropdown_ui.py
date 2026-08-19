@@ -142,8 +142,30 @@ class DeliverableToolDropdownUiTests(unittest.TestCase):
         ):
             self.assertIn(expected, css)
 
-        self.assertNotIn(".deliverable-card-bottom-actions {", css)
-        self.assertNotIn(".deliverable-card-top-actions {", css)
+    def test_deliverable_tool_dropdown_icons_and_styles(self):
+        text = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+        css = STYLES_CSS_PATH.read_text(encoding="utf-8")
+
+        for expected in (
+            "function createSharedToolIcon(entryOrId, size = 14) {",
+            'svg.setAttribute("class", "deliverable-tool-option-icon");',
+            "const icon = createSharedToolIcon(entry, 14);",
+            'className: "deliverable-tool-option-label"',
+            "option.append(icon, label);",
+            "iconElement: createSharedToolIcon(entry, 14),",
+        ):
+            self.assertIn(expected, text)
+
+        for expected in (
+            ".deliverable-tool-option {",
+            "display: flex;",
+            "align-items: center;",
+            ".deliverable-tool-option-icon {",
+            "width: 14px;",
+            "height: 14px;",
+            ".deliverable-tool-option-label {",
+        ):
+            self.assertIn(expected, css)
 
 
 if __name__ == "__main__":

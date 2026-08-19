@@ -27,7 +27,7 @@ const KEY_TO_LABEL = {
   complete: "Complete",
   delivered: "Delivered",
 };
-const HELP_TOPICS = ["projects", "notes", "checklists", "tools", "timesheets", "misc"];
+const HELP_TOPICS = ["projects", "notes", "tools", "timesheets", "misc"];
 const THEME_STORAGE_KEY = "acies-theme";
 const FIREBASE_JS_SDK_VERSION = "12.7.0";
 const FIREBASE_COMPAT_SCRIPT_URLS = [
@@ -3848,6 +3848,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Work Locally",
     launchType: "project-manager",
     category: "general",
+    iconSvg:
+      '<rect x="3" y="4" width="18" height="12" rx="2"></rect><line x1="2" y1="20" x2="22" y2="20"></line>',
     isReady: true,
   },
   {
@@ -3856,6 +3858,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Publish",
     launchType: "user-selects-files",
     category: "general",
+    iconSvg:
+      '<polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect>',
     isReady: true,
   },
   {
@@ -3864,6 +3868,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Freeze/Thaw",
     launchType: "user-selects-files",
     category: "general",
+    iconSvg:
+      '<line x1="2" x2="22" y1="12" y2="12"></line><line x1="12" x2="12" y1="2" y2="22"></line><path d="m20 16-4-4 4-4"></path><path d="m4 8 4 4-4 4"></path><path d="m16 4-4 4-4-4"></path><path d="m8 20 4-4 4 4"></path>',
     isReady: true,
   },
   {
@@ -3872,6 +3878,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Prepare XREFs",
     launchType: "user-selects-files",
     category: "general",
+    iconSvg:
+      '<path d="m20.2 4.6-2.5-2.5a2 2 0 0 0-2.8 0l-5.6 5.6-5.8-1.5a1.2 1.2 0 0 0-1.2 2l5.5 5.5-5.9 5.9-1.2.3 2 2 .3-1.2 5.9-5.9 5.5 5.5a1.2 1.2 0 0 0 2-1.2l-1.5-5.8 5.6-5.6a2 2 0 0 0 0-2.81Z"></path>',
     isReady: true,
   },
   {
@@ -3880,6 +3888,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Create NOC",
     launchType: "user-selects-folder",
     category: "templates",
+    iconSvg:
+      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline>',
     isReady: true,
   },
   {
@@ -3888,6 +3898,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Create PCC",
     launchType: "user-selects-folder",
     category: "templates",
+    iconSvg:
+      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline>',
     isReady: true,
   },
   {
@@ -3896,6 +3908,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Wire Sizer",
     launchType: "modal",
     category: "electrical",
+    iconSvg:
+      '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>',
     isReady: true,
   },
   {
@@ -3904,6 +3918,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Panel Schedule AI",
     launchType: "modal",
     category: "electrical",
+    iconSvg:
+      '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M11 9h4a2 2 0 0 0 2-2V3"></path><circle cx="9" cy="9" r="2"></circle><path d="M7 21v-4a2 2 0 0 1 2-2h4"></path><circle cx="15" cy="15" r="2"></circle>',
     isReady: true,
   },
   {
@@ -3912,6 +3928,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Backup DWGs",
     launchType: "archive-project",
     category: "general",
+    iconSvg:
+      '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>',
     isReady: true,
   },
   {
@@ -3920,6 +3938,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Lighting Schedule AI",
     launchType: "modal",
     category: "electrical",
+    iconSvg:
+      '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5"></path><path d="M9 18h6"></path><path d="M10 22h4"></path>',
     isReady: false,
   },
   {
@@ -3928,6 +3948,8 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     menuLabel: "Title 24 Compliance",
     launchType: "modal",
     category: "electrical",
+    iconSvg:
+      '<path d="M9 12h6"></path><path d="M9 16h6"></path><path d="M9 8h6"></path><rect x="4" y="3" width="16" height="18" rx="2"></rect>',
     isReady: false,
   },
 ]);
@@ -3938,6 +3960,32 @@ function getSharedToolLaunchEntry(toolId) {
       (entry) => String(entry?.id || "").trim() === String(toolId || "").trim()
     ) || null
   );
+}
+
+function createSharedToolIcon(entryOrId, size = 14) {
+  const entry =
+    typeof entryOrId === "string"
+      ? getSharedToolLaunchEntry(entryOrId)
+      : entryOrId;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.9");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("class", "deliverable-tool-option-icon");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  if (entry?.iconSvg) {
+    svg.innerHTML = entry.iconSvg;
+  } else {
+    svg.innerHTML =
+      '<path d="M21 7.5a5.5 5.5 0 0 1-7.6 5.08L7.5 18.5a2.12 2.12 0 1 1-3-3l5.92-5.9A5.5 5.5 0 0 1 16.5 3l-3 3 4.5 4.5 3-3Z"></path>';
+  }
+  return svg;
 }
 
 function getReadySharedToolLaunchEntries() {
@@ -4067,6 +4115,44 @@ function resolveCadLaunchContextForTool() {
   if (!project || !deliverable) return null;
 
   return buildWorkroomCadLaunchContext();
+}
+
+async function resolveCadFilesBeforeLaunch(launchContext = null) {
+  const context = launchContext && typeof launchContext === "object" ? { ...launchContext } : {};
+  const source = String(context.source || "").trim().toLowerCase();
+  const existingFiles = Array.isArray(context.cadFilePaths)
+    ? context.cadFilePaths.map((path) => String(path || "").trim()).filter(Boolean)
+    : [];
+
+  // Workroom launches resolve the discipline folder in the backend. Every
+  // other launch selects files in the app so a hidden PowerShell child never
+  // owns the picker and leaves it behind the main window.
+  if (source === "workroom" || existingFiles.length) {
+    return { ...context, cadFilePaths: existingFiles };
+  }
+  if (!window.pywebview?.api?.select_files) {
+    throw new Error("The DWG file picker is unavailable.");
+  }
+
+  const selection = await window.pywebview.api.select_files({
+    allow_multiple: true,
+    file_types: ["Drawing Files (*.dwg)", "All Files (*.*)"],
+    default_directory: getLaunchContextProjectRoot(context) || undefined,
+  });
+  if (!selection || selection.status === "cancelled") return null;
+  if (selection.status !== "success") {
+    throw new Error(selection.message || "Could not select DWG files.");
+  }
+
+  const selectedFiles = Array.isArray(selection.paths)
+    ? selection.paths.map((path) => String(path || "").trim()).filter(Boolean)
+    : [];
+  if (!selectedFiles.length) return null;
+  return {
+    ...context,
+    source: context.source || "manual",
+    cadFilePaths: selectedFiles,
+  };
 }
 
 async function setWorkroomLocalProjectPath(project, nextPath, { saveNow = true } = {}) {
@@ -22203,10 +22289,15 @@ function createDeliverableToolDropdown(deliverable, project, card) {
     const option = el("button", {
       className: "deliverable-tool-option",
       type: "button",
-      textContent: entry.menuLabel || entry.label,
       "data-shared-tool-id": entry.id,
       "data-launch-type": entry.launchType,
     });
+    const icon = createSharedToolIcon(entry, 14);
+    const label = el("span", {
+      className: "deliverable-tool-option-label",
+      textContent: entry.menuLabel || entry.label,
+    });
+    option.append(icon, label);
     option.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -22594,13 +22685,17 @@ function buildDeliverableActionsItem({
   danger = false,
   disabled = false,
   iconPath = "",
+  iconElement = null,
 }) {
   const btn = el("button", {
     className: "deliverable-actions-item" + (danger ? " danger" : ""),
     type: "button",
     role: "menuitem",
   });
-  if (iconPath) {
+  if (iconElement) {
+    iconElement.classList.add("deliverable-actions-item-icon");
+    btn.appendChild(iconElement);
+  } else if (iconPath) {
     const icon = createIcon(iconPath, 14);
     icon.classList.add("deliverable-actions-item-icon");
     btn.appendChild(icon);
@@ -22871,6 +22966,7 @@ function createDeliverableActionsDropdown(deliverable, project, card) {
         cat.entries.forEach((entry) => {
           const toolItem = buildDeliverableActionsItem({
             label: entry.menuLabel || entry.label,
+            iconElement: createSharedToolIcon(entry, 14),
             onClick: () => {
               setDeliverableActionsDropdownState(dropdown, false);
               const launchContext = buildProjectsTabToolLaunchContext(project, deliverable);
@@ -31402,7 +31498,10 @@ function createTitle24RoomAreaRow(seed = {}) {
 
 function computeTitle24RoomAreaTotal(rows = []) {
   const total = rows.reduce(
-    (sum, row) => sum + normalizeTitle24SquareFeet(row?.squareFeet),
+    (sum, row) =>
+      String(row?.roomType || "").trim().toUpperCase() === "TOTAL"
+        ? sum
+        : sum + normalizeTitle24SquareFeet(row?.squareFeet),
     0
   );
   return Number(total.toFixed(4));
@@ -35887,13 +35986,16 @@ function initEventListeners() {
       renderGlobalPagesView();
     }, 250)
   );
-  document.getElementById("checklistsSearch").addEventListener(
-    "input",
-    debounce((e) => {
-      checklistSearchQuery = String(e?.target?.value || "");
-      renderChecklistSearchResults();
-    }, 250)
-  );
+  const checklistsSearch = document.getElementById("checklistsSearch");
+  if (checklistsSearch) {
+    checklistsSearch.addEventListener(
+      "input",
+      debounce((e) => {
+        checklistSearchQuery = String(e?.target?.value || "");
+        renderChecklistSearchResults();
+      }, 250)
+    );
+  }
 
   document.getElementById("mainHelpBtn").onclick = () =>
     openHelp(getActiveHelpTopic());
@@ -36569,13 +36671,20 @@ function initEventListeners() {
   document
     .getElementById("toolPublishDwgs")
     .addEventListener("click", async (e) => {
-      const launchContext = resolveCadLaunchContextForTool();
-      console.debug("Workroom CAD launch context (publish):", launchContext);
+      let launchContext = resolveCadLaunchContextForTool();
       if (e.currentTarget.classList.contains("running")) return;
       if (!(await ensureAutocadPathLoaded())) {
         await showAutocadSelectModal();
         return;
       }
+      try {
+        launchContext = await resolveCadFilesBeforeLaunch(launchContext);
+        if (!launchContext) return;
+      } catch (error) {
+        toast(error?.message || "Could not select DWG files.");
+        return;
+      }
+      console.debug("CAD launch context (publish):", launchContext);
       const activityId = beginActivity({
         toolId: "toolPublishDwgs",
         message: "Initializing...",
@@ -36591,6 +36700,8 @@ function initEventListeners() {
           failActivity(activityId, {
             message: result.message || "Failed to start Publish DWGs.",
           });
+        } else if (result?.status === "cancelled") {
+          acceptActivity(activityId);
         }
       } catch (error) {
         failActivity(activityId, {
@@ -36602,13 +36713,20 @@ function initEventListeners() {
   document
     .getElementById("toolManageLayers")
     .addEventListener("click", async (e) => {
-      const launchContext = resolveCadLaunchContextForTool();
-      console.debug("Workroom CAD launch context (manage layers):", launchContext);
+      let launchContext = resolveCadLaunchContextForTool();
       if (e.currentTarget.classList.contains("running")) return;
       if (!(await ensureAutocadPathLoaded())) {
         await showAutocadSelectModal();
         return;
       }
+      try {
+        launchContext = await resolveCadFilesBeforeLaunch(launchContext);
+        if (!launchContext) return;
+      } catch (error) {
+        toast(error?.message || "Could not select DWG files.");
+        return;
+      }
+      console.debug("CAD launch context (manage layers):", launchContext);
       const activityId = beginActivity({
         toolId: "toolManageLayers",
         message: "Initializing...",
@@ -36627,6 +36745,8 @@ function initEventListeners() {
           failActivity(activityId, {
             message: result.message || "Failed to start Freeze/Thaw Layers.",
           });
+        } else if (result?.status === "cancelled") {
+          acceptActivity(activityId);
         }
       } catch (error) {
         failActivity(activityId, {

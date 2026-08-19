@@ -15,6 +15,8 @@ a = Analysis(
         (os.path.join(project_root, 'index.html'), '.'),
         (os.path.join(project_root, 'styles.css'), '.'),
         (os.path.join(project_root, 'script.js'), '.'),
+        (os.path.join(project_root, 'symbol_counter.css'), '.'),
+        (os.path.join(project_root, 'symbol_counter_ui.js'), '.'),
         (os.path.join(project_root, '.env'), '.'),
         (os.path.join(project_root, 'assets', 'acies.png'), 'assets'),
         (os.path.join(project_root, 'assets', 'lighting'), os.path.join('assets', 'lighting')),
@@ -38,7 +40,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['numpy'],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )

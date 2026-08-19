@@ -1,0 +1,816 @@
+<Window x:Class="ElectricalCommands.ProjectAuditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ACIES Pre-Flight Scope &amp; QA/QC Audit Engine"
+        Height="860" Width="1040"
+        MinHeight="680" MinWidth="880"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True"
+        Background="#F6F8FA"
+        Foreground="#24292E"
+        FontFamily="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif">
+
+  <Window.Resources>
+    <!-- Card Border Style -->
+    <Style x:Key="CardBorderStyle" TargetType="Border">
+      <Setter Property="Background" Value="#FFFFFF"/>
+      <Setter Property="BorderBrush" Value="#E1E4E8"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="14"/>
+      <Setter Property="Margin" Value="0,0,0,10"/>
+    </Style>
+
+    <!-- Scope Section Header -->
+    <Style x:Key="ScopeSectionHeader" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="Foreground" Value="#1B2A4A"/>
+      <Setter Property="Margin" Value="0,0,0,8"/>
+    </Style>
+
+    <!-- Primary Button -->
+    <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+      <Setter Property="Background" Value="#0366D6"/>
+      <Setter Property="Foreground" Value="#FFFFFF"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}"
+                    CornerRadius="4"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="#0056B3"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="#004085"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Secondary Button -->
+    <Style x:Key="SecondaryButtonStyle" TargetType="Button">
+      <Setter Property="Background" Value="#FAFBFC"/>
+      <Setter Property="Foreground" Value="#24292E"/>
+      <Setter Property="BorderBrush" Value="#D1D5DA"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Padding" Value="12,6"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="4"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="#F3F4F6"/>
+                <Setter Property="BorderBrush" Value="#B0B8C1"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Scope CheckBox Style -->
+    <Style x:Key="ScopeCheckBoxStyle" TargetType="CheckBox">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="Medium"/>
+      <Setter Property="Foreground" Value="#24292E"/>
+      <Setter Property="Margin" Value="0,4,14,6"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+  </Window.Resources>
+
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <!-- Top Header -->
+      <RowDefinition Height="Auto"/>
+      <!-- Main Content Tabs -->
+      <RowDefinition Height="*"/>
+      <!-- Bottom Footer -->
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- 1. Header Section -->
+    <Border Grid.Row="0"
+            Background="#FFFFFF"
+            BorderBrush="#E1E4E8"
+            BorderThickness="1"
+            CornerRadius="6"
+            Padding="14,10"
+            Margin="0,0,0,10">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.Column="0">
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <TextBlock Text="🛡" FontSize="17" Margin="0,0,8,0" VerticalAlignment="Center"/>
+            <TextBlock Text="ACIES Pre-Flight Scope &amp; QA/QC Audit Engine"
+                       FontSize="16"
+                       FontWeight="Bold"
+                       Foreground="#1B2A4A"
+                       VerticalAlignment="Center"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+            <TextBlock Text="📁 Project Folder: " FontSize="11" FontWeight="SemiBold" Foreground="#586069"/>
+            <TextBlock x:Name="FolderPathTextBlock"
+                       Text="C:\Projects\..."
+                       FontSize="11"
+                       Foreground="#0366D6"
+                       TextTrimming="CharacterEllipsis"
+                       MaxWidth="580"
+                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Active DWG Badge -->
+        <Border Grid.Column="1"
+                Background="#F1F8FF"
+                BorderBrush="#C8E1FF"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="8,4"
+                VerticalAlignment="Center">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="Active Drawing: " FontSize="11" Foreground="#0366D6"/>
+            <TextBlock x:Name="DwgNameTextBlock"
+                       Text="Working DWG"
+                       FontSize="11"
+                       FontWeight="Bold"
+                       Foreground="#0366D6"/>
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Border>
+
+    <!-- 2. Main Tab Control -->
+    <TabControl Grid.Row="1" x:Name="MainTabControl" Background="Transparent" BorderThickness="0" Margin="0,0,0,10">
+      
+      <!-- TAB 1: SCOPE QUESTIONNAIRE FORM -->
+      <TabItem Header="📋 1. Project Scope Questionnaire" FontSize="13" FontWeight="SemiBold">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+          <StackPanel Margin="0,0,8,0">
+
+            <!-- Banner info -->
+            <Border Background="#EBF5FB" BorderBrush="#AED6F1" BorderThickness="1" CornerRadius="6" Padding="12,8" Margin="0,0,0,10">
+              <TextBlock Text="Answer only factual project conditions. Code edition, work scope, occupancy, and listed exceptions are evaluated independently so the checklist does not treat every commercial project as having the same mandates. 'Unknown' answers intentionally create a verification check instead of silently assuming compliance."
+                         FontSize="12" Foreground="#1B4F72" TextWrapping="Wrap"/>
+            </Border>
+
+            <!-- Card 1: Project Classification & Scope Nature -->
+            <Border Style="{StaticResource CardBorderStyle}">
+              <StackPanel>
+                <TextBlock Text="🏛 1. Building Classification &amp; Scope Nature" Style="{StaticResource ScopeSectionHeader}"/>
+                <Grid>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                  </Grid.RowDefinitions>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+
+                  <!-- Phase -->
+                  <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,12,10">
+                    <TextBlock Text="Project Phase" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="PhaseComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <!-- Discipline -->
+                  <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,12,10">
+                    <TextBlock Text="Discipline" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="DisciplineComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <!-- Jurisdiction / Code Year -->
+                  <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,10">
+                    <TextBlock Text="Code Cycle / Jurisdiction" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="JurisdictionComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <!-- Client Standard -->
+                  <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,12,10">
+                    <TextBlock Text="Client Standard" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="ClientStandardComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <!-- Construction Scope Nature -->
+                  <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,0,0,10">
+                    <TextBlock Text="Construction Scope Nature" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="ConstructionScopeNatureComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <!-- Building Occupancy -->
+                  <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,12,10">
+                    <TextBlock Text="Primary Building Occupancy" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="BuildingOccupancyComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <!-- Code basis status -->
+                  <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,12,10">
+                    <TextBlock Text="Permit-Date / AHJ Code Basis" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="CodeBasisStatusComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,0,0,10" VerticalAlignment="Bottom">
+                    <CheckBox x:Name="LocalAmendmentsCheckBox" Content="Local ordinance / utility / fire-AHJ amendments apply" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <!-- Service Voltage -->
+                  <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,0,12,10">
+                    <TextBlock Text="Service Voltage" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="ServiceVoltageComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <!-- Fault Current Level -->
+                  <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,12,10">
+                    <TextBlock Text="Available Fault Current Level" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="FaultCurrentComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <!-- Emergency Power Architecture -->
+                  <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,0,0,10">
+                    <TextBlock Text="Emergency Egress Architecture" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="EmergencyPowerComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="4" Grid.Column="0" Margin="0,0,12,0">
+                    <TextBlock Text="Electrical Service Work" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="ElectricalServiceScopeComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,0,12,0">
+                    <TextBlock Text="Distribution Work" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="ElectricalDistributionScopeComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="4" Grid.Column="2" Margin="0,0,0,0">
+                    <TextBlock Text="California Lighting Alteration Path" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="LightingComplianceScopeComboBox" Height="28" SelectionChanged="OnScopeInputChanged"/>
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="5" Grid.Column="0" Margin="0,10,12,0">
+                    <TextBlock Text="Authority Having Jurisdiction (AHJ)" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <TextBox x:Name="AuthorityHavingJurisdictionTextBox" Height="28" Padding="6,3" TextChanged="OnScopeInputChanged" ToolTip="City, county, state agency, or other enforcing agency"/>
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,10,12,0">
+                    <TextBlock Text="Permit Application Date / Basis Date" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <TextBox x:Name="PermitApplicationDateTextBox" Height="28" Padding="6,3" TextChanged="OnScopeInputChanged" ToolTip="Use YYYY-MM-DD when known"/>
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="5" Grid.Column="2" Margin="0,10,0,0">
+                    <TextBlock Text="Local Amendment / Reach-Code Reference" FontSize="11" FontWeight="SemiBold" Foreground="#586069" Margin="0,0,0,3"/>
+                    <TextBox x:Name="LocalAmendmentReferenceTextBox" Height="28" Padding="6,3" TextChanged="OnScopeInputChanged" ToolTip="Ordinance, utility standard, fire-AHJ bulletin, or 'none'"/>
+                  </StackPanel>
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <!-- Card 2: Interior Spaces & Architectural Features -->
+            <Border Style="{StaticResource CardBorderStyle}">
+              <StackPanel>
+                <TextBlock Text="🏢 2. Interior Spaces &amp; Room Types Present in Scope" Style="{StaticResource ScopeSectionHeader}"/>
+                <WrapPanel Orientation="Horizontal">
+                  <CheckBox x:Name="OfficeSpacesCheckBox" Content="Office / lobby / conference / office-kitchen / copy-room receptacle spaces" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="ControlledReceptacleExceptionCheckBox" Content="All otherwise-covered receptacles use a documented §130.5(d) exception (for example direct patient-care or dedicated exempt equipment)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="PublicAreasCheckBox" Content="Public / customer areas (project coordination fact; not by itself a CEC 406.12 trigger)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="DwellingUnitsCheckBox" Content="Dwelling units / dwelling-unit common electrical service" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="HotelDormitoryCheckBox" Content="Hotel/motel guest rooms, dormitory, or assisted-living sleeping areas" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="HotelGuestRoomsCheckBox" Content="Hotel/motel guest rooms subject to the separate Title 24 guest-room controlled-receptacle rule" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="SpdSleepingOccupancyCheckBox" Content="2023 NEC / 2025 CEC service supplies dormitory units, hotel guest rooms/suites, or qualifying patient sleeping rooms (230.67)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="ChildCareEducationCheckBox" Content="Child care, preschool, or education areas" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="HealthCareCheckBox" Content="Healthcare / patient-care areas (Article 517 and Title 24 exceptions)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="AssemblyAreasCheckBox" Content="Assembly areas listed by 406.12 (waiting transportation, gym, rink, auditorium)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="HazardousLocationsCheckBox" Content="Hazardous (classified) locations / paint, fuel, dust, or vapor process" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="ModularFurnitureCheckBox" Content="Modular Systems Furniture / Cubicles with Power Feeds" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="MeetingRoomsAtMost1000CheckBox" Content="Meeting rooms not more than 1,000 sq ft (CEC/NEC 210.65)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="MeetingRoomFloorOutletTriggerCheckBox" Content="A qualifying meeting room is at least 215 sq ft and has a 12-ft floor dimension" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="MultiStallRestroomsCheckBox" Content="Multi-Stall / Multi-Occupant Restrooms" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="SinksWetLocationsCheckBox" Content="Bathrooms, kitchens, sinks, wet locations, rooftops, or other GFCI-trigger locations" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="GaragesServiceBaysCheckBox" Content="Garages, service bays, indoor parking, locker rooms, or similar GFCI locations" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="HandDryersCheckBox" Content="Electric hand dryers" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="CommercialKitchenCheckBox" Content="Commercial Kitchen / Food Prep / Food Service Equipment" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="FoodDisposerCheckBox" Content="Food Waste Disposer at Sinks" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="GreaseTrapCheckBox" Content="Grease Interceptor / Trap System" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- Card 3: Electrical Distribution Conditions -->
+            <Border Style="{StaticResource CardBorderStyle}">
+              <StackPanel>
+                <TextBlock Text="⚙ 3. Electrical Distribution &amp; Overcurrent Conditions" Style="{StaticResource ScopeSectionHeader}"/>
+                <WrapPanel Orientation="Horizontal">
+                  <CheckBox x:Name="NewTransformersCheckBox" Content="New or replaced transformers / separately derived systems" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="Service1200AmpsCheckBox" Content="Service equipment rated 1,200 A or more" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="Ocpd1200AmpsCheckBox" Content="Circuit breaker rated or adjustable to 1,200 A or more" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- Card 4: Mechanical & Plumbing Coordination -->
+            <Border Style="{StaticResource CardBorderStyle}">
+              <StackPanel>
+                <TextBlock Text="🔧 4. Mechanical &amp; Plumbing Systems in Scope" Style="{StaticResource ScopeSectionHeader}"/>
+                <WrapPanel Orientation="Horizontal">
+                  <CheckBox x:Name="RooftopUnitsCheckBox" Content="Rooftop heating, air-conditioning, or refrigeration equipment" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="RoofExhaustFansCheckBox" Content="Roof exhaust/supply fans or other roof-mounted motors (not HVAC/R equipment)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="HvacOver2000CfmCheckBox" Content="Air-moving system supplies more than 2,000 CFM" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="DuctSmokeAlternativeCheckBox" Content="Area detection / engineered duct-smoke exception is claimed (documentation required)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="ElectricWaterHeaterCheckBox" Content="Electric storage, tankless, booster, or heat-pump water heater" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- Card 5: Lighting & Daylighting Features -->
+            <Border Style="{StaticResource CardBorderStyle}">
+              <StackPanel>
+                <TextBlock Text="💡 5. Lighting, Daylighting &amp; Title 24 Exceptions" Style="{StaticResource ScopeSectionHeader}"/>
+                <WrapPanel Orientation="Horizontal">
+                  <CheckBox x:Name="DaylightWindowsCheckBox" Content="Daylit zone has at least 120 W of general lighting" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="DaylightExceptionCheckBox" Content="Documented daylight exception (shading, glazing area, retail, parking, or wattage)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="LightingOver4000WCheckBox" Content="Potentially covered general lighting load is more than 4,000 W" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="DemandResponseExceptionCheckBox" Content="Health/life-safety law prohibits lighting reduction for the counted load" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="MultiLevelLightingSpacesCheckBox" Content="Enclosed spaces ≥100 sq ft and &gt;0.5 W/sq ft (excluding documented exceptions)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="OccupancyControlSpacesCheckBox" Content="Spaces requiring automatic shutoff / occupancy or vacancy controls" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="ExteriorLightingCheckBox" Content="Exterior / canopy / signage / facade lighting" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="ExteriorLightingExceptionCheckBox" Content="All exterior lighting is within a documented §130.2/§140.7 control exception" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- Card 6: Specialty, Renewable, EV & Life Safety -->
+            <Border Style="{StaticResource CardBorderStyle}">
+              <StackPanel>
+                <TextBlock Text="⚡ 6. Specialty, Renewable, EV &amp; Life-Safety Systems" Style="{StaticResource ScopeSectionHeader}"/>
+                <WrapPanel Orientation="Horizontal">
+                  <CheckBox x:Name="EvChargingCheckBox" Content="Installed EVSE (Level 2 or DC fast charging)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="ParkingEvInfrastructureCheckBox" Content="New/altered parking or qualifying service increase triggers CALGreen EV review" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="SolarPvCheckBox" Content="Solar PV / photovoltaic array" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="BessStorageCheckBox" Content="Battery energy storage system (BESS / ESS)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="RequiredExitSignsCheckBox" Content="Exit signs are required / in scope" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="EmergencyEgressLightingCheckBox" Content="Emergency egress illumination is required / in scope" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="Article700LoadsCheckBox" Content="NEC/CEC Article 700 emergency loads" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="Article700PanelboardCheckBox" Content="Article 700 emergency switchboard or panelboard is present (separate 700.8 SPD trigger)" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="Article701LoadsCheckBox" Content="Article 701 legally required standby loads" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="Article702LoadsCheckBox" Content="Article 702 optional standby loads" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="FireAlarmCheckBox" Content="Fire alarm / signaling system" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="FirePumpCheckBox" Content="Electric or engine-driven fire pump and controller" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="ElevatorsCheckBox" Content="Elevator, escalator, lift, or moving walk" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                  <CheckBox x:Name="PoolsSpasFountainsCheckBox" Content="Pool, spa, fountain, or similar water feature" Style="{StaticResource ScopeCheckBoxStyle}" Checked="OnScopeInputChanged" Unchecked="OnScopeInputChanged"/>
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- Card 7: LIVE INFERRED CODE MANDATES SUMMARY -->
+            <Border Background="#F9FAFB" BorderBrush="#D1D5DA" BorderThickness="1" CornerRadius="6" Padding="14,12" Margin="0,0,0,10">
+              <StackPanel>
+                <TextBlock Text="🤖 Engine-Inferred Code Mandates (Deduced from Answers)" FontSize="13" FontWeight="Bold" Foreground="#1B2A4A" Margin="0,0,0,6"/>
+                <ItemsControl x:Name="InferredMandatesItemsControl">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Background="#FFFFFF" BorderBrush="#E1E4E8" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,0,0,6">
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                          </Grid.ColumnDefinitions>
+
+                          <Border Grid.Column="0" Background="{Binding BadgeBackground}" CornerRadius="3" Padding="6,2" Margin="0,0,8,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding MandateName}" FontSize="11" FontWeight="Bold" Foreground="{Binding BadgeForeground}"/>
+                          </Border>
+
+                          <TextBlock Grid.Column="1" Text="{Binding TriggerReason}" FontSize="11" Foreground="#586069" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <!-- Scope Navigation Actions -->
+            <Border Background="#FFFFFF" BorderBrush="#E1E4E8" BorderThickness="1" CornerRadius="6" Padding="14,12" Margin="0,0,0,10">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                  <TextBlock Text="🎯 Active Tailored Checks: " FontSize="12" FontWeight="SemiBold" Foreground="#586069"/>
+                  <TextBlock x:Name="MatchingRuleCountTextBlock" Text="0 Checks" FontSize="13" FontWeight="Bold" Foreground="#0366D6"/>
+                </StackPanel>
+
+                <Button Grid.Column="1"
+                        Content="Apply Scope &amp; View Tailored QA/QC Checklist ➔"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        Click="GoToChecklistTab_Click"/>
+              </Grid>
+            </Border>
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- TAB 2: DYNAMIC QA/QC CHECKLIST DASHBOARD -->
+      <TabItem Header="🛡 2. Dynamic QA/QC Checklist" FontSize="13" FontWeight="SemiBold">
+        <Grid Margin="0,10,0,0">
+          <Grid.RowDefinitions>
+            <!-- Progress Ribbon -->
+            <RowDefinition Height="Auto"/>
+            <!-- Filter Toolbar -->
+            <RowDefinition Height="Auto"/>
+            <!-- Items ScrollViewer -->
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+
+          <!-- 1. Progress & Readiness Ribbon -->
+          <Border Grid.Row="0"
+                  Background="#FFFFFF"
+                  BorderBrush="#E1E4E8"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="14,10"
+                  Margin="0,0,0,10">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+
+              <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                <Grid Margin="0,0,16,4">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <TextBlock Text="QA/QC Verification Progress: " FontSize="12" FontWeight="SemiBold" Foreground="#24292E"/>
+                    <TextBlock x:Name="ProgressCountTextBlock" Text="0 / 0 Checks" FontSize="12" FontWeight="Bold" Foreground="#0366D6"/>
+                  </StackPanel>
+                  <TextBlock Grid.Column="1" x:Name="ProgressPercentTextBlock" Text="0%" FontSize="12" FontWeight="Bold" Foreground="#28A745"/>
+                </Grid>
+                <ProgressBar x:Name="AuditProgressBar" Height="8" Minimum="0" Maximum="100" Value="0" Margin="0,0,16,0" Foreground="#28A745"/>
+              </StackPanel>
+
+              <!-- Readiness Verdict Badge -->
+              <Border Grid.Column="1"
+                      x:Name="ReadinessBadgeBorder"
+                      Background="#F6F8FA"
+                      BorderBrush="#D1D5DA"
+                      BorderThickness="1"
+                      CornerRadius="4"
+                      Padding="10,6"
+                      VerticalAlignment="Center">
+                <TextBlock x:Name="ReadinessVerdictTextBlock"
+                           Text="Pending Review"
+                           FontSize="11"
+                           FontWeight="Bold"
+                           Foreground="#586069"/>
+              </Border>
+            </Grid>
+          </Border>
+
+          <!-- 2. Filter Toolbar -->
+          <Border Grid.Row="1"
+                  Background="#FFFFFF"
+                  BorderBrush="#E1E4E8"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="10,8"
+                  Margin="0,0,0,8">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+
+              <!-- Row 1: Search & Toggles -->
+              <Grid Grid.Row="0" Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Search box -->
+                <Grid Grid.Column="0" Margin="0,0,10,0">
+                  <TextBox x:Name="SearchTextBox"
+                           Height="28"
+                           FontSize="12"
+                           Padding="6,4"
+                           TextChanged="SearchTextBox_TextChanged"/>
+                  <TextBlock x:Name="SearchPlaceholder"
+                             Text="🔍 Search checks, code citations, exceptions (e.g. CEC 210.63, Title 24, RTU)..."
+                             Foreground="#8C959F"
+                             FontSize="11"
+                             IsHitTestVisible="False"
+                             VerticalAlignment="Center"
+                             Margin="8,0,0,0"/>
+                  <Button x:Name="ClearSearchButton"
+                          Content="✕"
+                          Width="20" Height="20"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Center"
+                          Margin="0,0,4,0"
+                          Visibility="Collapsed"
+                          Click="ClearSearchButton_Click"/>
+                </Grid>
+
+                <CheckBox Grid.Column="1"
+                          x:Name="HideCompletedCheckBox"
+                          Content="Hide Completed"
+                          FontSize="11"
+                          FontWeight="SemiBold"
+                          VerticalAlignment="Center"
+                          Margin="0,0,10,0"
+                          Checked="FilterCriteriaChanged"
+                          Unchecked="FilterCriteriaChanged"/>
+
+                <Button Grid.Column="2"
+                        Content="Reset All Checks"
+                        FontSize="11"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Click="ResetChecksButton_Click"/>
+              </Grid>
+
+              <!-- Row 2: Severity & Topic Filter Pills -->
+              <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="Severity:" FontSize="11" FontWeight="SemiBold" Foreground="#586069" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox Grid.Column="1" x:Name="SeverityFilterComboBox" Height="24" FontSize="11" SelectionChanged="FilterCriteriaChanged" Margin="0,0,12,0">
+                  <ComboBoxItem Content="All Severities" IsSelected="True"/>
+                  <ComboBoxItem Content="Critical Only"/>
+                  <ComboBoxItem Content="High &amp; Critical"/>
+                  <ComboBoxItem Content="Standard"/>
+                </ComboBox>
+
+                <TextBlock Grid.Column="2" Text="Drawing Topic:" FontSize="11" FontWeight="SemiBold" Foreground="#586069" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox Grid.Column="3" x:Name="TopicFilterComboBox" Height="24" FontSize="11" SelectionChanged="FilterCriteriaChanged">
+                  <ComboBoxItem Content="All Topics" IsSelected="True"/>
+                  <ComboBoxItem Content="Single Line Diagram"/>
+                  <ComboBoxItem Content="Power Plan"/>
+                  <ComboBoxItem Content="Lighting Plan"/>
+                  <ComboBoxItem Content="Panel &amp; Fixture Schedules"/>
+                  <ComboBoxItem Content="Cover Sheet &amp; General Notes"/>
+                  <ComboBoxItem Content="Mechanical &amp; Plumbing Coordination"/>
+                </ComboBox>
+              </Grid>
+            </Grid>
+          </Border>
+
+          <!-- 3. Dynamic Checklist Items List -->
+          <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="AuditItemsControl">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="#FFFFFF"
+                          BorderBrush="#E1E4E8"
+                          BorderThickness="1"
+                          CornerRadius="6"
+                          Padding="14,11"
+                          Margin="0,0,0,8">
+                    <Grid>
+                      <Grid.RowDefinitions>
+                        <!-- Header: Checkbox + Title + Badges -->
+                        <RowDefinition Height="Auto"/>
+                        <!-- Description -->
+                        <RowDefinition Height="Auto"/>
+                        <!-- Notes Input -->
+                        <RowDefinition Height="Auto"/>
+                      </Grid.RowDefinitions>
+
+                      <!-- Top Header -->
+                      <Grid Grid.Row="0">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="Auto"/>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <CheckBox Grid.Column="0"
+                                  IsChecked="{Binding IsCompleted, Mode=TwoWay}"
+                                  Tag="{Binding Rule.Id}"
+                                  Click="AuditItemCheckBox_Click"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,8,0"
+                                  Cursor="Hand"/>
+
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding Rule.Title}"
+                                   FontSize="13"
+                                   FontWeight="Bold"
+                                   Foreground="{Binding TitleForeground}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"/>
+
+                        <!-- Badges Stack -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                          
+                          <!-- Hoverable Guide & Exceptions Pill -->
+                          <Border Background="#F1F8FF"
+                                  BorderBrush="#C8E1FF"
+                                  BorderThickness="1"
+                                  CornerRadius="3"
+                                  Padding="6,2"
+                                  Margin="0,0,4,0"
+                                  Cursor="Help"
+                                  VerticalAlignment="Center">
+                            <Border.ToolTip>
+                              <ToolTip Background="#FFFFFF" BorderBrush="#D1D5DA" BorderThickness="1" Padding="14" MaxWidth="520" Placement="Bottom">
+                                <StackPanel>
+                                  <TextBlock Text="{Binding Rule.Title}" FontSize="13" FontWeight="Bold" Foreground="#1B2A4A" Margin="0,0,0,4"/>
+                                  <TextBlock Text="{Binding WhyItMattersText}" FontSize="11" FontStyle="Italic" Foreground="#586069" TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                                  <!-- Exceptions & Nuances -->
+                                  <Border Visibility="{Binding ExceptionsVisibility}"
+                                          Background="#FFFDF5"
+                                          BorderBrush="#FFEAA7"
+                                          BorderThickness="1"
+                                          CornerRadius="4"
+                                          Padding="10,8"
+                                          Margin="0,0,0,8">
+                                    <StackPanel>
+                                      <TextBlock Text="⚠ Exceptions &amp; Verification Nuances:"
+                                                 FontSize="11"
+                                                 FontWeight="Bold"
+                                                 Foreground="#9E6A03"
+                                                 Margin="0,0,0,3"/>
+                                      <TextBlock Text="{Binding Rule.ExceptionsAndNuances}"
+                                                 FontSize="11"
+                                                 Foreground="#6B4701"
+                                                 TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                  </Border>
+
+                                  <!-- Code Cycle Differences -->
+                                  <Border Visibility="{Binding CodeCycleVisibility}"
+                                          Background="#F0F8FF"
+                                          BorderBrush="#BAE3FF"
+                                          BorderThickness="1"
+                                          CornerRadius="4"
+                                          Padding="10,8">
+                                    <StackPanel>
+                                      <TextBlock Text="📚 Code Cycle Differences (CEC 2022 vs NEC 2023 / CEC 2025 / T24):"
+                                                 FontSize="11"
+                                                 FontWeight="Bold"
+                                                 Foreground="#005A9E"
+                                                 Margin="0,0,0,3"/>
+                                      <TextBlock Text="{Binding Rule.CodeCycleNotes}"
+                                                 FontSize="11"
+                                                 Foreground="#003A6C"
+                                                 TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                  </Border>
+                                </StackPanel>
+                              </ToolTip>
+                            </Border.ToolTip>
+
+                            <StackPanel Orientation="Horizontal">
+                              <TextBlock Text="ℹ Rule Guide &amp; Exceptions" FontSize="10" FontWeight="SemiBold" Foreground="#0366D6"/>
+                            </StackPanel>
+                          </Border>
+
+                          <!-- Severity Badge -->
+                          <Border Background="{Binding SeverityBackground}"
+                                  CornerRadius="3"
+                                  Padding="6,2"
+                                  Margin="0,0,4,0">
+                            <TextBlock Text="{Binding Rule.Severity}"
+                                       FontSize="10"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding SeverityForeground}"/>
+                          </Border>
+
+                          <!-- Topic Badge -->
+                          <Border Background="#F1F8FF"
+                                  BorderBrush="#C8E1FF"
+                                  BorderThickness="1"
+                                  CornerRadius="3"
+                                  Padding="6,2"
+                                  Margin="0,0,4,0">
+                            <TextBlock Text="{Binding Rule.Topic}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="#0366D6"/>
+                          </Border>
+
+                          <!-- Code Citation Badge -->
+                          <Border Background="#F6F8FA"
+                                  BorderBrush="#D1D5DA"
+                                  BorderThickness="1"
+                                  CornerRadius="3"
+                                  Padding="6,2">
+                            <TextBlock Text="{Binding Rule.CodeCitation}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="#586069"/>
+                          </Border>
+                        </StackPanel>
+                      </Grid>
+
+                      <!-- Description -->
+                      <TextBlock Grid.Row="1"
+                                 Text="{Binding Rule.Description}"
+                                 FontSize="12"
+                                 Foreground="#24292E"
+                                 TextWrapping="Wrap"
+                                 Margin="26,6,0,6"/>
+
+                      <!-- Bottom Row: Notes Input -->
+                      <Grid Grid.Row="2" Margin="26,2,0,0">
+                        <TextBox Text="{Binding Notes, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                 Tag="{Binding Rule.Id}"
+                                 LostFocus="NotesTextBox_LostFocus"
+                                 FontSize="11"
+                                 Height="24"
+                                 Padding="4,2"
+                                 ToolTip="Add reviewer note (e.g. 'Verified exception applies for server room receptacles')"/>
+                      </Grid>
+
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+
+        </Grid>
+      </TabItem>
+    </TabControl>
+
+    <!-- 3. Footer Status & Actions -->
+    <Border Grid.Row="2"
+            Background="#FFFFFF"
+            BorderBrush="#E1E4E8"
+            BorderThickness="1"
+            CornerRadius="6"
+            Padding="12,8">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Status indicator -->
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock x:Name="StatusIcon" Text="✔" FontSize="12" Foreground="#28A745" Margin="0,0,6,0"/>
+          <TextBlock x:Name="StatusTextBlock"
+                     Text="Ready."
+                     FontSize="11"
+                     Foreground="#586069"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Footer buttons -->
+        <StackPanel Grid.Column="1" Orientation="Horizontal">
+          <Button Content="Reload"
+                  Style="{StaticResource SecondaryButtonStyle}"
+                  Click="ReloadButton_Click"
+                  Margin="0,0,8,0"/>
+          <Button Content="Close"
+                  Style="{StaticResource SecondaryButtonStyle}"
+                  Click="CloseButton_Click"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+  </Grid>
+</Window>

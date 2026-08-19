@@ -79,7 +79,27 @@ namespace ElectricalCommands
               SquareFeet = g.Sum(r => r.SquareFeet)
             })
             .ToList();
-        // 6. Output to JSON file
+
+        // 6. Add TOTAL category with the sum of all areas
+        double totalSquareFeet = combinedRooms
+            .Where(r => !string.Equals(r.RoomType, "TOTAL", StringComparison.OrdinalIgnoreCase))
+            .Sum(r => r.SquareFeet);
+
+        var existingTotal = combinedRooms.FirstOrDefault(r => string.Equals(r.RoomType, "TOTAL", StringComparison.OrdinalIgnoreCase));
+        if (existingTotal != null)
+        {
+          existingTotal.SquareFeet = totalSquareFeet;
+        }
+        else
+        {
+          combinedRooms.Add(new RoomInfo
+          {
+            RoomType = "TOTAL",
+            SquareFeet = totalSquareFeet
+          });
+        }
+
+        // 7. Output to JSON file
         string dwgPath = db.Filename;
         string jsonPath = Path.Combine(Path.GetDirectoryName(dwgPath), "T24Output.json");
         string json = JsonConvert.SerializeObject(combinedRooms, Formatting.Indented);

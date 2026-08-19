@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aciesengineering.com/schemas/title24_space.schema.json",
+  "title": "Title24SpaceAudit",
+  "description": "Schema defining California Title 24 Part 6 lighting power density (LPD) and mandatory lighting control audits for ACIES Engineering.",
+  "type": "object",
+  "required": [
+    "spaceId",
+    "roomName",
+    "areaSqFt",
+    "functionCategory",
+    "allowedLpdWattsPerSqFt",
+    "actualLpdWattsPerSqFt",
+    "complianceStatus",
+    "fixtures",
+    "controls"
+  ],
+  "properties": {
+    "spaceId": { "type": "string" },
+    "roomNumber": { "type": "string" },
+    "roomName": { "type": "string" },
+    "boundaryPolylineHandle": { "type": "string" },
+    "areaSqFt": { "type": "number" },
+    "roomCavityRatioRCR": { "type": "number" },
+    "codeYear": { "type": "string", "enum": ["2022", "2025"], "default": "2022" },
+    "calculationMethod": {
+      "type": "string",
+      "enum": ["AREA_CATEGORY_METHOD", "TAILORED_METHOD", "COMPLETE_BUILDING_METHOD"],
+      "default": "AREA_CATEGORY_METHOD"
+    },
+    "functionCategory": {
+      "type": "string",
+      "description": "Title 24 Table 140.6-B occupancy designation (e.g. Office, Conference Room, Classroom, Restroom, Corridor, Warehouse)"
+    },
+    "allowedLpdWattsPerSqFt": { "type": "number" },
+    "allowedTotalWatts": { "type": "number" },
+    "actualTotalWatts": { "type": "number" },
+    "actualLpdWattsPerSqFt": { "type": "number" },
+    "powerMarginWatts": { "type": "number" },
+    "complianceStatus": {
+      "type": "string",
+      "enum": ["COMPLIANT", "NON_COMPLIANT", "WARNING"]
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fixtureType", "count", "wattsPerFixture", "totalWatts"],
+        "properties": {
+          "fixtureType": { "type": "string" },
+          "description": { "type": "string" },
+          "count": { "type": "integer" },
+          "wattsPerFixture": { "type": "number" },
+          "totalWatts": { "type": "number" },
+          "luminaireHandles": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "controls": {
+      "type": "object",
+      "required": ["manualAreaControl", "multiLevelDimming", "shutOffControl"],
+      "properties": {
+        "manualAreaControl": {
+          "type": "object",
+          "properties": {
+            "required": { "type": "boolean", "default": true },
+            "present": { "type": "boolean" },
+            "switchHandles": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "multiLevelDimming": {
+          "type": "object",
+          "properties": {
+            "required": { "type": "boolean" },
+            "compliant": { "type": "boolean" },
+            "dimmingControlMethod": { "type": "string", "enum": ["0-10V", "DALI", "Phase", "Step", "Wireless"] }
+          }
+        },
+        "shutOffControl": {
+          "type": "object",
+          "properties": {
+            "controlType": {
+              "type": "string",
+              "enum": ["OCCUPANCY_SENSOR", "VACANCY_SENSOR", "AUTOMATIC_TIME_SWITCH", "SYSTEM_CONTROLLER"]
+            },
+            "sensorCount": { "type": "integer" },
+            "coverageAdequate": { "type": "boolean" },
+            "sensorHandles": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "daylightHarvesting": {
+          "type": "object",
+          "properties": {
+            "inPrimarySidelitZone": { "type": "boolean" },
+            "inSecondarySidelitZone": { "type": "boolean" },
+            "inToplitZone": { "type": "boolean" },
+            "photosensorPresent": { "type": "boolean" },
+            "photosensorHandle": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

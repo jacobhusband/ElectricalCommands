@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aciesengineering.com/schemas/circuit_graph.schema.json",
+  "title": "ElectricalCircuitGraph",
+  "description": "Schema representing the directed topological electrical distribution network across AutoCAD drawings for ACIES Engineering.",
+  "type": "object",
+  "required": ["projectId", "rootNodeId", "nodes", "edges", "updatedAt"],
+  "properties": {
+    "projectId": { "type": "string" },
+    "drawingVersion": { "type": "string" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "rootNodeId": { "type": "string", "description": "ID of Utility service or Main Service Switchboard (MSB)" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GraphNode"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GraphEdge"
+      }
+    }
+  },
+  "$defs": {
+    "GraphNode": {
+      "type": "object",
+      "required": ["nodeId", "nodeType", "name"],
+      "properties": {
+        "nodeId": { "type": "string" },
+        "name": { "type": "string" },
+        "nodeType": {
+          "type": "string",
+          "enum": [
+            "UTILITY_SERVICE",
+            "TRANSFORMER",
+            "MAIN_SWITCHBOARD",
+            "DISTRIBUTION_PANEL",
+            "BRANCH_PANEL",
+            "DISCONNECT_SWITCH",
+            "VFD",
+            "HOMERUN_JUNCTION",
+            "LOAD_DEVICE"
+          ]
+        },
+        "dwgFile": { "type": "string" },
+        "cadHandle": { "type": "string" },
+        "coordinates": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        },
+        "voltage": { "type": "number" },
+        "phaseCount": { "type": "integer", "enum": [1, 3] },
+        "ratingAmps": { "type": "number" },
+        "kvaRating": { "type": "number" },
+        "impedancePercent": { "type": "number" },
+        "availableFaultCurrentSCA": { "type": "number" },
+        "attributes": { "type": "object" }
+      }
+    },
+    "GraphEdge": {
+      "type": "object",
+      "required": ["edgeId", "sourceNodeId", "targetNodeId", "edgeType"],
+      "properties": {
+        "edgeId": { "type": "string" },
+        "sourceNodeId": { "type": "string", "description": "Upstream supply node" },
+        "targetNodeId": { "type": "string", "description": "Downstream fed node" },
+        "edgeType": {
+          "type": "string",
+          "enum": ["SERVICE_ENTRANCE", "FEEDER", "BRANCH_HOMERUN", "DAISY_CHAIN_BRANCH"]
+        },
+        "circuitNumber": { "type": ["integer", "string"] },
+        "wireSpec": {
+          "type": "object",
+          "properties": {
+            "conductors": { "type": "string", "description": "e.g. 3#3/0 CU, 1#6G" },
+            "material": { "type": "string", "enum": ["CU", "AL"], "default": "CU" },
+            "insulation": { "type": "string", "default": "THHN" },
+            "temperatureRatingC": { "type": "integer", "default": 75 },
+            "conduitType": { "type": "string", "default": "EMT" },
+            "conduitSizeInches": { "type": "string", "default": "3/4\"" },
+            "conduitFillPercent": { "type": "number" }
+          }
+        },
+        "lengthFt": { "type": "number" },
+        "routingGeometry": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 3
+          }
+        },
+        "voltageDrop": {
+          "type": "object",
+          "properties": {
+            "dropVolts": { "type": "number" },
+            "dropPercent": { "type": "number" },
+            "cumulativePercent": { "type": "number" },
+            "isCompliantNEC": { "type": "boolean", "description": "True if branch <= 3% and total <= 5%" }
+          }
+        }
+      }
+    }
+  }
+}

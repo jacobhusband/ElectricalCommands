@@ -21,6 +21,7 @@
         })();
     </script>
     <link rel="stylesheet" href="styles.css?v=20260708-richer-blocks-p6" />
+    <link rel="stylesheet" href="symbol_counter.css?v=20260818-delete-actions" />
     <link rel="stylesheet" href="project-pages-editor/dist/project-pages-editor-project-pages-editor.css?v=20260729-page-email-attach" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -47,7 +48,6 @@
             <nav class="main-nav">
                 <button class="main-tab-btn active" data-tab="projects">Projects</button>
                 <button class="main-tab-btn" data-tab="notes">Pages</button>
-                <button class="main-tab-btn" data-tab="checklists">Checklists</button>
                 <button class="main-tab-btn" data-tab="tools">Tools</button>
                 <button class="main-tab-btn" data-tab="timesheets">Timesheets</button>
             </nav>
@@ -485,118 +485,6 @@
                 </div>
             </div>
         </div>
-        <!-- Tab Panel for Checklists -->
-        <div id="checklists-panel" class="tab-panel" hidden>
-            <div class="panel stack full-height">
-                <div class="panel-toolbar texts-toolbar">
-                    <div class="texts-toolbar-main">
-                        <div class="nav-search expanded-search">
-                            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                stroke-linejoin="round">
-                                <circle cx="11" cy="11" r="8"></circle>
-                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                            </svg>
-                            <input id="checklistsSearch" type="search" placeholder="Search checklist items..." />
-                        </div>
-                        <div class="toolbar-actions">
-                            <button class="icon-btn" id="checklistsHelpBtn" aria-label="Checklists help"
-                                title="Checklists help"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <circle cx="12" cy="12" r="10"></circle>
-                                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-                                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                                </svg></button>
-                        </div>
-                    </div>
-                </div>
-                <div class="texts-content">
-                    <div class="notebook-layout">
-                        <aside class="notebook-sidebar single-section">
-                            <section class="notebook-sidebar-section">
-                                <div class="checklists-controls">
-                                    <div class="notebook-section-header">
-                                        <h3 class="section-title">Checklists</h3>
-                                    </div>
-                                    <nav class="inner-tabs checklists-nav-list" id="checklistsTabsContainer"></nav>
-                                    <div class="checklists-sidebar-actions" id="checklistsSidebarActions"></div>
-                                </div>
-                            </section>
-                        </aside>
-                        <div class="notebook-content-shell">
-                            <section class="checklist-editor texts-view-pane" id="textsChecklistsPane">
-                                <div class="notebook-empty-state" id="checklistsEmptyState" hidden>
-                                    <div class="notebook-empty-state-icon">
-                                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                                            stroke-linejoin="round">
-                                            <path d="M9 11l3 3L22 4"></path>
-                                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-                                        </svg>
-                                    </div>
-                                    <h3 class="notebook-empty-state-title">No checklists yet</h3>
-                                    <p class="notebook-empty-state-body">Create your first checklist from a blank
-                                        slate or a template.</p>
-                                    <button class="btn btn-accent" type="button"
-                                        id="checklistsEmptyStateCreateBtn">+ Create your first checklist</button>
-                                </div>
-                                <div class="notebook-editor-content" id="checklistsEditorContent">
-                                    <div class="checklist-editor-header">
-                                        <input type="text" id="checklistName" class="checklist-name-input"
-                                            placeholder="Checklist Name" />
-                                        <div class="checklist-actions">
-                                            <div class="checklist-action-dropdown checklist-settings-dropdown"
-                                                id="checklistSettingsDropdown" hidden>
-                                                <button class="icon-btn" id="checklistSettingsBtn" type="button"
-                                                    aria-label="Checklist options" aria-haspopup="menu"
-                                                    aria-expanded="false" title="Checklist options">
-                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                                        stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                        stroke-linejoin="round">
-                                                        <path
-                                                            d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                                                        <circle cx="12" cy="12" r="3" />
-                                                    </svg>
-                                                </button>
-                                                <div class="checklist-action-menu checklist-settings-menu"
-                                                    id="checklistSettingsMenu" role="menu"
-                                                    aria-label="Checklist options">
-                                                    <button class="checklist-menu-item"
-                                                        id="overrideChecklistTemplateBtn" type="button"
-                                                        role="menuitem"
-                                                        title="Save this checklist over its template">Override
-                                                        template</button>
-                                                    <button class="checklist-menu-item" id="resetChecklistBtn"
-                                                        type="button" role="menuitem"
-                                                        title="Reset to default items">Reset to template
-                                                        defaults</button>
-                                                    <button class="checklist-menu-item danger"
-                                                        id="deleteChecklistBtn" type="button" role="menuitem"
-                                                        title="Delete this checklist">Delete checklist</button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div id="checklistSearchResults" class="checklist-search-results"></div>
-                                    <div class="checklist-items" id="checklistItemsContainer">
-                                        <!-- Checklist items rendered here -->
-                                    </div>
-                                    <div class="checklist-add-item">
-                                        <div class="checklist-add-actions">
-                                            <button class="btn btn-accent tiny" id="addChecklistItemBtn">+ Add
-                                                Item</button>
-                                            <button class="btn tiny checklist-add-subheader-btn"
-                                                id="addChecklistSubheaderBtn">+ Add Subheader</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </section>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
         <!-- Tab Panel for Tools -->
         <div id="tools-panel" class="tab-panel" hidden>
             <section class="panel stack">
@@ -741,6 +629,26 @@
                         <h4 class="tools-section-title">Electrical</h4>
                     </div>
                     <div class="tools-grid">
+                        <div id="toolSymbolCounter" class="tool-card" role="button" tabindex="0">
+                            <div class="tool-card-content">
+                                <div class="tool-icon">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+                                        <path d="M16 3h3a2 2 0 0 1 2 2v3"></path>
+                                        <path d="M8 21H5a2 2 0 0 1-2-2v-3"></path>
+                                        <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                </div>
+                                <div class="tool-card-header">Symbol Counter</div>
+                                <div class="tool-card-body">
+                                    Select one symbol on a PDF drawing and find matching fixtures or devices across the full set.
+                                    Review every marker and export page-by-page quantities to Excel.
+                                </div>
+                            </div>
+                            <div class="tool-card-status">Ready</div>
+                        </div>
                         <div id="toolWireSizer" class="tool-card" role="button" tabindex="0">
                             <div class="tool-card-content">
                                 <div class="tool-icon">
@@ -2363,7 +2271,6 @@
             <nav class="help-dlg-sidebar" id="helpDlgSidebar" aria-label="Help topics">
                 <button type="button" class="help-topic-btn" data-help-topic="projects">Projects</button>
                 <button type="button" class="help-topic-btn" data-help-topic="notes">Notes</button>
-                <button type="button" class="help-topic-btn" data-help-topic="checklists">Checklists</button>
                 <button type="button" class="help-topic-btn" data-help-topic="tools">Tools</button>
                 <button type="button" class="help-topic-btn" data-help-topic="timesheets">Timesheets</button>
                 <button type="button" class="help-topic-btn" data-help-topic="misc">Misc</button>
@@ -2437,35 +2344,6 @@
                     <h3>Scratchpad</h3>
                     <p>The pencil icon in the app header opens a quick scratchpad for unsorted notes that don't
                         need their own page.</p>
-                </section>
-
-                <section class="help-topic" data-help-topic="checklists" hidden>
-                    <h2>Checklists</h2>
-                    <p>The Checklists tab holds structured, repeatable lists. Each checklist starts from a template
-                        and can be customized per project.</p>
-
-                    <h3>Creating</h3>
-                    <ul>
-                        <li><strong>Blank checklist:</strong> click <em>+ New checklist</em> and choose
-                            <em>Blank</em>.</li>
-                        <li><strong>From template:</strong> the same menu lists the templates available for your
-                            current discipline. Each checklist remembers the template it came from.</li>
-                        <li><strong>Subheaders:</strong> use <em>+ Add Subheader</em> in the editor to group
-                            related items.</li>
-                    </ul>
-
-                    <h3>Template actions</h3>
-                    <ul>
-                        <li><strong>Override template:</strong> saves the current checklist's items back to its
-                            template so future checklists start from the updated version.</li>
-                        <li><strong>Reset to template defaults:</strong> restores the checklist to whatever its
-                            template currently contains.</li>
-                        <li><strong>Delete:</strong> removes the checklist. The template is not affected.</li>
-                    </ul>
-
-                    <h3>Searching</h3>
-                    <p>The search box at the top filters the active checklist's items. Click a result to focus
-                        that row in the editor.</p>
                 </section>
 
                 <section class="help-topic" data-help-topic="tools" hidden>
@@ -3158,6 +3036,162 @@
         </div>
     </dialog>
 
+    <dialog id="symbolCounterDlg" class="symbol-counter-dialog" aria-labelledby="symbolCounterTitle">
+        <div class="symbol-counter-shell">
+            <header class="symbol-counter-header">
+                <div class="symbol-counter-title-wrap">
+                    <div class="symbol-counter-mark" aria-hidden="true">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+                            <path d="M16 3h3a2 2 0 0 1 2 2v3"></path>
+                            <path d="M8 21H5a2 2 0 0 1-2-2v-3"></path>
+                            <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    </div>
+                    <div>
+                        <div id="symbolCounterTitle" class="symbol-counter-title">Symbol Counter</div>
+                        <div class="symbol-counter-subtitle">PDF takeoff workspace</div>
+                    </div>
+                </div>
+                <div class="symbol-counter-header-actions">
+                    <button class="btn tiny" id="symbolCounterLoadBtn" type="button">Load PDF drawings</button>
+                    <button class="btn tiny" id="symbolCounterExportBtn" type="button" disabled>Export Excel</button>
+                    <button class="icon-btn" id="symbolCounterCloseBtn" type="button" aria-label="Close Symbol Counter"
+                        title="Close">X</button>
+                </div>
+            </header>
+
+            <div class="symbol-counter-body">
+                <aside class="symbol-counter-sidebar" aria-label="Drawing and symbol navigation">
+                    <section class="symbol-counter-side-section symbol-counter-pages-section">
+                        <div class="symbol-counter-section-heading">
+                            <span>Drawings</span>
+                            <span id="symbolCounterPageCount" class="symbol-counter-count-badge">0</span>
+                        </div>
+                        <div id="symbolCounterPages" class="symbol-counter-pages">
+                            <div class="symbol-counter-side-empty">Load one or more PDF drawing sets to begin.</div>
+                        </div>
+                    </section>
+                    <section class="symbol-counter-side-section symbol-counter-symbols-section">
+                        <div class="symbol-counter-section-heading">
+                            <span>Counted symbols</span>
+                            <span class="symbol-counter-heading-actions">
+                                <button class="symbol-counter-heading-action is-danger" id="symbolCounterClearAllBtn"
+                                    type="button" title="Delete all counted symbols" disabled>Delete all</button>
+                                <button class="symbol-counter-heading-action" id="symbolCounterNewSymbolBtn" type="button"
+                                    disabled>+ New</button>
+                            </span>
+                        </div>
+                        <div id="symbolCounterSymbols" class="symbol-counter-symbols">
+                            <div class="symbol-counter-side-empty">Your symbol totals will appear here.</div>
+                        </div>
+                    </section>
+                </aside>
+
+                <main class="symbol-counter-workspace">
+                    <div class="symbol-counter-toolbar">
+                        <div class="symbol-counter-page-title" id="symbolCounterPageTitle">No drawing loaded</div>
+                        <div id="symbolCounterStatus" class="symbol-counter-status" role="status" aria-live="polite">
+                            Load PDF drawings, then drag a box around one symbol.
+                        </div>
+                        <div class="symbol-counter-zoom" role="group" aria-label="Drawing zoom">
+                            <button class="icon-btn mini" id="symbolCounterZoomOutBtn" type="button" title="Zoom out"
+                                disabled>-</button>
+                            <button class="symbol-counter-zoom-value" id="symbolCounterZoomFitBtn" type="button"
+                                title="Fit drawing" disabled>Fit</button>
+                            <button class="icon-btn mini" id="symbolCounterZoomInBtn" type="button" title="Zoom in"
+                                disabled>+</button>
+                        </div>
+                    </div>
+                    <div id="symbolCounterViewport" class="symbol-counter-viewport" tabindex="0"
+                        aria-label="PDF symbol counting drawing canvas">
+                        <div id="symbolCounterCanvasShell" class="symbol-counter-canvas-shell" hidden>
+                            <canvas id="symbolCounterCanvas"></canvas>
+                        </div>
+                        <div id="symbolCounterEmpty" class="symbol-counter-empty">
+                            <div class="symbol-counter-empty-icon" aria-hidden="true">⌗</div>
+                            <h3>Count directly from your PDFs</h3>
+                            <p>Load electrical plans, drag around one example, and review every automatic match.</p>
+                            <button class="btn" id="symbolCounterEmptyLoadBtn" type="button">Choose PDF drawings</button>
+                        </div>
+                        <div id="symbolCounterBusy" class="symbol-counter-busy" hidden>
+                            <div class="spinner"></div>
+                            <strong id="symbolCounterBusyTitle">Processing drawings…</strong>
+                            <span id="symbolCounterBusyDetail">This can take a moment on large sets.</span>
+                        </div>
+                    </div>
+                    <footer class="symbol-counter-footer">
+                        <span><kbd>Drag</kbd> select symbol</span>
+                        <span><kbd>Space</kbd> + drag pan</span>
+                        <span><kbd>Wheel</kbd> zoom</span>
+                        <span><kbd>Delete</kbd> remove selected match</span>
+                    </footer>
+                </main>
+
+                <aside class="symbol-counter-inspector" aria-label="Symbol count controls">
+                    <section class="symbol-counter-inspector-section">
+                        <div class="symbol-counter-section-heading">Find a symbol</div>
+                        <div id="symbolCounterSelectionEmpty" class="symbol-counter-inspector-empty">
+                            Drag a tight box around one complete symbol on the drawing.
+                        </div>
+                        <div id="symbolCounterSelectionControls" hidden>
+                            <div class="symbol-counter-template-preview-wrap">
+                                <canvas id="symbolCounterTemplatePreview" width="180" height="92"></canvas>
+                            </div>
+                            <label class="symbol-counter-field">
+                                <span>Symbol name</span>
+                                <input id="symbolCounterNameInput" type="text" maxlength="80" placeholder="e.g. Duplex receptacle" />
+                            </label>
+                            <label class="symbol-counter-field">
+                                <span>Match confidence <strong id="symbolCounterThresholdValue">82%</strong></span>
+                                <input id="symbolCounterThresholdInput" type="range" min="55" max="95" step="1" value="82" />
+                            </label>
+                            <label class="symbol-counter-check">
+                                <input id="symbolCounterRotationsInput" type="checkbox" checked />
+                                <span>Include 90° rotations</span>
+                            </label>
+                            <label class="symbol-counter-check">
+                                <input id="symbolCounterScaleInput" type="checkbox" />
+                                <span>Allow ±8% drawing scale variation</span>
+                            </label>
+                            <label class="symbol-counter-field">
+                                <span>Search</span>
+                                <select id="symbolCounterScopeInput">
+                                    <option value="all">All loaded pages</option>
+                                    <option value="current">Current page only</option>
+                                </select>
+                            </label>
+                            <button class="btn symbol-counter-run-btn" id="symbolCounterRunBtn" type="button">Find matches</button>
+                        </div>
+                    </section>
+
+                    <section class="symbol-counter-inspector-section symbol-counter-review-section">
+                        <div class="symbol-counter-section-heading">Review</div>
+                        <div id="symbolCounterReviewEmpty" class="symbol-counter-inspector-empty">
+                            Automatic results can be removed or supplemented with manual markers.
+                        </div>
+                        <div id="symbolCounterReviewControls" hidden>
+                            <div class="symbol-counter-total-card">
+                                <span>Total</span>
+                                <strong id="symbolCounterActiveTotal">0</strong>
+                            </div>
+                            <div class="symbol-counter-review-actions">
+                                <button class="btn tiny" id="symbolCounterAddMissedBtn" type="button">Add missed</button>
+                                <button class="btn tiny ghost" id="symbolCounterDeleteMatchBtn" type="button" disabled>Remove selected</button>
+                            </div>
+                            <div id="symbolCounterReviewHint" class="symbol-counter-review-hint">
+                                Click any marker to inspect it. Use Delete to remove a false positive.
+                            </div>
+                            <div id="symbolCounterPageBreakdown" class="symbol-counter-page-breakdown"></div>
+                        </div>
+                    </section>
+                </aside>
+            </div>
+        </div>
+    </dialog>
+
     <!-- HTML Templates for JS rendering -->
     <template id="project-row-template">
         <tr class="row">
@@ -3249,6 +3283,7 @@
     <div id="updateCheckIndicator" class="corner-status" hidden>Checking for updates...</div>
     <script src="project-pages-editor/dist/project-pages-editor.js?v=20260729-page-email-attach"></script>
     <script src="script.js?v=20260729-page-email-attach"></script>
+    <script src="symbol_counter_ui.js?v=20260818-delete-actions"></script>
 </body>
 
 </html>
