@@ -1,0 +1,1257 @@
+{
+  "version": "3.0.0",
+  "rules": [
+    {
+      "id": "gen_setup_reference_manager",
+      "title": "Reference Manager & Working Xrefs Verified",
+      "description": "Ensure all architectural, structural, and MEP xref paths are relative and clean in Reference Manager. Verify no missing, unloaded, or unresolved xrefs.",
+      "codeCitation": "ACIES Standard DS-01",
+      "discipline": "General",
+      "category": "Sheet Setup",
+      "topic": "Cover Sheet & General Notes",
+      "severity": "Standard",
+      "whyItMatters": "Unresolved xrefs cause plot dropouts and missing background geometry in consultant and contractor sets.",
+      "order": 1,
+      "condition": {}
+    },
+    {
+      "id": "gen_setup_clean_titleblock",
+      "title": "Title Block Metadata & Sheet Index Alignment",
+      "description": "Verify project name, project address, sheet numbers, issue date, and revision delta blocks match the project transmittal and architectural sheet index.",
+      "codeCitation": "ACIES Standard DS-02",
+      "discipline": "General",
+      "category": "Sheet Setup",
+      "topic": "Cover Sheet & General Notes",
+      "severity": "High",
+      "whyItMatters": "Mismatched titleblock metadata results in immediate city plan check intake rejection.",
+      "order": 2,
+      "condition": {}
+    },
+    {
+      "id": "gen_setup_spec_sheet_state",
+      "title": "State-Specific Electrical General Notes & Code Cycle Edition",
+      "description": "Verify the correct state code cycle notes (e.g. California CEC 2022 / 2025 vs National NEC 2020 / 2023) and local municipal amendment notes are placed on the general notes sheet.",
+      "codeCitation": "CEC 90.2 / 90.4 / NEC 90.2",
+      "discipline": "General",
+      "category": "Sheet Setup",
+      "topic": "Cover Sheet & General Notes",
+      "severity": "High",
+      "whyItMatters": "Plan check examiners verify code cycle citations on notes sheets first; outdated code cycles trigger standard rejection comments.",
+      "exceptionsAndNuances": "If project was permitted under a specific grandfathered code cycle date, confirm exact date of jurisdiction intake before updating notes.",
+      "codeCycleNotes": "The applicable California edition is fixed by the permit-application date and local ordinance. The 2022 Title 24 edition (Part 3 based on 2020 NEC) applies to qualifying applications from Jan. 1, 2023 through Dec. 31, 2025; the 2025 edition (Part 3 based on 2023 NEC) became effective Jan. 1, 2026. Confirm local amendments and special enforcing-agency jurisdiction (including DSA or HCAI) rather than inferring the edition from the current calendar date.",
+      "order": 3,
+      "condition": {}
+    },
+    {
+      "id": "gen_setup_ahj_local_amendments",
+      "title": "Permit-Date Code Basis & Local Amendments Confirmed",
+      "description": "Record the permit application date, enforcing agency, adopted electrical/building/fire/energy editions, utility service requirements, and each local amendment or reach code that affects the design.",
+      "codeCitation": "CEC/NEC 90.4; California HSC §18938.5; AHJ adopting ordinance",
+      "discipline": "General",
+      "category": "Sheet Setup",
+      "topic": "Cover Sheet & General Notes",
+      "severity": "Critical",
+      "whyItMatters": "The same project facts can produce a different answer under a different adopted edition or local amendment; an unconfirmed code basis makes every downstream inference provisional.",
+      "exceptionsAndNuances": "Do not use the current date as the sole selector. California generally uses the code in effect on the building-permit application date, subject to permit expiration, renewal, state-agency jurisdiction, and lawfully adopted local amendments. Utility standards are coordination requirements and do not replace the adopted code.",
+      "codeCycleNotes": "2022 California codes became effective Jan. 1, 2023. The 2025 California codes became effective Jan. 1, 2026. Other states and cities adopt NEC editions on independent schedules.",
+      "order": 5,
+      "condition": {
+        "anyFlags": ["NeedsCodeBasisConfirmation", "NeedsLocalAmendmentReview"]
+      }
+    },
+    {
+      "id": "gen_setup_lighting_alteration_path",
+      "title": "California Lighting Alteration Compliance Path Resolved",
+      "description": "Classify the lighting work under the applicable Section 141.0 alteration path and document which Table 141.0-F controls are required before applying daylight, multilevel, and demand-response checks.",
+      "codeCitation": "Title 24 §§141.0(b)(2)I-L; Table 141.0-F",
+      "discipline": "Electrical",
+      "category": "Code Basis",
+      "topic": "Cover Sheet & General Notes",
+      "severity": "Critical",
+      "whyItMatters": "Lighting alterations can require different control packages; applying every new-construction control or suppressing all controls are both common errors.",
+      "exceptionsAndNuances": "The reduced-controls path does not mean no controls. Table 141.0-F continues to require specified manual and automatic shutoff functions while multilevel, daylight, or demand-responsive controls can depend on the chosen alteration path.",
+      "codeCycleNotes": "Verify against the selected 2022 or 2025 Energy Code and the approved compliance forms for the project.",
+      "order": 6,
+      "condition": {
+        "requiredFlags": ["NeedsLightingScopeResolution"]
+      }
+    },
+    {
+      "id": "gen_setup_symbols_legend_match",
+      "title": "Electrical Symbols Legend Coordinates with Plan Entities",
+      "description": "Verify all graphic symbols used on floor plans (receptacles, sensors, emergency lights, disconnects) are defined in the electrical symbol legend on the cover/notes sheet.",
+      "codeCitation": "ACIES Standard DS-04",
+      "discipline": "General",
+      "category": "Sheet Setup",
+      "topic": "Cover Sheet & General Notes",
+      "severity": "Standard",
+      "whyItMatters": "Undefined symbols on drawings trigger contractor RFIs and plan check comments.",
+      "order": 4,
+      "condition": {}
+    },
+
+    {
+      "id": "elec_sld_switchboard_kaic",
+      "title": "Main Switchboard Short-Circuit kAIC Rating Indicated",
+      "description": "Indicate available fault current at service point and verify switchboard and main breaker interrupting rating (e.g. 22kAIC, 65kAIC) is explicitly labeled on Single Line Diagram.",
+      "codeCitation": "CEC 110.9, 110.10, 110.24",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Equipment must safely withstand available fault current without explosive failure; plan check requires calculation and equipment ratings on SLD.",
+      "exceptionsAndNuances": "Existing equipment is not exempt from adequate interrupting and short-circuit ratings. Determine when the project scope requires a new calculation or field marking and whether a documented industrial-installation exception to 110.24 applies; always investigate if available fault current may exceed the nameplate rating.",
+      "codeCycleNotes": "CEC 110.24 requires field-applied maximum available fault current calculation labels with calculation date. NEC 2023 Section 110.24 reinforces this with updated utility coordination requirements.",
+      "order": 10,
+      "condition": {
+        "requiredFlags": ["NeedsDistributionFaultCurrentReview"]
+      }
+    },
+    {
+      "id": "elec_sld_high_fault_current_coordination",
+      "title": "Elevated Fault Current: Series-Rated / Fully Rated Documentation",
+      "description": "Where calculated available fault current exceeds a downstream device's standalone interrupting rating, provide fully rated equipment or document each permitted tested series combination and its field marking.",
+      "codeCitation": "CEC 110.9, 240.86",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Ten kAIC is a common equipment rating, not a universal code threshold; the governing comparison is available fault current versus each equipment rating.",
+      "exceptionsAndNuances": "If every component is fully rated at or above available fault current, series-combination tables are not required. Where series ratings are used, verify the exact upstream/downstream manufacturer combination, motor contribution restrictions, and required field marking.",
+      "codeCycleNotes": "CEC 240.86 / NEC 240.86 requires selected series combinations to be tested in an accredited laboratory under recognized standards and marked with replacement warning labels.",
+      "order": 11,
+      "condition": {
+        "requiredFlags": ["NeedsHighFaultCurrentReview"]
+      }
+    },
+    {
+      "id": "elec_sld_panel_aic_ratings",
+      "title": "Branch Panel AIC Ratings Coordinate with Fault Current",
+      "description": "Cross-check branch panelboards (LP1, PP1, etc.) on SLD to ensure AIC ratings meet or exceed calculated available fault current at each bus.",
+      "codeCitation": "CEC 110.9, 110.10",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Series rated or fully rated combinations must be clearly documented to prevent safety hazards.",
+      "exceptionsAndNuances": "Panels fed from downstream step-down transformers (e.g. 480V to 120/208V dry-type) benefit from transformer impedance reducing available fault current; calculate let-through fault current at secondary bus.",
+      "codeCycleNotes": "Standard across CEC 2022, NEC 2020, and NEC 2023.",
+      "order": 12,
+      "condition": {
+        "requiredFlags": ["NeedsDistributionFaultCurrentReview"]
+      }
+    },
+    {
+      "id": "elec_sld_voltage_drop_5percent",
+      "title": "Voltage-Drop Limit / Design Check",
+      "description": "For California work in scope, verify the maximum combined voltage drop on installed feeder and branch-circuit conductors to the farthest connected load or outlet does not exceed 5%. For NEC-only work, document the adopted energy-code requirement or the nonmandatory NEC design recommendation.",
+      "codeCitation": "Title 24 §130.5(c); CEC/NEC 210.19(A) IN No. 4 & 215.2(A)(1) IN No. 2",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "High",
+      "whyItMatters": "Excessive voltage drop causes equipment overheating, motor stalling, and Title 24 non-compliance.",
+      "exceptionsAndNuances": "Title 24 expressly excepts voltage drop permitted by CEC 647.4, 695.6, and 695.7. For alterations, apply §141.0 to determine whether both feeder and branch-circuit work triggers the mandatory check. A 2% feeder / 3% branch split is a useful design target but §130.5(c) states a combined 5% maximum rather than mandating that split.",
+      "codeCycleNotes": "California Title 24 makes the combined 5% limit mandatory for applicable work. NEC 2020/2023 places the familiar 3% branch / 5% combined language in informational notes unless an adopted energy code, specification, or AHJ amendment makes it enforceable.",
+      "order": 13,
+      "condition": {
+        "requiredFlags": ["NeedsVoltageDropReview"]
+      }
+    },
+    {
+      "id": "elec_sld_grounding_electrode",
+      "title": "Grounding Electrode System Sizing & Detail",
+      "description": "Specify grounding electrode conductor (GEC) size to building steel, water pipe, and concrete-encased electrode (Ufer) per Table 250.66.",
+      "codeCitation": "CEC 250.50, 250.66",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Grounding is fundamental for life safety and equipment protection against surges and lightning.",
+      "exceptionsAndNuances": "For interior tenant remodels where main service grounding is existing and unmodified, downstream subpanels receive Equipment Grounding Conductors (EGC per Table 250.122) instead of new GEC electrodes.",
+      "codeCycleNotes": "CEC 250.50 / NEC 250.50 requires all grounding electrodes present at each building to be bonded together to form the grounding electrode system. Maximum GEC size to ground rod is #6 Cu; to concrete-encased electrode is #4 Cu; to water pipe / steel is sized per Table 250.66.",
+      "order": 14,
+      "condition": {
+        "requiredFlags": ["NeedsGroundingElectrodeReview"]
+      }
+    },
+    {
+      "id": "elec_sld_spd_service_entrance",
+      "title": "Required Service or Emergency-System Surge Protection",
+      "description": "Where triggered, show the required Type 1 or Type 2 SPD at covered service equipment and/or the SPD for emergency switchboards and panelboards; coordinate voltage configuration, SCCR, conductor length, and replacement accessibility.",
+      "codeCitation": "CEC/NEC 230.67, 700.8 & Article 242",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "High",
+      "whyItMatters": "Protects electronic control systems, LED drivers, IT equipment, and micro-controllers from utility switching surges.",
+      "exceptionsAndNuances": "Article 242 governs installation but 242.11 is not a blanket mandate for every commercial service. Under NEC 2020/2022 CEC, 230.67 covers services supplying dwelling units and applies to service-equipment replacement. NEC 2023 expands listed sleeping occupancies. Article 700 has a separate SPD requirement for emergency switchboards and panelboards. An owner standard may require broader protection.",
+      "codeCycleNotes": "NEC 2020/2022 CEC 230.67 covers dwelling-unit services. NEC 2023/2025 CEC expands the covered occupancy list. Verify local amendments before extending the requirement to an otherwise ordinary commercial service.",
+      "order": 15,
+      "condition": {
+        "anyFlags": ["NeedsDwellingServiceSpd", "NeedsEmergencySystemSpd"]
+      }
+    },
+    {
+      "id": "elec_sld_feeder_conduit_fill",
+      "title": "Feeder Conduit Fill & Ground Wire Sizing",
+      "description": "Verify raceway fill using Chapter 9 and provide an effective equipment-grounding path. Where a wire-type equipment grounding conductor is installed, size it under Table 250.122 and adjust it when ungrounded conductors are increased as required.",
+      "codeCitation": "CEC Chapter 9 Table 1, Table 250.122",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "High",
+      "whyItMatters": "Overfilled conduits cause conductor insulation damage during pulling and violate electrical code.",
+      "exceptionsAndNuances": "The 40-percent value applies to more than two conductors; one and two conductors use different percentages. Qualifying nipples 24 inches or less can use 60-percent fill. A metal raceway recognized by 250.118 can serve as the EGC, so a separate wire-type EGC is not universally mandatory unless another rule, specification, or design condition requires it.",
+      "codeCycleNotes": "Standard across CEC 2022 and NEC 2023.",
+      "order": 16,
+      "condition": {
+        "requiredFlags": ["NeedsFeederReview"]
+      }
+    },
+    {
+      "id": "elec_sld_title24_metering",
+      "title": "Title 24 Electrical Energy Metering",
+      "description": "For covered California service or distribution work, verify the metering design can separately measure required electrical loads and provides accessible permanent metering and data output where required.",
+      "codeCitation": "Title 24 §130.5(a), Table 130.5-A",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "High",
+      "whyItMatters": "Metering requirements vary with service size, load type, and project scope; treating every tenant alteration alike produces both omissions and unnecessary meters.",
+      "exceptionsAndNuances": "Apply the service-size and load-category thresholds in Table 130.5-A. Existing systems, additions, and alterations must be evaluated under §141.0; utility revenue metering may satisfy portions only when it provides the required measurement and access.",
+      "codeCycleNotes": "Verify the adopted California Energy Code edition and local enforcement date before applying the table thresholds.",
+      "order": 17,
+      "condition": {
+        "requiredFlags": ["NeedsTitle24Metering"]
+      }
+    },
+    {
+      "id": "elec_sld_title24_load_separation",
+      "title": "Title 24 Load-Circuit Separation",
+      "description": "Verify lighting, receptacle, HVAC, and other end-use loads are arranged so required energy uses can be separately controlled or measured without mixing incompatible load categories.",
+      "codeCitation": "Title 24 §130.5(b)",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "High",
+      "whyItMatters": "Mixed-load circuits can defeat energy controls and metering compliance even when individual devices are correctly specified.",
+      "exceptionsAndNuances": "Apply only to covered new or replaced distribution. Evaluate existing distribution under §141.0 and document any accepted alteration path or AHJ interpretation.",
+      "codeCycleNotes": "California-specific requirement; non-California projects require the adopted energy-code equivalent.",
+      "order": 18,
+      "condition": {
+        "requiredFlags": ["NeedsTitle24LoadSeparation"]
+      }
+    },
+    {
+      "id": "elec_sld_arc_flash_labels",
+      "title": "Arc-Flash and Service-Equipment Field Marking",
+      "description": "Verify equipment likely to require energized examination or servicing carries the general arc-flash warning, and review the additional service-equipment incident-energy or PPE marking when the service rating is 1,200 A or more.",
+      "codeCitation": "CEC 110.16(A), 110.16(B)",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "The two marking duties have different scopes; a generic warning label does not necessarily satisfy the large-service marking requirement.",
+      "exceptionsAndNuances": "110.16(A) applies to qualifying equipment in other-than-dwelling occupancies. The more detailed 110.16(B) marking applies to service equipment rated 1,200 A or more; verify the adopted code edition, utility ownership boundaries, and the documented calculation method.",
+      "codeCycleNotes": "Section numbering is stable in the 2020 and 2023 NEC bases, but California amendments and adopted edition must be confirmed.",
+      "order": 19,
+      "condition": {
+        "anyFlags": ["NeedsArcFlashWarning", "NeedsServiceIncidentEnergyLabel"]
+      }
+    },
+    {
+      "id": "elec_sld_arc_energy_reduction",
+      "title": "Arc-Energy Reduction for 1,200 A or Larger Breakers",
+      "description": "For circuit breakers rated 1,200 A or higher, verify a permitted arc-energy-reduction method and document its operation and location on the single line and equipment schedule.",
+      "codeCitation": "CEC 240.87",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Large overcurrent devices can sustain dangerous arcing energy unless the clearing time is intentionally reduced.",
+      "exceptionsAndNuances": "The trigger is the circuit-breaker rating, not merely the service size. Fused equipment is evaluated under 240.67. Select only a method permitted by the adopted edition and include performance documentation where required.",
+      "codeCycleNotes": "Permitted methods and documentation language have evolved; confirm the adopted CEC/NEC edition and any local amendments.",
+      "order": 19,
+      "condition": {
+        "requiredFlags": ["NeedsArcEnergyReduction"]
+      }
+    },
+    {
+      "id": "elec_sld_transformer_coordination",
+      "title": "Transformer Protection, Grounding, and Ventilation",
+      "description": "Verify transformer primary/secondary overcurrent protection, conductor sizing, separately derived system bonding and grounding, ventilation, accessibility, and required clearances.",
+      "codeCitation": "CEC 450.3, 450.9, 250.30, 240.21(C)",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Transformer installations coordinate four separate code topics that are frequently missed when only the kVA and voltage are checked.",
+      "exceptionsAndNuances": "Protection options depend on transformer type, primary protection percentage, secondary conductor length, supervised conditions, and listing. Confirm whether the secondary is a separately derived system before applying 250.30.",
+      "codeCycleNotes": "Use the tables and tap rules from the adopted CEC/NEC edition; do not transfer percentages from another cycle without checking.",
+      "order": 19,
+      "condition": {
+        "requiredFlags": ["NeedsTransformerReview"]
+      }
+    },
+    {
+      "id": "elec_sld_high_leg_delta_identification",
+      "title": "High-Leg Delta Identification and Panel Position",
+      "description": "Where a 4-wire delta system is used, identify the high leg with the required orange marking and place it on the required bus position at panelboards.",
+      "codeCitation": "CEC 110.15, 408.3(E)",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "High",
+      "whyItMatters": "Unidentified high-leg conductors can expose 120 V equipment and workers to the wrong phase voltage.",
+      "exceptionsAndNuances": "This check applies only to systems with a high leg. Verify existing site voltage and phase arrangement rather than inferring it from nominal service text.",
+      "codeCycleNotes": "Stable requirement; local utility service standards may add identification details.",
+      "order": 19,
+      "condition": {
+        "requiredFlags": ["NeedsHighLegDeltaReview"]
+      }
+    },
+
+    {
+      "id": "elec_pwr_panel_clearance_space",
+      "title": "Working Space Clearance in Front of Panels",
+      "description": "Verify working-space depth from Table 110.26(A)(1), width of at least 30 inches or equipment width, headroom, clear access and egress, illumination, and the dedicated-equipment space applicable to the installation.",
+      "codeCitation": "CEC 110.26(A), 110.26(E)",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "Failure to provide working clearance is an immediate field safety violation and city rejection.",
+      "exceptionsAndNuances": "Depth depends on nominal voltage to ground and Conditions 1, 2, or 3; it is not determined by voltage alone. Existing nonconforming conditions require AHJ acceptance. Review door hardware/opening, large-equipment egress, foreign systems, suspended-ceiling space, and guarded or special-equipment exceptions under the adopted edition.",
+      "codeCycleNotes": "Use Table 110.26(A)(1) and the exact headroom, egress, and dedicated-space subsections from the adopted CEC/NEC cycle; do not apply a blanket 36-inch/42-inch rule.",
+      "order": 20,
+      "condition": {
+        "requiredFlags": ["NeedsDistributionEquipmentReview"]
+      }
+    },
+    {
+      "id": "elec_pwr_service_receptacle_25ft",
+      "title": "Service-Equipment Maintenance Receptacle",
+      "description": "For covered service equipment, verify a 125V single-phase 15A or 20A receptacle is installed in an accessible location within 25 ft and on the same level as the equipment.",
+      "codeCitation": "CEC 210.63(B)(1), 210.63(B)(2)",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "High",
+      "whyItMatters": "Required by code for maintenance technicians servicing equipment.",
+      "exceptionsAndNuances": "A qualifying existing receptacle can satisfy the location requirement; the code does not universally require a dedicated circuit. Apply the detailed indoor/outdoor service-equipment scope and exceptions of the adopted edition rather than extending this rule to every panelboard.",
+      "codeCycleNotes": "The 2020 NEC-based 2022 CEC and the 2023 NEC reorganize portions of 210.63; confirm the adopted edition before documenting the precise subsection.",
+      "order": 21,
+      "condition": {
+        "requiredFlags": ["NeedsServiceEquipmentReceptacle"]
+      }
+    },
+    {
+      "id": "elec_pwr_controlled_receptacles_t24",
+      "title": "Title 24 Controlled Receptacles",
+      "description": "In covered office areas, lobbies, conference rooms, kitchen areas in office spaces, copy rooms, and modular workstations, verify controlled outlets are distributed and permanently marked as required by §130.5(d).",
+      "codeCitation": "Title 24 §130.5(d) / CEC 406.3(E)",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "Title 24 uses proximity, split-outlet, and workstation criteria rather than a blanket commercial 50-percent rule.",
+      "exceptionsAndNuances": "Provide at least one controlled receptacle within 6 ft of each uncontrolled receptacle, or use split/multiple controlled outlets as permitted; modular furniture requires at least one controlled outlet per workstation. Exceptions include dedicated refrigerators and water dispensers, clocks at least 6 ft above the floor, qualifying network/AV/data equipment other than personal computers, circuits over 20 A, marked UPS continuous-use receptacles, and specified health-care spaces. Alterations apply when the distribution system is entirely new or completely replaced.",
+      "codeCycleNotes": "California Title 24 §130.5(d) governs scope and layout; CEC 406.3(E) governs controlled-receptacle marking. Hotel/motel guest rooms use a separate one-half rule. Verify the adopted energy-code edition.",
+      "order": 22,
+      "condition": {
+        "requiredFlags": ["NeedsControlledReceptacles"]
+      }
+    },
+    {
+      "id": "elec_pwr_controlled_receptacle_exception",
+      "title": "Controlled-Receptacle Alteration / Occupancy Exception Documented",
+      "description": "Document why Title 24 controlled receptacles do not apply to this otherwise relevant space, including the alteration distribution scope or a specific listed occupancy/equipment exception.",
+      "codeCitation": "Title 24 §§130.5(d), 141.0(b)",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "High",
+      "whyItMatters": "An unchecked controlled-receptacle rule is not evidence that an alteration or health-care exception was actually reviewed.",
+      "exceptionsAndNuances": "Record whether the distribution is not entirely new or completely replaced, the space is a specified health-care area, or individual receptacles meet a listed equipment exception. Individual exceptions do not exempt other general-use receptacles in the same covered space.",
+      "codeCycleNotes": "Verify the adopted Energy Code and alteration path; this audit item documents the exception rather than imposing controlled outlets.",
+      "order": 22,
+      "condition": {
+        "requiredFlags": ["ControlledReceptaclesExempt"]
+      }
+    },
+    {
+      "id": "elec_pwr_tamper_resistant_receptacles",
+      "title": "Tamper-Resistant Receptacles in Listed Occupancies",
+      "description": "Provide tamper-resistant receptacles in the occupancies and spaces specifically listed by CEC 406.12, including dwelling units, guest rooms, child-care and education areas, dormitories, assisted living, specified health-care areas, and listed assembly spaces.",
+      "codeCitation": "CEC 406.12",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "Public access alone is not the trigger; applying the actual occupancy list prevents false positives and missed child-care or health-care areas.",
+      "exceptionsAndNuances": "Typical exceptions include receptacles more than 5.5 ft above the floor, those that are part of a luminaire or appliance, a single or duplex receptacle for a specific not-readily-moved appliance, and permitted replacements where grounding does not exist. Confirm the exact occupancy paragraphs and exceptions in the adopted edition.",
+      "codeCycleNotes": "The listed-occupancy scope changes between editions. Do not infer a blanket retail, lobby, or general-business requirement without verifying the adopted CEC/NEC text.",
+      "order": 23,
+      "condition": {
+        "requiredFlags": ["NeedsTamperResistant"]
+      }
+    },
+    {
+      "id": "elec_pwr_gfci_protection_locations",
+      "title": "GFCI Protection in Listed Locations and for Listed Appliances",
+      "description": "Verify GFCI protection for receptacles and equipment within the voltage/current and location or appliance scope of adopted CEC 210.8, including qualifying sink proximity, bathrooms, kitchens, rooftops, outdoors, garages/service areas, and indoor parking where applicable.",
+      "codeCitation": "CEC 210.8(B)",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "GFCI scope depends on location, voltage to ground, ampere rating, phase, connection method, and code cycle; a generic 'within 6 ft' note misses several triggers.",
+      "exceptionsAndNuances": "Measure sink proximity using the adopted wording and shortest cord path where applicable. Protection may be integral, at the receptacle, or upstream if readily accessible and listed for the use. Review special industrial or laboratory exceptions; dedicated status alone is not a general exemption.",
+      "codeCycleNotes": "The 2020 NEC-based 2022 CEC and 2023 NEC-based 2025 CEC differ materially, especially appliance coverage under 210.8(D). Apply the exact adopted cycle.",
+      "order": 24,
+      "condition": {
+        "requiredFlags": ["NeedsGfciProtection"]
+      }
+    },
+    {
+      "id": "elec_pwr_modular_furniture_poc",
+      "title": "Modular Systems Furniture Point of Connection (POC)",
+      "description": "Provide floor or wall junction box / monument feed for modular systems furniture. Include plan note: 'VERIFY POINT OF CONNECTION WITH FURNITURE VENDOR' and dedicated circuits for controlled and uncontrolled power.",
+      "codeCitation": "CEC 605 / Title 24 §130.5(d)",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "High",
+      "whyItMatters": "Modular workstations require dedicated multicircuit feeds with shared neutral restrictions.",
+      "exceptionsAndNuances": "Standalone executive desks not connected in multi-workstation clusters are fed from standard wall receptacles and do not require multiwire base feeds.",
+      "codeCycleNotes": "CEC Article 605 governs office furniture systems. Title 24 §130.5(d) specifically requires at least 1 controlled receptacle per modular workstation.",
+      "order": 25,
+      "condition": {
+        "requiredFlags": ["NeedsModularFurniturePoc"]
+      }
+    },
+    {
+      "id": "elec_pwr_meeting_room_floor_boxes",
+      "title": "Meeting Room Receptacle Distribution (Not More Than 1,000 sq ft)",
+      "description": "For meeting rooms not more than 1,000 sq ft, lay out wall and floor receptacles using the dwelling-unit wall-spacing basis required by CEC 210.65.",
+      "codeCitation": "CEC 210.65",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "High",
+      "whyItMatters": "The prior questionnaire reversed the threshold: the prescriptive rule applies to meeting rooms not more than 1,000 sq ft.",
+      "exceptionsAndNuances": "Rooms over 1,000 sq ft are outside this particular prescriptive paragraph and still require a design suitable for use and any applicable local rules. Reconfigurable partitions can create separate rooms for applying the rule. Furniture layouts do not replace the wall-space calculation.",
+      "codeCycleNotes": "Introduced in the 2017 NEC and retained in the 2020 and 2023 NEC bases. Verify California amendments and local interpretations.",
+      "order": 26,
+      "condition": {
+        "requiredFlags": ["NeedsMeetingRoomReceptacles"]
+      }
+    },
+    {
+      "id": "elec_pwr_meeting_room_floor_outlet",
+      "title": "Meeting Room Central Floor Receptacle Trigger",
+      "description": "Where a covered meeting room is at least 215 sq ft and has a floor dimension of at least 12 ft, verify at least one qualifying floor receptacle is located at least 6 ft from a fixed wall.",
+      "codeCitation": "CEC 210.65",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "High",
+      "whyItMatters": "The central floor-outlet trigger is separate from the 1,000 sq ft upper limit and cannot be inferred from room type alone.",
+      "exceptionsAndNuances": "Both the area and floor-dimension tests must be satisfied. Verify the adopted code wording for floor receptacle location and the treatment of movable partitions.",
+      "codeCycleNotes": "Use the adopted CEC/NEC edition; this predicate records the actual geometry instead of assuming every conference room needs a floor box.",
+      "order": 26,
+      "condition": {
+        "requiredFlags": ["NeedsMeetingRoomFloorOutlet"]
+      }
+    },
+    {
+      "id": "elec_pwr_hand_dryer_circuit",
+      "title": "Hand Dryer Nameplate, Circuit, and Rough-In Coordination",
+      "description": "Coordinate each hand dryer's voltage, nameplate current, mounting, branch-circuit load, overcurrent protection, connection method, and required GFCI protection; show the specified rough-in.",
+      "codeCitation": "CEC 110.3(B), 210.8(B), 210.20, 422.31",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Standard",
+      "whyItMatters": "Hand-dryer electrical characteristics vary widely; the code does not impose one universal dedicated 20 A circuit.",
+      "exceptionsAndNuances": "A dedicated circuit is required only when the calculated load, listing, or manufacturer instructions require it. Cord-and-plug and hardwired models have different disconnect and GFCI implications; verify accessibility requirements with the architectural design.",
+      "codeCycleNotes": "CEC 110.3(B) always requires compliance with listing instructions; verify the adopted 210.8(B) appliance/location scope.",
+      "order": 27,
+      "condition": {
+        "requiredFlags": ["NeedsHandDryerCoordination"]
+      }
+    },
+    {
+      "id": "elec_pwr_food_disposer_switch_outlet",
+      "title": "Food Waste Disposer Connection and Disconnect Coordination",
+      "description": "Confirm whether a disposer is furnished and coordinate its voltage, branch circuit, permitted cord-and-plug or hardwired connection, receptacle accessibility, switching/control method, GFCI requirement, and disconnecting means.",
+      "codeCitation": "CEC 422.16(B)(1), 422.31(B)",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Standard",
+      "whyItMatters": "The code permits multiple listed connection and control arrangements; a wall toggle and under-counter receptacle are not universally required.",
+      "exceptionsAndNuances": "For cord-and-plug equipment, verify the cord, grounding-type plug, and accessible receptacle meet 422.16(B)(1) and can serve as the disconnect when permitted. Air switches, listed controls, or hardwired disconnects can be used when their listing and accessibility satisfy the adopted rules.",
+      "codeCycleNotes": "GFCI appliance requirements and Article 422 connection provisions vary by adopted CEC/NEC edition; verify manufacturer instructions.",
+      "order": 28,
+      "condition": {
+        "requiredFlags": ["NeedsFoodDisposerCoordination"]
+      }
+    },
+    {
+      "id": "elec_pwr_commercial_kitchen_shunt_trip",
+      "title": "Commercial Kitchen Fire-Suppression Power Shutdown",
+      "description": "Coordinate the hood fire-suppression system so activation automatically shuts down the fuel and electric heat-producing equipment required by the listed system and sequence of operations.",
+      "codeCitation": "NFPA 96 §10.4.1 / CEC 110.3(B)",
+      "discipline": "Electrical",
+      "category": "Mechanical & Plumbing Coordination",
+      "topic": "Mechanical & Plumbing Coordination",
+      "severity": "Critical",
+      "whyItMatters": "The shutdown function is mandatory for covered equipment, but a shunt-trip breaker is only one possible listed implementation.",
+      "exceptionsAndNuances": "Coordinate the suppression-system listing, appliance matrix, make-up air and exhaust sequence, gas-valve interfaces, and reset behavior. Do not automatically shut down equipment that the adopted standard requires to remain operating. Breakroom appliances without a commercial cooking suppression system do not trigger this rule.",
+      "codeCycleNotes": "Confirm the NFPA 96 edition adopted by the fire code and the hood/suppression listing; avoid prescriptively requiring shunt-trip breakers where a listed contactor or other method is used.",
+      "order": 29,
+      "condition": {
+        "requiredFlags": ["NeedsCommercialKitchenCoordination"]
+      }
+    },
+    {
+      "id": "elec_pwr_grease_trap_alarm",
+      "title": "Grease Trap / Interceptor Power & Alarm Monitoring",
+      "description": "Verify 120V power connection and low-voltage monitoring junction box for automatic grease interceptor level sensors / alarm panel.",
+      "codeCitation": "CEC 110.3(B) / Plumbing Coordination",
+      "discipline": "Electrical",
+      "category": "Mechanical & Plumbing Coordination",
+      "topic": "Mechanical & Plumbing Coordination",
+      "severity": "Standard",
+      "whyItMatters": "Some automatic interceptors and monitoring packages require power and alarms, while passive gravity units do not; the equipment schedule must decide the electrical scope.",
+      "exceptionsAndNuances": "A grease interceptor does not by itself prove an electrical load exists. Obtain plumbing equipment data and local environmental-health requirements before adding power, alarm, or monitoring connections.",
+      "codeCycleNotes": "Plumbing code and local environmental health department requirement.",
+      "order": 30,
+      "condition": {
+        "requiredFlags": ["NeedsGreaseTrapCoordination"]
+      }
+    },
+    {
+      "id": "elec_pwr_water_heater_disconnect",
+      "title": "Electric Water Heater Circuit & Local Disconnect",
+      "description": "Verify water-heater nameplate, storage capacity, branch-circuit sizing, overcurrent protection, GFCI requirements, and a permitted disconnecting means within sight or lockable in the open position.",
+      "codeCitation": "CEC 422.13, 422.31(B)",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "High",
+      "whyItMatters": "The 125-percent rule in 422.13 applies to the stated storage-water-heater category, not every electric water heater or every point-of-use unit.",
+      "exceptionsAndNuances": "Apply 422.13 to qualifying storage-type water heaters of 120 gallons or less. Tankless, listed cord-and-plug, and small point-of-use equipment require evaluation under their listing, calculated load, connection method, 210.8 scope, and 422.31 disconnect rules; do not use an arbitrary 1,500 W cutoff.",
+      "codeCycleNotes": "CEC 422.13 / NEC 422.13 mandates that branch circuits supplying electric storage water heaters with capacity of 120 gallons or less have rating not less than 125% of nameplate rating.",
+      "order": 31,
+      "condition": {
+        "requiredFlags": ["NeedsElectricWaterHeater"]
+      }
+    },
+
+    {
+      "id": "mech_coord_rtu_receptacle_disconnect",
+      "title": "Rooftop HVAC/R Disconnect and Service Receptacle",
+      "description": "For rooftop HVAC or refrigeration equipment, verify a readily accessible disconnect within sight and a qualifying 125V 15A or 20A GFCI service receptacle within 25 ft on the same level.",
+      "codeCitation": "CEC 210.63(A), 440.14",
+      "discipline": "Electrical",
+      "category": "Mechanical & Plumbing Coordination",
+      "topic": "Mechanical & Plumbing Coordination",
+      "severity": "Critical",
+      "whyItMatters": "The HVAC/R service receptacle rule is often incorrectly extended to unrelated roof motors, while required HVAC service provisions are sometimes omitted.",
+      "exceptionsAndNuances": "The receptacle cannot be connected to the load side of the equipment disconnect and must be on the same level. Apply 210.63(A) to heating, air-conditioning, and refrigeration equipment; evaluate non-HVAC roof fans under Article 430 instead. Confirm GFCI and weather-resistant/in-use cover requirements.",
+      "codeCycleNotes": "CEC 2022 is based on the 2020 NEC. Verify any wording changes when the jurisdiction adopts the 2025 CEC/2023 NEC basis.",
+      "order": 35,
+      "condition": {
+        "requiredFlags": ["NeedsRooftopCoordination"]
+      }
+    },
+    {
+      "id": "mech_coord_rtu_rcp_dashed_representation",
+      "title": "Rooftop Units Shown Dashed on Floor Plan with Roof Note",
+      "description": "Ensure RTUs shown on electrical floor plan are on dashed layer with notation: 'LOCATED ON ROOF ABOVE' and referenced to roof plan details.",
+      "codeCitation": "ACIES Standard DS-03",
+      "discipline": "Electrical",
+      "category": "Mechanical & Plumbing Coordination",
+      "topic": "Power Plan",
+      "severity": "Standard",
+      "whyItMatters": "Prevents contractor confusion between ceiling plenum equipment and rooftop equipment.",
+      "order": 36,
+      "condition": {
+        "requiredFlags": ["NeedsRooftopCoordination"]
+      }
+    },
+    {
+      "id": "mech_coord_roof_fan_disconnect",
+      "title": "Roof Exhaust Fan Motor Disconnect and Circuit Coordination",
+      "description": "For roof exhaust and other non-HVAC motors, verify motor branch-circuit sizing, overload and short-circuit protection, disconnect location, controller, and weather/environmental ratings.",
+      "codeCitation": "CEC 430.22, 430.32, 430.52, 430.102",
+      "discipline": "Electrical",
+      "category": "Mechanical & Plumbing Coordination",
+      "topic": "Mechanical & Plumbing Coordination",
+      "severity": "High",
+      "whyItMatters": "A roof fan still needs complete motor-circuit coordination even though the HVAC/R service-receptacle rule may not apply.",
+      "exceptionsAndNuances": "Small listed unitary equipment may use a permitted controller or attachment plug as the disconnect. Confirm whether equipment is actually HVAC/R before applying 210.63(A) or Article 440.",
+      "codeCycleNotes": "Use the adopted CEC motor rules and the equipment listing/nameplate.",
+      "order": 36,
+      "condition": {
+        "requiredFlags": ["NeedsRoofMotorDisconnect"]
+      }
+    },
+    {
+      "id": "mech_coord_duct_smoke_detectors",
+      "title": "Duct Smoke Detection for Systems Over 2,000 CFM",
+      "description": "For air-distribution systems over 2,000 CFM, coordinate the required supply-air duct smoke detector or a documented permitted alternative, automatic fan shutdown, annunciation, and fire-alarm supervision where applicable.",
+      "codeCitation": "CMC 609.1, 609.1.1 / CBC 907.3.1",
+      "discipline": "Electrical",
+      "category": "Mechanical & Plumbing Coordination",
+      "topic": "Mechanical & Plumbing Coordination",
+      "severity": "Critical",
+      "whyItMatters": "The previous citation pointed to special-amusement buildings and the threshold was stated incorrectly as greater-than-or-equal-to 2,000 CFM.",
+      "exceptionsAndNuances": "The general trigger is over 2,000 CFM. A system may qualify for an exception or an alternate detection arrangement, including area detection or an engineered smoke-control strategy, only when the adopted mechanical/building code conditions are met and documented. Other occupancy or high-rise rules can require detection below this threshold.",
+      "codeCycleNotes": "California locates the general air-distribution requirement in CMC 609, with CBC 907.3.1 addressing duct-smoke control/supervision interfaces. Confirm locally adopted amendments.",
+      "order": 37,
+      "condition": {
+        "requiredFlags": ["NeedsDuctSmokeDetectors"],
+        "excludedFlags": ["HasDuctSmokeAlternative"]
+      }
+    },
+    {
+      "id": "mech_coord_duct_smoke_alternative",
+      "title": "Duct-Smoke Detector Alternative Documented",
+      "description": "Document the specific adopted-code exception or alternative detection arrangement used in lieu of the general supply-air duct detector and coordinate fan shutdown, supervision, and annunciation.",
+      "codeCitation": "CMC 609.1, 609.1.1 / CBC 907.3.1",
+      "discipline": "Electrical",
+      "category": "Mechanical & Plumbing Coordination",
+      "topic": "Mechanical & Plumbing Coordination",
+      "severity": "Critical",
+      "whyItMatters": "Checking an exception box must produce an auditable design basis; otherwise a required detector can silently disappear from the checklist.",
+      "exceptionsAndNuances": "Identify the exact exception, area-detection coverage, engineered smoke-control basis, or other accepted alternative and obtain mechanical/fire-alarm/AHJ coordination. An alternative arrangement can still require shutdown and fire-alarm interfaces.",
+      "codeCycleNotes": "Confirm the adopted CMC/CBC and local fire-department amendments.",
+      "order": 37,
+      "condition": {
+        "requiredFlags": ["HasDuctSmokeAlternative"]
+      }
+    },
+    {
+      "id": "mech_coord_mca_mocp_cross_check",
+      "title": "Mechanical Schedule MCA/MOCP vs Panel Breakers Cross-Check",
+      "description": "Cross-examine Mechanical Equipment Schedule (MCA and MOCP) against branch circuit wire sizes and breaker sizes on electrical panel schedules and SLD.",
+      "codeCitation": "CEC 440.4(B), 440.22, 440.32",
+      "discipline": "Electrical",
+      "category": "Mechanical & Plumbing Coordination",
+      "topic": "Panel & Fixture Schedules",
+      "severity": "Critical",
+      "whyItMatters": "Breaker must not exceed MOCP; conductor ampacity must equal or exceed MCA.",
+      "exceptionsAndNuances": "Use the equipment nameplate values where provided. Do not substitute generic Article 430 percentages for listed multimotor HVAC equipment. The selected OCPD must not exceed MOCP, and conductor ampacity must not be below MCA after applicable terminal and adjustment rules.",
+      "codeCycleNotes": "Universal NEC / CEC standard.",
+      "order": 38,
+      "condition": {
+        "requiredFlags": ["NeedsMechanicalScheduleReview"]
+      }
+    },
+
+    {
+      "id": "elec_ev_charging_infrastructure",
+      "title": "Installed EVSE Circuits, Load, and Energy Management",
+      "description": "For installed EV supply equipment, verify branch-circuit rating, continuous-load treatment, GFCI/personnel protection, disconnecting means where required, service/load calculations, and any listed energy-management setpoint.",
+      "codeCitation": "CEC 625.40, 625.41, 625.42, 625.43",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "Installed chargers can dominate service demand, but listed energy management can materially change the calculated load.",
+      "exceptionsAndNuances": "Where a listed energy management system controls the maximum load under the adopted Article 625 provisions, calculate to the permitted maximum setpoint rather than simply summing all nameplates. Coordinate accessibility, bollards, cord reach, and parking layout separately.",
+      "codeCycleNotes": "Article 625 was reorganized between the 2020 and 2023 NEC bases. Verify subsection numbering and California amendments for the project code cycle.",
+      "order": 40,
+      "condition": {
+        "requiredFlags": ["NeedsEvChargingCalculations"]
+      }
+    },
+    {
+      "id": "elec_ev_calgreen_infrastructure",
+      "title": "CALGreen EV-Capable / EV-Ready Parking Infrastructure",
+      "description": "Evaluate required EV-capable, EV-ready, and installed-EVSE parking counts and show raceway, panel capacity, space, conductors, signage, accessibility, and future-load provisions as applicable.",
+      "codeCitation": "CALGreen §5.106.5.3, §5.106.5.4",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "CALGreen can require infrastructure even when the questionnaire reports no chargers being installed.",
+      "exceptionsAndNuances": "New construction and qualifying additions/alterations use different triggers and tables. Alterations can be triggered by a service upgrade, added or altered parking, or a new photovoltaic canopy; technical-feasibility and local amendments must be documented rather than assumed.",
+      "codeCycleNotes": "Parking percentages and terminology changed between the 2022 and 2025 CALGreen cycles. Confirm permit date, adopted cycle, occupancy, and local reach code.",
+      "order": 41,
+      "condition": {
+        "requiredFlags": ["NeedsEvInfrastructureReview"]
+      }
+    },
+
+    {
+      "id": "elec_solar_pv_backfed_breaker",
+      "title": "Solar PV Interconnection and Rapid Shutdown",
+      "description": "For photovoltaic systems, verify the selected supply-side or load-side interconnection method, conductor and equipment ratings, overcurrent protection, disconnects, markings, and rapid-shutdown provisions.",
+      "codeCitation": "CEC 690.12, 705.11, 705.12",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "The familiar 120-percent method is only one permitted load-side method and is not a universal PV or storage rule.",
+      "exceptionsAndNuances": "A supply-side connection under 705.11 does not use the load-side busbar method but has separate disconnect, service, and fault-current requirements. For load-side connections, select and document a method permitted by the adopted 705.12 text; listed power-control systems may provide another compliance path.",
+      "codeCycleNotes": "Article 705 interconnection methods were substantially reorganized in the 2023 NEC. Confirm the adopted CEC basis before using legacy subsection labels or formulas.",
+      "order": 45,
+      "condition": {
+        "requiredFlags": ["NeedsSolarPvInterconnection"]
+      }
+    },
+    {
+      "id": "elec_bess_storage_system",
+      "title": "Battery Energy Storage System Electrical and Fire-Code Review",
+      "description": "For energy storage, verify listing, charge/discharge conductors, disconnects, overcurrent protection, grounding, interconnection or islanding mode, ventilation/location, fire detection or suppression, and emergency signage/response provisions.",
+      "codeCitation": "CEC 706, 705 / CFC §1207",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "BESS has distinct electrical and fire-safety requirements and cannot be treated as merely another PV backfeed breaker.",
+      "exceptionsAndNuances": "Fire-code thresholds, maximum stored-energy groups, separation, indoor/outdoor locations, technology, one- and two-family dwelling provisions, and listed system configuration affect the required protection. Coordinate with the fire AHJ and manufacturer; a PV rapid-shutdown review does not replace Article 706/CFC 1207 review.",
+      "codeCycleNotes": "Storage requirements change rapidly across CEC/NEC and CFC editions. Confirm permit date, battery chemistry, listing, capacity, and locally adopted amendments.",
+      "order": 46,
+      "condition": {
+        "requiredFlags": ["NeedsBessReview"]
+      }
+    },
+
+    {
+      "id": "ltg_t24_demand_response_4000w",
+      "title": "Automated Demand Response for Lighting Over 4,000 W",
+      "description": "When the covered general-lighting load is greater than 4,000 W, verify an OpenADR-capable control strategy that can reduce lighting power by at least 15 percent in response to a demand-response signal.",
+      "codeCitation": "Title 24 §110.12(c)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "Critical",
+      "whyItMatters": "The trigger is greater than 4,000 W, not greater-than-or-equal, and exempt health or life-safety lighting must not be counted as ordinary controllable load.",
+      "exceptionsAndNuances": "Exclude qualifying health-care, life-safety, or other loads specifically exempted by §110.12. Determine the covered lighting load and required reduction using the adopted edition; 4,000 W exactly does not satisfy an 'exceeds 4,000 W' trigger.",
+      "codeCycleNotes": "California-specific energy requirement; verify the 2022 or 2025 Energy Code and the current demand-responsive control certification requirements.",
+      "order": 50,
+      "condition": {
+        "requiredFlags": ["NeedsDemandResponse"]
+      }
+    },
+    {
+      "id": "ltg_t24_demand_response_exception",
+      "title": "Demand-Response Health / Life-Safety Exception Documented",
+      "description": "Identify the lighting excluded from demand response, cite the applicable health or life-safety exception, and demonstrate that remaining covered general-lighting load does not independently exceed the trigger without compliant ADR.",
+      "codeCitation": "Title 24 §110.12(c)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "Critical",
+      "whyItMatters": "An exception may remove specific critical lighting, not necessarily the entire building load.",
+      "exceptionsAndNuances": "Separate exempt and nonexempt wattage in the calculation and coordinate the exact space/use language with the adopted Energy Code and compliance forms.",
+      "codeCycleNotes": "Use the selected 2022 or 2025 Energy Code and its current compliance documentation.",
+      "order": 50,
+      "condition": {
+        "requiredFlags": ["DemandResponseExempt"]
+      }
+    },
+    {
+      "id": "ltg_t24_daylight_harvesting_zones",
+      "title": "Daylight-Responsive Controls for Daylit-Zone Loads",
+      "description": "Where the installed general-lighting power in a primary sidelit, secondary sidelit, or skylit daylit zone reaches the applicable threshold, verify the required independent automatic daylight-responsive control.",
+      "codeCitation": "Title 24 §130.1(d)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "Critical",
+      "whyItMatters": "The controlling threshold is lighting watts in the applicable daylit zone, not a generic 100-square-foot window-area test.",
+      "exceptionsAndNuances": "A primary sidelit, secondary sidelit, or skylit zone with less than 120 W of general lighting is exempt. Other adopted exceptions can include documented daylight obstruction for more than 1,500 daytime hours, qualifying overhang conditions, parking areas below the separate wattage threshold, small glazing, and specified retail conditions. Record the exception rather than suppressing the topic silently.",
+      "codeCycleNotes": "Daylit-zone geometry and control behavior differ by the adopted 2022 or 2025 Energy Code; use the compliance manual for the selected cycle.",
+      "order": 51,
+      "condition": {
+        "requiredFlags": ["NeedsDaylightHarvesting"]
+      }
+    },
+    {
+      "id": "ltg_t24_daylight_exception",
+      "title": "Daylight-Control Exception Basis Documented",
+      "description": "Document the daylit-zone calculation and the exact exception used, such as less than 120 W in the applicable zone, qualifying obstruction or overhang, small glazing, parking threshold, or a cycle-specific retail exception.",
+      "codeCitation": "Title 24 §130.1(d)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "High",
+      "whyItMatters": "A daylight exception is zone-specific; it should not suppress controls in other primary, secondary, or skylit zones.",
+      "exceptionsAndNuances": "Show the supporting wattage, glazing, geometry, shading, or obstruction calculation and apply the exception only to the qualifying daylit zone.",
+      "codeCycleNotes": "Definitions and exceptions vary between the 2022 and 2025 Energy Code cycles.",
+      "order": 51,
+      "condition": {
+        "requiredFlags": ["DaylightControlsExempt"]
+      }
+    },
+    {
+      "id": "ltg_t24_occupancy_sensor_mandatory_spaces",
+      "title": "Occupant-Sensing Controls in Required Spaces",
+      "description": "For spaces subject to occupant-sensing control, verify area coverage, vacancy time delay, automatic-off behavior, permitted manual/partial-on behavior, and independent control of required lighting groups.",
+      "codeCitation": "Title 24 §130.1(c)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "High",
+      "whyItMatters": "Different space types have different shutoff and automatic-on limitations; one blanket sensor note does not prove compliance.",
+      "exceptionsAndNuances": "Evaluate the exact space list and control mode in the adopted table and subsections. Health-care, life-safety, continuous-operation, and other special spaces can have exceptions. Open areas, corridors, stairwells, and enclosed offices may not share the same control behavior.",
+      "codeCycleNotes": "California time-delay and partial-on requirements can change between Energy Code cycles. Confirm the selected code edition and alteration path.",
+      "order": 52,
+      "condition": {
+        "requiredFlags": ["NeedsOccupancyControls"]
+      }
+    },
+    {
+      "id": "ltg_t24_restroom_ceiling_sensor",
+      "title": "Ceiling-Mounted PIR/Dual-Tech Sensors in Multi-Stall Restrooms",
+      "description": "Use 360° ceiling-mounted occupancy sensors in multi-stall restrooms to avoid blind spots created by toilet partitions (do not use wall switch sensors).",
+      "codeCitation": "Title 24 §130.1(c) / ACIES Standard",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "High",
+      "whyItMatters": "Wall sensors in multi-stall restrooms lose line of sight when stalls are occupied, causing lights to shut off on occupants.",
+      "exceptionsAndNuances": "Single-occupant unisex restrooms with direct line of sight can use wall switch occupancy sensors.",
+      "codeCycleNotes": "ACIES engineering quality and Title 24 compliance standard.",
+      "order": 53,
+      "condition": {
+        "requiredFlags": ["NeedsMultiStallRestroomSensors"]
+      }
+    },
+    {
+      "id": "ltg_t24_multilevel_dimming_controls",
+      "title": "Multi-Level Lighting Controls in Qualifying Spaces",
+      "description": "In rooms 100 sq ft or larger with lighting power density greater than 0.5 W/sq ft, verify the light sources and controls provide the applicable multilevel steps or continuous dimming required by §130.1(b).",
+      "codeCitation": "Title 24 §130.1(b)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "High",
+      "whyItMatters": "Uniform dimming requirement across commercial occupancies.",
+      "exceptionsAndNuances": "The area threshold is 100 sq ft or larger and the LPD threshold is greater than 0.5 W/sq ft. Restrooms and qualifying rooms with only one luminaire have specific exceptions. The required control steps depend on light-source type; 0-10 V continuous dimming is not the only compliant method.",
+      "codeCycleNotes": "Title 24 Table 130.1-A mandates continuous dimming controls for LED sources across commercial spaces.",
+      "order": 54,
+      "condition": {
+        "requiredFlags": ["NeedsMultiLevelLighting"]
+      }
+    },
+    {
+      "id": "ltg_t24_timeclock_2hr_override",
+      "title": "Automatic Shutoff, Scheduling, and Manual Override",
+      "description": "Verify each covered lighting area has an allowed automatic shutoff method and, where scheduling is used, compliant programming, backup, control zoning, and manual override duration/area.",
+      "codeCitation": "Title 24 §130.1(c)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "Standard",
+      "whyItMatters": "Title 24 permits multiple shutoff methods; prescribing an astronomical timeclock for every interior area can be wrong.",
+      "exceptionsAndNuances": "A qualifying occupant-sensing system can satisfy automatic shutoff without a separate schedule. Where time scheduling is used, verify the adopted override time and maximum controlled area; special continuous-use, life-safety, or patient-care areas may be excepted.",
+      "codeCycleNotes": "Use the exact §130.1(c) requirements from the adopted Energy Code; do not copy a fixed override area from another cycle without checking.",
+      "order": 55,
+      "condition": {
+        "requiredFlags": ["NeedsAutomaticShutoffControls"]
+      }
+    },
+    {
+      "id": "ltg_t24_exterior_photocell_astronomical",
+      "title": "Exterior Lighting Photocell & Astronomical Clock Shutoff",
+      "description": "Verify covered exterior lighting has daylight shutoff and the applicable scheduling, motion sensing, dimming, or nighttime setback control for its lighting application.",
+      "codeCitation": "Title 24 §130.2(c)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "High",
+      "whyItMatters": "Exterior control behavior depends on the lighting application; one photocell/timeclock note is not universally sufficient.",
+      "exceptionsAndNuances": "Emergency egress, health or life-safety, and other listed applications may be exempt from portions of the shutoff or setback requirements. Building facade, ornamental, signage, canopy, and parking lighting can use different control paths; document the selected exception or method.",
+      "codeCycleNotes": "Exterior control categories and reduction levels differ by Energy Code cycle. Confirm the selected 2022 or 2025 provisions.",
+      "order": 56,
+      "condition": {
+        "requiredFlags": ["NeedsExteriorLightingControls"],
+        "excludedFlags": ["ExteriorLightingControlsExempt"]
+      }
+    },
+    {
+      "id": "ltg_t24_exterior_control_exception",
+      "title": "Exterior-Lighting Control Exception Documented",
+      "description": "Identify every exterior luminaire omitted from ordinary daylight shutoff or nighttime reduction and document the exact emergency, egress, health, life-safety, or other listed exception.",
+      "codeCitation": "Title 24 §130.2(c)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "High",
+      "whyItMatters": "The presence of some exempt exterior lighting does not exempt noncritical parking, facade, canopy, or site lighting.",
+      "exceptionsAndNuances": "Apply exceptions luminaire-by-luminaire or application-by-application and show the control method for all remaining covered exterior lighting.",
+      "codeCycleNotes": "Confirm the selected Energy Code cycle and local light-pollution or reach-code requirements.",
+      "order": 56,
+      "condition": {
+        "requiredFlags": ["ExteriorLightingControlsExempt"]
+      }
+    },
+    {
+      "id": "ltg_t24_acceptance_testing",
+      "title": "Title 24 Lighting-Control Acceptance Testing",
+      "description": "Identify required acceptance tests and responsible certified technicians for installed lighting controls, including automatic daylighting, occupant sensing, automatic shutoff, demand response, and outdoor controls as applicable.",
+      "codeCitation": "Title 24 §130.4(a), NA7.6",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "High",
+      "whyItMatters": "A compliant control design can still fail closeout if required functional testing and certificates are absent.",
+      "exceptionsAndNuances": "Only tests corresponding to installed, regulated systems apply. Alteration paths and systems below control thresholds can reduce the test scope; record the applicable compliance forms and acceptance technician responsibility.",
+      "codeCycleNotes": "Acceptance-test forms and certification requirements are cycle-specific; use the forms for the project's adopted Energy Code.",
+      "order": 57,
+      "condition": {
+        "requiredFlags": ["NeedsTitle24AcceptanceTesting"]
+      }
+    },
+
+    {
+      "id": "ltg_em_power_architecture_resolution",
+      "title": "Resolve Emergency-Lighting Power Architecture",
+      "description": "Identify whether required emergency lighting and exit signs use unit equipment, a central inverter, a generator, or another approved source, and coordinate the source consistently across lighting plans, power plans, schedules, and the single line.",
+      "codeCitation": "CEC 700.4, 700.12 / CBC 1008.3",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "Critical",
+      "whyItMatters": "Required emergency lighting cannot be fully audited until its source and failure-response architecture are known.",
+      "exceptionsAndNuances": "Do not infer an inverter solely from an 'E' fixture suffix. Verify whether the designation means an integral pack, central source, or merely a fixture option. Coordinate source capacity, transfer behavior, local branch-circuit failure, and 90-minute duration.",
+      "codeCycleNotes": "Permitted sources and subsection numbering vary by adopted edition; verify the project's CEC/NEC and building-code basis.",
+      "order": 59,
+      "condition": {
+        "requiredFlags": ["NeedsEmergencyPowerArchitectureResolution"]
+      }
+    },
+    {
+      "id": "ltg_em_inverter_circuit_unswitched",
+      "title": "Emergency Inverter / Micro-Inverter Unswitched Normal Sense Feed",
+      "description": "Verify emergency lighting circuits fed from central inverter have unswitched normal sense wire from the local lighting circuit so fixtures illuminate automatically upon local power failure.",
+      "codeCitation": "CEC 700.17 / UL 924",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "Critical",
+      "whyItMatters": "Emergency fixtures must illuminate during local breaker trip even if main service is active.",
+      "exceptionsAndNuances": "The design must respond to failure of the local normal-lighting branch circuit, not only a total service failure. A continuously illuminated emergency luminaire may not need the same bypass device as a locally switched luminaire, but the listed system sequence and transfer means must still satisfy Article 700.",
+      "codeCycleNotes": "Coordinate Article 700 branch-circuit failure requirements with the listing of the UL 924 inverter or bypass device for the adopted edition.",
+      "order": 60,
+      "condition": {
+        "requiredFlags": ["NeedsEmergencyInverter"]
+      }
+    },
+    {
+      "id": "ltg_em_inverter_cross_coordination",
+      "title": "Central Inverter Location, Circuiting & SLD Cross-Coordination",
+      "description": "Cross-examine Central Battery Inverter unit location on Power Plan, emergency fixture branch runs on Lighting Plan, panel schedule load on schedules, and upstream breaker on Single Line Diagram.",
+      "codeCitation": "CEC 700.4, 700.10, 700.12 / ACIES Standard",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Inverter coordination errors across power and lighting sheets cause expensive field change orders.",
+      "exceptionsAndNuances": "Verify listed cabinet clearances, ventilation and ambient rating rather than assuming a universal 3-ft clearance. Confirm capacity, 90-minute rating, transfer time, fault-current rating, bypass/maintenance provisions, and emergency-circuit separation.",
+      "codeCycleNotes": "Article 700 technical requirements and the manufacturer's UL 924 listing govern; ACIES cross-sheet coordination is an added QA standard.",
+      "order": 61,
+      "condition": {
+        "requiredFlags": ["NeedsEmergencyInverter"]
+      }
+    },
+    {
+      "id": "ltg_em_battery_units_90min",
+      "title": "Integral Emergency Battery Pack 90-Minute Rating",
+      "description": "Verify all self-contained emergency battery units and exit signs have minimum 90-minute battery backup rating connected ahead of local wall switches.",
+      "codeCitation": "CEC 700.12(I) (2020 NEC basis) / 700.12(H) (2023 NEC basis)",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "Critical",
+      "whyItMatters": "Life safety egress illumination must sustain minimum 90 minutes of runtime.",
+      "exceptionsAndNuances": "Unit equipment normally connects to the same branch circuit serving normal lighting in the area and ahead of local switches, subject to the permitted arrangements in the adopted subsection. Verify 90-minute capacity, automatic operation, illumination output, and servicing accessibility.",
+      "codeCycleNotes": "Unit equipment is 700.12(I) in the 2020 NEC basis used by the 2022 CEC and 700.12(H) in the 2023 NEC basis used by the 2025 CEC; do not hard-code one subsection for both cycles.",
+      "order": 62,
+      "condition": {
+        "requiredFlags": ["NeedsIntegralBatteryUnits"]
+      }
+    },
+    {
+      "id": "ltg_em_exit_sign_single_vs_double_face",
+      "title": "Exit-Sign Visibility, Direction, and Face Coordination",
+      "description": "Cross-reference architectural RCP and egress plans to verify exit signs are correctly designated as Single-Face (1 solid quadrant hatch) or Double-Face (2 opposite solid quadrants hatch).",
+      "codeCitation": "CBC 1013.1 / ACIES Standard",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "High",
+      "whyItMatters": "Face count is a product/visibility decision derived from the required sightlines; it is not a standalone prescriptive code count.",
+      "exceptionsAndNuances": "Apply the CBC 1013.1 locations and exceptions, verify sign visibility from the egress path, and coordinate required directional indicators. Use single- versus double-face symbols to match actual viewing directions and the architectural RCP.",
+      "codeCycleNotes": "Verify the adopted CBC edition and local egress plan. The ACIES hatch convention is a documentation standard, not the code trigger.",
+      "order": 63,
+      "condition": {
+        "requiredFlags": ["NeedsExitSignReview"]
+      }
+    },
+    {
+      "id": "ltg_em_egress_illumination_1fc",
+      "title": "Path of Egress Illumination (1 FC Average)",
+      "description": "Verify emergency egress illumination provides initially at least 1.0 fc average and 0.1 fc minimum at the walking surface, with permitted decline at 90 minutes to at least 0.6 fc average and 0.06 fc minimum and a maximum 40:1 uniformity ratio.",
+      "codeCitation": "CBC 1008.3.5 / NFPA 101",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Lighting Plan",
+      "severity": "High",
+      "whyItMatters": "Egress path dark spots fail fire marshal life-safety inspections.",
+      "exceptionsAndNuances": "The average and minimum criteria both apply; an average-only calculation is insufficient. Determine the exact egress components requiring emergency illumination under CBC 1008.3 and document the 90-minute source performance.",
+      "codeCycleNotes": "CBC 1008.3.5 states the initial, end-of-duration, and uniformity criteria; coordinate any locally adopted amendments.",
+      "order": 64,
+      "condition": {
+        "requiredFlags": ["NeedsEgressIllumination"]
+      }
+    },
+    {
+      "id": "emergency_article700_system",
+      "title": "Article 700 Emergency-System Separation and Reliability",
+      "description": "Verify emergency loads, source, transfer equipment, wiring separation, identification, capacity, selective coordination, surge protection, and automatic restoration meet Article 700.",
+      "codeCitation": "CEC 700.4, 700.5, 700.8, 700.10, 700.12, 700.32",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Article 700 systems have stricter separation and reliability rules than legally required or optional standby systems.",
+      "exceptionsAndNuances": "Classify loads from the building/fire code; do not place a load in Article 700 merely because the owner calls it 'emergency.' Document permitted common wiring, equipment locations, transfer arrangements, source duration, and any coordination exception.",
+      "codeCycleNotes": "Article 700 was reorganized in the 2023 NEC. Confirm the adopted CEC basis and local fire-code classifications.",
+      "order": 65,
+      "condition": {
+        "requiredFlags": ["NeedsArticle700Review"]
+      }
+    },
+    {
+      "id": "emergency_article701_system",
+      "title": "Article 701 Legally Required Standby System",
+      "description": "Verify legally required standby loads, source capacity, transfer time, wiring, identification, selective coordination, and testing are shown separately from Article 700 and optional loads.",
+      "codeCitation": "CEC 701.4, 701.5, 701.10, 701.12, 701.27",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Legally required standby loads have a different classification and performance basis from emergency and optional standby loads.",
+      "exceptionsAndNuances": "Determine which loads are mandated by the building, fire, mechanical, or elevator code. Transfer-time, source-sharing, wiring, and selective-coordination requirements differ from Article 700; identify load classification on the single line and schedules.",
+      "codeCycleNotes": "Confirm section numbering in the adopted CEC/NEC cycle and locally required standby-load list.",
+      "order": 66,
+      "condition": {
+        "requiredFlags": ["NeedsArticle701Review"]
+      }
+    },
+    {
+      "id": "emergency_article702_system",
+      "title": "Article 702 Optional Standby System",
+      "description": "Verify optional standby source sizing, transfer equipment, interlocks, signage, load management, and prevention of inadvertent interconnection with the normal supply.",
+      "codeCitation": "CEC 702.4, 702.5, 702.7, 702.12",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "High",
+      "whyItMatters": "Optional loads can share a generator only when capacity/load management and transfer arrangements preserve required systems and prevent backfeed.",
+      "exceptionsAndNuances": "Manual transfer and automatic load management may be permitted depending on design. Keep Article 702 classification distinct from loads required by Articles 700 and 701 and show priority/load-shed sequence where sources are shared.",
+      "codeCycleNotes": "Verify adopted Article 702 and generator listing; portable, permanently installed, and interconnected sources use different provisions.",
+      "order": 67,
+      "condition": {
+        "requiredFlags": ["NeedsArticle702Review"]
+      }
+    },
+    {
+      "id": "emergency_generator_coordination",
+      "title": "Generator, Transfer, Fuel, and Load-Step Coordination",
+      "description": "Coordinate generator kW/kVA, motor starting and load steps, transfer switches, neutral switching, grounding, fault current, overcurrent protection, fuel duration, ventilation, annunciation, remote stop, and required working clearances.",
+      "codeCitation": "CEC 445, 700/701/702 / NFPA 110 where adopted",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "A generator nameplate alone does not establish that the complete standby system will start, transfer, and carry the required load.",
+      "exceptionsAndNuances": "NFPA 110 level, class, and type come from the enforcing code and system classification. Determine separately derived system status from the transfer neutral arrangement. Shared sources require documented load priority and capacity.",
+      "codeCycleNotes": "Confirm the adopted NEC/CEC, NFPA 110, fire code, air-quality, and local fuel requirements.",
+      "order": 68,
+      "condition": {
+        "requiredFlags": ["NeedsGeneratorReview"]
+      }
+    },
+    {
+      "id": "emergency_selective_coordination",
+      "title": "Emergency / Legally Required Selective Coordination",
+      "description": "Verify overcurrent devices serving Article 700 and 701 systems are selectively coordinated over the required current and time ranges using manufacturer data and documented engineering analysis.",
+      "codeCitation": "CEC 700.32, 701.27",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "A downstream fault must not unnecessarily remove upstream emergency or legally required loads.",
+      "exceptionsAndNuances": "Apply the exact adopted definition, time range, engineering-documentation requirement, and listed exceptions. A coordination study for normal distribution does not automatically demonstrate Article 700/701 compliance.",
+      "codeCycleNotes": "Wording and exceptions changed across NEC cycles; verify the applicable CEC basis before setting study criteria.",
+      "order": 69,
+      "condition": {
+        "requiredFlags": ["NeedsSelectiveCoordination"]
+      }
+    },
+    {
+      "id": "special_fire_alarm_power",
+      "title": "Fire Alarm Power, Survivability, and Interface Coordination",
+      "description": "Verify dedicated fire-alarm branch power, lock/red identification, battery calculations, pathway class/survivability, voltage drop, monitoring, and interfaces with duct detectors, elevators, doors, smoke control, and suppression systems.",
+      "codeCitation": "CEC 760 / CBC 907 / NFPA 72 as adopted",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "Fire-alarm interfaces span electrical and life-safety documents and are commonly lost between delegated design packages.",
+      "exceptionsAndNuances": "System type, occupancy, high-rise status, voice/alarm requirements, pathway survivability, and delegated-design scope control the details. Clearly define interface and power responsibilities even when fire alarm is vendor-designed.",
+      "codeCycleNotes": "Use the CBC/CFC-adopted NFPA 72 edition and local fire-department standards.",
+      "order": 72,
+      "condition": {
+        "requiredFlags": ["NeedsFireAlarmReview"]
+      }
+    },
+    {
+      "id": "special_fire_pump_power",
+      "title": "Fire-Pump Source, Conductors, and Overcurrent Protection",
+      "description": "Verify fire-pump power source reliability, service or feeder routing, conductor sizing, controller/disconnect, locked-rotor overcurrent coordination, transfer equipment, voltage drop, and separation from ordinary loads.",
+      "codeCitation": "CEC 695 / NFPA 20 as adopted",
+      "discipline": "Electrical",
+      "category": "Single Line & Distribution",
+      "topic": "Single Line Diagram",
+      "severity": "Critical",
+      "whyItMatters": "Ordinary feeder and motor rules cannot be substituted for Article 695's fire-pump reliability requirements.",
+      "exceptionsAndNuances": "Service-supplied, generator-supplied, campus, and limited-service fire pumps use different permitted arrangements. Coordinate utility reliability, controller listing, jockey pump, transfer switch, fire-pump room, and the fire-protection engineer's data.",
+      "codeCycleNotes": "Confirm adopted CEC Article 695, NFPA 20 edition, utility rules, and fire-AHJ requirements.",
+      "order": 73,
+      "condition": {
+        "requiredFlags": ["NeedsFirePumpReview"]
+      }
+    },
+    {
+      "id": "special_elevator_power",
+      "title": "Elevator / Escalator Power and Recall Interfaces",
+      "description": "Coordinate main and auxiliary power, disconnects, selective coordination where required, shunt trip or power shutdown, hydraulic equipment, cab lighting/receptacles, machine-space ventilation, emergency communication, and fire-alarm recall interfaces.",
+      "codeCitation": "CEC 620 / CBC 3001 / ASME A17.1 as adopted",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "Elevator interfaces involve multiple codes and delegated vendors; missing sequence details create late life-safety changes.",
+      "exceptionsAndNuances": "Requirements depend on traction, hydraulic, platform-lift, escalator, machine-room-less, sprinkler, and standby-power conditions. Coordinate the elevator vendor, fire alarm, sprinkler, mechanical, and AHJ matrices.",
+      "codeCycleNotes": "Use the California-adopted ASME A17.1/CBC provisions and local conveyance authority requirements.",
+      "order": 74,
+      "condition": {
+        "requiredFlags": ["NeedsElevatorReview"]
+      }
+    },
+    {
+      "id": "special_healthcare_article517",
+      "title": "Health-Care Patient-Care Spaces and Essential Electrical System",
+      "description": "Classify patient-care spaces and verify receptacle quantities/types, grounding, wet-procedure requirements, isolated power where applicable, essential electrical system branches, transfer, separation, and medical-equipment interfaces.",
+      "codeCitation": "CEC 517 / CBC-OSHPD requirements where applicable",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "Health-care classification changes grounding, receptacles, emergency distribution, and energy-control exceptions throughout the project.",
+      "exceptionsAndNuances": "A medical office is not automatically a patient-care space, and not every patient-care area has the same category. Obtain the clinical risk assessment/classification and determine whether HCAI/OSHPD jurisdiction applies before assigning requirements.",
+      "codeCycleNotes": "Article 517 and California health-facility amendments are cycle- and facility-type-specific.",
+      "order": 75,
+      "condition": {
+        "requiredFlags": ["NeedsHealthCareArticle517"]
+      }
+    },
+    {
+      "id": "special_hazardous_locations",
+      "title": "Hazardous (Classified) Location Documentation",
+      "description": "Identify each classified area by class/division or zone, material group, temperature code, and extent, then verify listed equipment, wiring methods, seals, grounding/bonding, ventilation interfaces, and boundary details.",
+      "codeCitation": "CEC Articles 500-516",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "Without a documented classification basis, equipment suitability and boundary sealing cannot be audited.",
+      "exceptionsAndNuances": "Classification is multidisciplinary and process-specific. Do not classify or declassify solely from room name; coordinate process materials, ventilation, fire code, NFPA commodity standards, and the AHJ.",
+      "codeCycleNotes": "Use the adopted CEC and the edition of the referenced NFPA process standard accepted by the AHJ.",
+      "order": 76,
+      "condition": {
+        "requiredFlags": ["NeedsHazardousLocationReview"]
+      }
+    },
+    {
+      "id": "special_pool_spa_fountain",
+      "title": "Pool, Spa, and Fountain Bonding / GFCI Review",
+      "description": "Verify equipotential bonding, GFCI protection, equipment grounding, transformer and luminaire listings, disconnects, receptacle/equipment setbacks, underwater equipment, and pump/control circuits.",
+      "codeCitation": "CEC Article 680",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "Critical",
+      "whyItMatters": "Water features require a coordinated bonding system beyond ordinary wet-location GFCI protection.",
+      "exceptionsAndNuances": "Pools, spas/hot tubs, fountains, therapeutic pools, and decorative water features use different parts of Article 680. Determine whether people can occupy the water and coordinate structural reinforcing steel and conductive parts before construction.",
+      "codeCycleNotes": "Verify the adopted Article 680 and local health-department requirements.",
+      "order": 77,
+      "condition": {
+        "requiredFlags": ["NeedsPoolSpaReview"]
+      }
+    },
+    {
+      "id": "special_afci_occupancies",
+      "title": "AFCI Protection in Covered Dwelling and Guest Areas",
+      "description": "For covered dwelling, dormitory, and guest-room/suite areas, verify branch circuits and outlets receive the required arc-fault protection using an allowed device and installation method.",
+      "codeCitation": "CEC 210.12",
+      "discipline": "Electrical",
+      "category": "Power & Equipment",
+      "topic": "Power Plan",
+      "severity": "High",
+      "whyItMatters": "AFCI scope is occupancy- and circuit-specific and is easily omitted when a commercial project contains sleeping or residential components.",
+      "exceptionsAndNuances": "Apply the exact room/area, voltage, amperage, wiring-extension, replacement, and fire-alarm exceptions in the adopted edition. Do not infer AFCI for general business areas merely because TR receptacles are present.",
+      "codeCycleNotes": "Covered areas and alteration provisions change between code cycles; confirm the adopted CEC/NEC text.",
+      "order": 78,
+      "condition": {
+        "requiredFlags": ["NeedsAfciReview"]
+      }
+    },
+
+    {
+      "id": "bofa_std_fixture_catalog_3500k",
+      "title": "Bank of America 3500K CCT & Standard Catalog Marks",
+      "description": "Verify all fixtures match BofA Prototypical specifications: 3500K CCT standard (D-1 Lithonia UPLD, H/HE ZL1N strip, R-14/R-15/R-16 Focal Point downlights, R-19 troffers, X Acuity EDGR).",
+      "codeCitation": "BofA Prototype Lighting Specification",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Panel & Fixture Schedules",
+      "severity": "High",
+      "whyItMatters": "Strict client brand standard. Non-prototype fixtures will be rejected during owner submittal review.",
+      "exceptionsAndNuances": "Exceptions allowed only where specific non-standard architectural conditions exist and formal variance is approved by BofA Project Manager.",
+      "codeCycleNotes": "Bank of America Nationwide Prototype Standard (Gold Standard).",
+      "order": 70,
+      "condition": {
+        "allowedClients": ["Bank of America (Prototype)"]
+      }
+    },
+    {
+      "id": "bofa_std_wattstopper_dlm_controls",
+      "title": "Bank of America Wattstopper DLM Digital Room Controllers",
+      "description": "Verify lighting control device schedule specifies Legrand / Wattstopper DLM architecture: LMRC-211 / LMRC-212 room controllers, LMDM-101 dimmers, LMSW-105 scene switches, and LMPC-100 ceiling sensors.",
+      "codeCitation": "BofA Prototype Control Specification",
+      "discipline": "Electrical",
+      "category": "Lighting & Title 24",
+      "topic": "Panel & Fixture Schedules",
+      "severity": "High",
+      "whyItMatters": "BofA standard specifies nationwide digital lighting management (DLM) components.",
+      "exceptionsAndNuances": "Plug-load room controllers (LMPL-201) are specified where controlled receptacles are integrated into the DLM local network; apply the project's Title 24 distribution rule rather than assuming a blanket percentage.",
+      "codeCycleNotes": "Bank of America Prototype Standard (Gold Standard).",
+      "order": 71,
+      "condition": {
+        "allowedClients": ["Bank of America (Prototype)"]
+      }
+    }
+  ]
+}

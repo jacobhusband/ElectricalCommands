@@ -19,6 +19,14 @@ ElectricalCommands.T24Commands
 - QP / IPDF (AutoCADCommands\T24Commands\InsertPDFSheets.cs:22)
 - T24 / T24Command (AutoCADCommands\T24Commands\T24Command.cs:139)
 
+ElectricalCommands.AuditCommands
+- PREFLIGHT / ProjectAudit (AutoCADCommands\AuditCommands\ProjectAuditCommand.cs:17)
+- PFL / ProjectAudit (AutoCADCommands\AuditCommands\ProjectAuditCommand.cs:18)
+- QAQC / ProjectAudit (AutoCADCommands\AuditCommands\ProjectAuditCommand.cs:19)
+- PROJECTAUDIT / ProjectAudit (AutoCADCommands\AuditCommands\ProjectAuditCommand.cs:20)
+- SCOPECHECK / ProjectAudit (AutoCADCommands\AuditCommands\ProjectAuditCommand.cs:21)
+- DYNAMICCHECKLIST / ProjectAudit (AutoCADCommands\AuditCommands\ProjectAuditCommand.cs:22)
+
 ElectricalCommands.GetAttributesCommands
 
 ElectricalCommands.GeneralCommands
@@ -30,8 +38,10 @@ ElectricalCommands.GeneralCommands
 - LR / TurnLayerRed (AutoCADCommands\GeneralCommands\TurnRed.cs:23)
 - OBJMASK / WO (AutoCADCommands\GeneralCommands\WipeoutObjects.cs:11)
 - OM / WO (AutoCADCommands\GeneralCommands\WipeoutObjects.cs:12)
-- PCL / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:19)
-- PROJECTCHECKLIST / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:18)
+- CHECKLIST / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:12)
+- CHECKLISTS / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:13)
+- PCL / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:15)
+- PROJECTCHECKLIST / ProjectChecklist (AutoCADCommands\GeneralCommands\ProjectChecklistCommand.cs:14)
 - QA / AREACALCULATOR (AutoCADCommands\T24Commands\CalculateAreas.cs:13)
 - QUICKXREF / QuickXref (AutoCADCommands\GeneralCommands\QuickXref.cs:14)
 - QVP / CREATEVIEWPORTFROMREGION (AutoCADCommands\GeneralCommands\CreateViewportFromRegion.cs:16)
