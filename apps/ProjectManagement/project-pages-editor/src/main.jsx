@@ -670,12 +670,13 @@ function PageEditorApp() {
 function PageEditor({ context, options }) {
   const fileInputRef = useRef(null);
   const workbookInputRef = useRef(null);
+  const titleElementRef = useRef(null);
+  const titleValueRef = useRef(context.title || "");
   const hydrateWorkbooksRef = useRef(async () => {});
   const workbookHydrationFrameRef = useRef(null);
   const saveTimerRef = useRef(null);
   const titleTimerRef = useRef(null);
   const suppressUpdateRef = useRef(false);
-  const [title, setTitle] = useState(context.title || "");
   const [slash, setSlash] = useState({ open: false, query: "", selected: 0, range: null, pos: null });
   const [pageLink, setPageLink] = useState({ open: false, query: "", selected: 0, range: null, pos: null });
   const [colorMenu, setColorMenu] = useState({ open: false, mode: "color", pos: null });
@@ -950,12 +951,12 @@ function PageEditor({ context, options }) {
     if (titleTimerRef.current) {
       clearTimeout(titleTimerRef.current);
       titleTimerRef.current = null;
-      context.onTitleChange?.(title);
+      context.onTitleChange?.(titleValueRef.current);
     }
     if (editor) {
       await context.onHtmlChange?.(stripTransientPageHtml(editor.getHTML()), { immediate: true });
     }
-  }, [context, editor, title]);
+  }, [context, editor]);
 
   useEffect(() => {
     flushCurrentEditor = flushSave;
@@ -969,7 +970,10 @@ function PageEditor({ context, options }) {
     suppressUpdateRef.current = true;
     editor.commands.setContent(context.html || "", false);
     suppressUpdateRef.current = false;
-    setTitle(context.title || "");
+    titleValueRef.current = context.title || "";
+    if (titleElementRef.current) {
+      titleElementRef.current.textContent = titleValueRef.current;
+    }
     setSlash({ open: false, query: "", selected: 0, range: null, pos: null });
     setPageLink({ open: false, query: "", selected: 0, range: null, pos: null });
     setWorkbookDialog(createWorkbookDialogState());
@@ -1343,7 +1347,10 @@ function PageEditor({ context, options }) {
 
   function handleTitleInput(event) {
     const value = event.currentTarget.textContent || "";
-    setTitle(value);
+    // The browser owns the children of this contentEditable element while the
+    // user types. Keep the current value in a ref so React never reconciles
+    // those text nodes and cannot retain a stale insertBefore reference.
+    titleValueRef.current = value;
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
     titleTimerRef.current = setTimeout(() => {
       titleTimerRef.current = null;
@@ -1505,6 +1512,7 @@ function PageEditor({ context, options }) {
   return (
     <div className="project-pages-editor" onClick={handleEditorClick}>
       <h1
+        ref={titleElementRef}
         id="pageTitle"
         className="page-title project-pages-title"
         contentEditable
@@ -1520,9 +1528,7 @@ function PageEditor({ context, options }) {
             editor?.commands.focus();
           }
         }}
-      >
-        {title}
-      </h1>
+      />
 
       {context.kind !== "global" && (
         <div className="page-child-links" id="pageChildLinks" aria-label="Child pages">

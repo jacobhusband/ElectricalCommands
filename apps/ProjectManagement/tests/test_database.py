@@ -11,6 +11,7 @@ from apps.ProjectManagement.database import (
     upsert_project,
     get_project,
     list_projects,
+    delete_project,
     upsert_drawing,
     upsert_panel_schedule,
     get_panel_schedule,
@@ -47,6 +48,11 @@ class TestDatabase(unittest.TestCase):
         all_projs = list_projects(db_path=self.temp_db)
         self.assertEqual(len(all_projs), 1)
         self.assertEqual(all_projs[0]["project_number"], "24-001")
+
+        # Test delete
+        self.assertTrue(delete_project("24-001", db_path=self.temp_db))
+        self.assertIsNone(get_project("24-001", db_path=self.temp_db))
+        self.assertEqual(len(list_projects(db_path=self.temp_db)), 0)
 
     def test_drawing_and_panel_schedule_crud(self):
         proj = upsert_project("24-002", "City Center", "C:/Projects/24-002", db_path=self.temp_db)

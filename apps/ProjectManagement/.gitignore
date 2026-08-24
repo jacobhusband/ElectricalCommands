@@ -3,6 +3,7 @@
 # Build output
 dist/
 build/
+tmp/
 
 # Environment
 .env

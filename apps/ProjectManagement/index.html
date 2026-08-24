@@ -338,7 +338,7 @@
                                     aria-expanded="false"
                                     aria-controls="deliverablesFilterMenu"
                                 >
-                                    <span id="deliverablesFilterTriggerLabel" class="projects-filter-trigger-label">Show only active deliverables</span>
+                                    <span id="deliverablesFilterTriggerLabel" class="projects-filter-trigger-label">Show all deliverables</span>
                                     <svg class="projects-filter-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                         <polyline points="6 9 12 15 18 9"></polyline>
                                     </svg>
@@ -350,9 +350,8 @@
                                     aria-labelledby="deliverablesFilterLabel"
                                     hidden
                                 >
-                                    <button type="button" class="projects-filter-option" data-filter-value="all" role="menuitemradio" aria-checked="false" tabindex="-1">Show all deliverables</button>
+                                    <button type="button" class="projects-filter-option is-selected" data-filter-value="all" role="menuitemradio" aria-checked="true" tabindex="-1">Show all deliverables</button>
                                     <button type="button" class="projects-filter-option" data-filter-value="incomplete" role="menuitemradio" aria-checked="false" tabindex="-1">Show all incomplete deliverables</button>
-                                    <button type="button" class="projects-filter-option is-selected" data-filter-value="active" role="menuitemradio" aria-checked="true" tabindex="-1">Show only active deliverables</button>
                                 </div>
                             </div>
                         </div>
@@ -418,6 +417,26 @@
                     </thead>
                     <tbody id="tbody"></tbody>
                 </table>
+                <nav id="projectsPagination" class="projects-pagination" aria-label="Projects list pagination" hidden>
+                    <div id="projectsPaginationSummary" class="projects-pagination-summary" aria-live="polite">
+                        0 deliverables
+                    </div>
+                    <div class="projects-pagination-controls">
+                        <label class="projects-pagination-size" for="projectsPageSize">
+                            <span>Items per page</span>
+                            <select id="projectsPageSize">
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </label>
+                        <button type="button" class="projects-pagination-btn" id="projectsPageFirst" aria-label="First page" title="First page">First</button>
+                        <button type="button" class="projects-pagination-btn" id="projectsPagePrev" aria-label="Previous page" title="Previous page">Previous</button>
+                        <span id="projectsPaginationPage" class="projects-pagination-page">Page 1 of 1</span>
+                        <button type="button" class="projects-pagination-btn" id="projectsPageNext" aria-label="Next page" title="Next page">Next</button>
+                        <button type="button" class="projects-pagination-btn" id="projectsPageLast" aria-label="Last page" title="Last page">Last</button>
+                    </div>
+                </nav>
                 <div id="emptyState" class="empty" style="display:none">
                     <div class="empty-icon">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -512,7 +531,7 @@
                         <!-- Card 1: Publish DWGs -->
                         <div id="toolPublishDwgs" class="tool-card" role="button" tabindex="0">
                             <button type="button" class="tool-card-settings" data-settings-target="publishSettingsDlg"
-                                aria-label="Publish CAD DWG settings" title="Settings">⚙️</button>
+                                aria-label="Publish settings" title="Settings">⚙️</button>
                             <div class="tool-card-content">
                                 <div class="tool-icon">
                                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -524,7 +543,7 @@
                                         <rect x="6" y="14" width="12" height="8"></rect>
                                     </svg>
                                 </div>
-                                <div class="tool-card-header">Publish CAD DWGs in Headless Mode</div>
+                                <div class="tool-card-header">Publish</div>
                                 <div class="tool-card-body">
                                     Plots the layouts of each of the selected DWG files and combines them. Outputs to
                                     local path "user/document/AutoCAD Plots". Progress and results appear in the
@@ -536,7 +555,7 @@
                         <!-- Card 2: Freeze/Thaw Layers -->
                         <div id="toolManageLayers" class="tool-card" role="button" tabindex="0">
                             <button type="button" class="tool-card-settings" data-settings-target="manageLayersSettingsDlg"
-                                aria-label="Freeze/Thaw layers settings" title="Settings">⚙️</button>
+                                aria-label="Freeze / Thaw settings" title="Settings">⚙️</button>
                             <div class="tool-card-content">
                                 <div class="tool-icon">
                                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -549,7 +568,7 @@
                                         <path d="m8 20 4-4 4 4"></path>
                                     </svg>
                                 </div>
-                                <div class="tool-card-header">Freeze/Thaw Layers in CAD DWGs Headless Mode</div>
+                                <div class="tool-card-header">Freeze / Thaw</div>
                                 <div class="tool-card-body">
                                     Scans selected DWGs for layers, lets you freeze and/or thaw them, then saves updates in headless
                                     mode.
@@ -560,7 +579,7 @@
                         <!-- Card 4: Clean XREFs -->
                         <div id="toolCleanXrefs" class="tool-card" role="button" tabindex="0">
                             <button type="button" class="tool-card-settings" data-settings-target="cleanSettingsDlg"
-                                aria-label="Prepare CAD DWG for reference settings" title="Settings">⚙️</button>
+                                aria-label="XREF settings" title="Settings">⚙️</button>
                             <div class="tool-card-content">
                                 <div class="tool-icon">
                                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -570,9 +589,28 @@
                                         </path>
                                     </svg>
                                 </div>
-                                <div class="tool-card-header">Prepare CAD DWG for Reference</div>
+                                <div class="tool-card-header">XREF</div>
                                 <div class="tool-card-body">
                                     Strips saved XREF paths. Sets all objects color to "by layer". Purges & Audits.
+                                </div>
+                            </div>
+                            <div class="tool-card-status"></div>
+                        </div>
+                        <!-- Card 5: Archive -->
+                        <div id="toolBackupDrawings" class="tool-card" role="button" tabindex="0">
+                            <div class="tool-card-content">
+                                <div class="tool-icon">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                    </svg>
+                                </div>
+                                <div class="tool-card-header">Archive</div>
+                                <div class="tool-card-body">
+                                    Archive your configured discipline folders and Xrefs into
+                                    Archive\current-datetime inside the selected project.
                                 </div>
                             </div>
                             <div class="tool-card-status"></div>
@@ -597,7 +635,7 @@
                                         <polyline points="10 9 9 9 8 9"></polyline>
                                     </svg>
                                 </div>
-                                <div class="tool-card-header">Create Narrative of Changes Template</div>
+                                <div class="tool-card-header">Narrative</div>
                                 <div class="tool-card-body">
                                     Generates a Narrative of Changes document from the bundled template.
                                 </div>
@@ -614,7 +652,7 @@
                                         <polyline points="9 15 11 17 15 13"></polyline>
                                     </svg>
                                 </div>
-                                <div class="tool-card-header">Create Plan Check Comments Template</div>
+                                <div class="tool-card-header">Plan Check</div>
                                 <div class="tool-card-body">
                                     Generates a Plan Check Comments document from the bundled template.
                                 </div>
@@ -679,24 +717,6 @@
                                 <div class="tool-card-header">Panel Schedule AI</div>
                                 <div class="tool-card-body">
                                     Analyze electrical panel photos with AI to auto-generate panel schedules.
-                                </div>
-                            </div>
-                            <div class="tool-card-status"></div>
-                        </div>
-                        <div id="toolBackupDrawings" class="tool-card" role="button" tabindex="0">
-                            <div class="tool-card-content">
-                                <div class="tool-icon">
-                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                        <polyline points="7 10 12 15 17 10"></polyline>
-                                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                                    </svg>
-                                </div>
-                                <div class="tool-card-header">Backup Drawings</div>
-                                <div class="tool-card-body">
-                                    Archive your configured discipline folders and Xrefs into
-                                    Archive\current-datetime inside the selected project.
                                 </div>
                             </div>
                             <div class="tool-card-status"></div>
@@ -1007,6 +1027,10 @@
                 </button>
             </div>
             <div class="page-save-status" id="pageSaveStatus" aria-live="polite"></div>
+            <button type="button" class="btn ghost text-danger mini" id="pageDeleteProjectBtn"
+                aria-label="Delete this project" title="Delete this project" style="display:none;" onclick="onDeleteActiveProjectFromPageView()">
+                Delete Project
+            </button>
             <button type="button" class="page-view-publish" id="pagePublishPdfBtn"
                 aria-label="Publish page as PDF" title="Publish page as PDF">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1301,8 +1325,9 @@
         <div class="modal-header">
             <div id="dlgTitle" class="title">Edit Project</div>
             <div class="inline">
-                <button class="btn ghost" onclick="closeDlg('editDlg')">Cancel</button>
-                <button class="btn-primary" id="btnSaveProject">Save Changes</button>
+                <button type="button" class="btn ghost text-danger modal-full-only" id="btnDeleteProject" onclick="onDeleteCurrentProject()">Delete Project</button>
+                <button type="button" class="btn ghost" onclick="closeDlg('editDlg')">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btnSaveProject">Save Changes</button>
             </div>
         </div>
         <div class="modal-body stack">
@@ -1612,7 +1637,7 @@
             <h3 class="section-title" style="margin-top: 1rem;">CAD Cleanup Defaults</h3>
             <div class="modal-grid">
                 <div class="col-12">
-                    <label class="label">Prepare CAD DWG for Reference</label>
+                    <label class="label">XREF</label>
                     <div class="stack" style="gap: 0.35rem;">
                         <label class="radio-label"><input type="checkbox" id="settings_clean_stripXrefs"> Strip saved
                             XREF paths</label>
@@ -1623,8 +1648,7 @@
                         <label class="radio-label"><input type="checkbox" id="settings_clean_hatchColor"> Set all
                             non-wall hatches to color &quot;9&quot;</label>
                     </div>
-                    <div class="tiny muted" style="margin-top: 0.35rem;">Applied when running &quot;Prepare CAD DWG for
-                        Reference&quot;.</div>
+                    <div class="tiny muted" style="margin-top: 0.35rem;">Applied when running &quot;XREF&quot;.</div>
                 </div>
             </div>
 
@@ -1632,8 +1656,11 @@
             <h3 class="section-title" style="margin-top: 1rem;">CAD Tool Defaults</h3>
             <div class="modal-grid">
                 <div class="col-12">
-                    <label class="label">Publish CAD DWGs in Headless Mode</label>
+                    <label class="label">Publish</label>
                     <div class="stack" style="gap: 0.35rem;">
+                        <label class="radio-label"><input type="checkbox"
+                                id="settings_publish_automateProjectDisciplinePublish">
+                            Automatically publish all project DWGs for the selected discipline</label>
                         <label class="radio-label"><input type="checkbox" id="settings_publish_autoDetectPaperSize">
                             Auto-detect page size</label>
                         <label class="radio-label"><input type="checkbox" id="settings_publish_stripPdfLayers">
@@ -1646,12 +1673,14 @@
                             <span class="tiny" id="settings_publish_shrinkValue">100%</span>
                         </div>
                     </div>
-                    <div class="tiny muted" style="margin-top: 0.35rem;">Turn off page-size detection to enter a size
-                        manually. Excel OLE refresh opens only linked drawings in full AutoCAD and saves the original DWG
-                        before plotting.</div>
+                    <div class="tiny muted" style="margin-top: 0.35rem;">Automatic project publishing uses every
+                        base-level DWG in the project's selected discipline folder (Electrical, Plumbing, or Mechanical)
+                        and continues without a paper-size prompt when detection succeeds. A missing folder, missing DWGs,
+                        or failed detection asks for input. Excel OLE refresh opens only linked drawings in full AutoCAD and
+                        saves the original DWG before plotting.</div>
                 </div>
                 <div class="col-12" style="margin-top: 0.6rem;">
-                    <label class="label">Freeze/Thaw Layers in CAD DWGs Headless Mode</label>
+                    <label class="label">Freeze / Thaw</label>
                     <div class="stack" style="gap: 0.35rem;">
                         <label class="radio-label"><input type="checkbox" id="settings_manageLayers_scanAllLayers"> Scan all
                             selected DWG layers</label>
@@ -1665,8 +1694,8 @@
                         <label class="radio-label"><input type="checkbox" id="settings_workroomAutoSelectCadFiles">
                             Auto-select DWGs from project discipline folders when compatible tools are launched</label>
                     </div>
-                    <div class="tiny muted" style="margin-top: 0.35rem;">On: Publish and Freeze/Thaw auto-select base-level
-                        DWGs from the active discipline folder. Prepare CAD DWG for Reference always opens the Arch
+                    <div class="tiny muted" style="margin-top: 0.35rem;">On: Publish and Freeze / Thaw auto-select base-level
+                        DWGs from the active discipline folder. XREF always opens the Arch
                         folder for manual file selection.
                     </div>
                 </div>
@@ -1719,17 +1748,6 @@
                         </div>
                     </div>
                     <button class="btn" id="btnMergeSimilarProjects">Run Action</button>
-                </div>
-                <div class="setting-row">
-                    <div class="setting-info">
-                        <div class="setting-label">Auto-Set Latest as Active</div>
-                        <div class="setting-desc">Automatically mark the deliverable with the latest due date as active
-                            when merging or updating.</div>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="settings_autoPrimary">
-                        <span class="slider round"></span>
-                    </label>
                 </div>
                 <div class="setting-row">
                     <div class="setting-info">
@@ -1792,7 +1810,7 @@
     <!-- Tool Settings: Publish -->
     <dialog id="publishSettingsDlg">
         <div class="modal-header">
-            <div class="title">Publish CAD DWGs Settings</div>
+            <div class="title">Publish Settings</div>
             <button class="btn ghost" onclick="closeDlg('publishSettingsDlg')">Close</button>
         </div>
         <div class="modal-body stack tool-settings-body">
@@ -1803,6 +1821,23 @@
                     save automatically and apply next time the tool runs.</p>
             </div>
             <div class="tool-settings-list">
+                <div class="tool-setting">
+                    <div class="tool-setting-text">
+                        <div class="tool-setting-title">Automate selected-discipline publish</div>
+                        <div class="tool-setting-desc">On: when Publish is launched from a project, plots every
+                            base-level DWG in the folder for your selected discipline—Electrical, Plumbing, or Mechanical—and
+                            automatically accepts a successfully detected paper size. If the folder, DWGs, or paper size
+                            cannot be found, Publish asks you to select them.</div>
+                    </div>
+                    <div class="tool-setting-control">
+                        <span class="toggle-label">Off</span>
+                        <label class="switch" aria-label="Automate selected-discipline publish">
+                            <input type="checkbox" id="publish_modal_automateProjectDisciplinePublish">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label">On</span>
+                    </div>
+                </div>
                 <div class="tool-setting">
                     <div class="tool-setting-text">
                         <div class="tool-setting-title">Auto-detect page size</div>
@@ -1866,7 +1901,7 @@
     <!-- Tool Settings: Freeze/Thaw -->
     <dialog id="manageLayersSettingsDlg">
         <div class="modal-header">
-            <div class="title">Freeze/Thaw Layers Settings</div>
+            <div class="title">Freeze / Thaw Settings</div>
             <button class="btn ghost" onclick="closeDlg('manageLayersSettingsDlg')">Close</button>
         </div>
         <div class="modal-body stack tool-settings-body">
@@ -1920,7 +1955,7 @@
     <!-- Tool Settings: Prepare CAD DWG for Reference -->
     <dialog id="cleanSettingsDlg">
         <div class="modal-header">
-            <div class="title">Prepare CAD DWG Settings</div>
+            <div class="title">XREF Settings</div>
             <button class="btn ghost" onclick="closeDlg('cleanSettingsDlg')">Close</button>
         </div>
         <div class="modal-body stack tool-settings-body">
@@ -3241,8 +3276,6 @@
                         </div>
                     </div>
                     <div class="deliverable-controls">
-                        <label class="tiny checkbox-label"><input type="checkbox" class="d-active"
-                                style="width:auto">Active</label>
                         <div class="deliverable-attachment-control"></div>
                     </div>
                 </div>
@@ -3282,7 +3315,7 @@
     </section>
     <div id="updateCheckIndicator" class="corner-status" hidden>Checking for updates...</div>
     <script src="project-pages-editor/dist/project-pages-editor.js?v=20260729-page-email-attach"></script>
-    <script src="script.js?v=20260729-page-email-attach"></script>
+    <script src="script.js?v=20260824-remove-active-projects-fix"></script>
     <script src="symbol_counter_ui.js?v=20260818-delete-actions"></script>
 </body>
 

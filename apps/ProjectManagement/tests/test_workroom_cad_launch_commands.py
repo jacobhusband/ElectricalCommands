@@ -140,6 +140,7 @@ TOOL_CASES = (
         "settings": {
             "autocadPath": AUTOCAD_CORE_PATH,
             "publishDwgOptions": {
+                "automateProjectDisciplinePublish": False,
                 "autoDetectPaperSize": False,
                 "shrinkPercent": 85,
             },
@@ -148,6 +149,8 @@ TOOL_CASES = (
             "-AcadCore",
             AUTOCAD_CORE_PATH,
             "-AutoDetectPaperSize",
+            "0",
+            "-AutoAcceptDetectedPaperSize",
             "0",
             "-ShrinkPercent",
             "85",
@@ -518,6 +521,165 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
         command = captured[0][0]
         refresh_arg_index = command.index("-RefreshExcelOleLinks")
         self.assertEqual("0", command[refresh_arg_index + 1])
+
+    def test_automatic_project_publish_uses_selected_discipline_and_accepts_detected_size(self):
+        publish_case = next(
+            case for case in TOOL_CASES if case["method_name"] == "run_publish_script"
+        )
+        settings = {
+            **publish_case["settings"],
+            "discipline": ["Electrical", "Mechanical", "Plumbing"],
+            "activeDiscipline": "Mechanical",
+            "publishDwgOptions": {
+                **publish_case["settings"]["publishDwgOptions"],
+                "automateProjectDisciplinePublish": True,
+                "autoDetectPaperSize": True,
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="acies-auto-publish-") as temp_dir:
+            project_path = Path(temp_dir)
+            discipline_path = project_path / "Mechanical"
+            discipline_path.mkdir()
+            first_dwg = discipline_path / "M001.dwg"
+            second_dwg = discipline_path / "M002.DWG"
+            for dwg_path in (first_dwg, second_dwg):
+                dwg_path.write_text("", encoding="utf-8")
+
+            captured = []
+            with patch.object(self.api, "get_user_settings", return_value=settings), patch.object(
+                self.api,
+                "_run_script_with_progress",
+                side_effect=lambda command, tool_id, **kwargs: captured.append(
+                    (command, tool_id, kwargs)
+                ),
+            ), patch.object(
+                self.api,
+                "_select_cad_files_in_app",
+            ) as picker_mock, patch.object(
+                self.api,
+                "_notify_tool_status",
+            ) as notify_mock:
+                result = self.api.run_publish_script({
+                    "source": "projects-tab",
+                    "projectPath": str(project_path),
+                })
+
+            self.assertEqual("success", result["status"])
+            picker_mock.assert_not_called()
+            self.assertEqual(1, len(captured))
+            command = captured[0][0]
+            self.assertEqual(
+                "1",
+                command[command.index("-AutoAcceptDetectedPaperSize") + 1],
+            )
+            files_list_path = Path(command[command.index("-FilesListPath") + 1])
+            try:
+                self.assertEqual(
+                    [str(first_dwg), str(second_dwg)],
+                    files_list_path.read_text(encoding="utf-8").splitlines(),
+                )
+            finally:
+                files_list_path.unlink(missing_ok=True)
+            notify_mock.assert_any_call(
+                "toolPublishDwgs",
+                "Using auto-selected DWGs (2) via project_discipline_auto_publish...",
+                activity_id=None,
+            )
+
+    def test_automatic_project_publish_missing_selected_discipline_notifies_and_prompts(self):
+        publish_case = next(
+            case for case in TOOL_CASES if case["method_name"] == "run_publish_script"
+        )
+        settings = {
+            **publish_case["settings"],
+            "discipline": ["Electrical", "Mechanical", "Plumbing"],
+            "activeDiscipline": "Plumbing",
+            "publishDwgOptions": {
+                **publish_case["settings"]["publishDwgOptions"],
+                "automateProjectDisciplinePublish": True,
+                "autoDetectPaperSize": True,
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="acies-auto-publish-missing-") as temp_dir:
+            captured = []
+            with patch.object(self.api, "get_user_settings", return_value=settings), patch.object(
+                self.api,
+                "_run_script_with_progress",
+                side_effect=lambda command, tool_id, **kwargs: captured.append(
+                    (command, tool_id, kwargs)
+                ),
+            ), patch.object(
+                self.api,
+                "_select_cad_files_in_app",
+                return_value={
+                    "status": "success",
+                    "selection": {
+                        "files_list_path": AUTO_SELECTED_FILES_LIST,
+                        "count": 1,
+                        "resolution_mode": "app_file_picker",
+                    },
+                },
+            ) as picker_mock, patch.object(
+                self.api,
+                "_notify_tool_status",
+            ) as notify_mock:
+                result = self.api.run_publish_script({
+                    "source": "projects-tab",
+                    "projectPath": temp_dir,
+                })
+
+            self.assertEqual("success", result["status"])
+            picker_mock.assert_called_once_with(str(Path(temp_dir)))
+            command = captured[0][0]
+            self.assertEqual(
+                "0",
+                command[command.index("-AutoAcceptDetectedPaperSize") + 1],
+            )
+            fallback_messages = [
+                args[1]
+                for args, _kwargs in notify_mock.call_args_list
+                if len(args) > 1
+            ]
+            self.assertTrue(any(
+                "could not find the Plumbing folder" in message
+                and "Select the DWG files manually" in message
+                for message in fallback_messages
+            ))
+
+    def test_automatic_project_publish_prefers_workroom_discipline_context(self):
+        with tempfile.TemporaryDirectory(prefix="acies-auto-publish-workroom-") as temp_dir:
+            discipline_path = Path(temp_dir) / "Plumbing"
+            discipline_path.mkdir()
+            dwg_path = discipline_path / "P001.dwg"
+            dwg_path.write_text("", encoding="utf-8")
+
+            result = self.api._resolve_project_discipline_publish_selection(
+                {
+                    "discipline": ["Electrical", "Mechanical", "Plumbing"],
+                    "activeDiscipline": "Mechanical",
+                },
+                {
+                    "source": "workroom",
+                    "projectPath": temp_dir,
+                    "discipline": "Plumbing",
+                },
+            )
+
+            self.assertEqual("success", result["status"])
+            self.assertEqual("Plumbing", result["discipline"])
+            self.assertEqual("Plumbing", result["selection"]["discipline"])
+            self.assertEqual(
+                "project_discipline_auto_publish",
+                result["selection"]["resolution_mode"],
+            )
+            files_list_path = Path(result["selection"]["files_list_path"])
+            try:
+                self.assertEqual(
+                    [str(dwg_path)],
+                    files_list_path.read_text(encoding="utf-8").splitlines(),
+                )
+            finally:
+                files_list_path.unlink(missing_ok=True)
 
     def test_projects_tab_cad_tools_use_app_picker_with_project_directory(self):
         default_directory = r"C:\Projects\260243 BofA - Eastport Plaza"

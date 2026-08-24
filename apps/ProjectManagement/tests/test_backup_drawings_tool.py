@@ -1212,7 +1212,7 @@ class BackupDrawingsUiTests(unittest.TestCase):
         html = INDEX_HTML_PATH.read_text(encoding="utf-8")
 
         self.assertIn('id="toolBackupDrawings"', html)
-        self.assertIn("Backup Drawings", html)
+        self.assertIn("Archive", html)
         self.assertIn("Archive\\current-datetime", html)
 
     def test_backup_drawings_script_wiring_exists(self):

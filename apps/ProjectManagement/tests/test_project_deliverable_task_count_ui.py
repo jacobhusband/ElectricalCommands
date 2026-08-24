@@ -17,12 +17,12 @@ class ProjectDeliverableTaskCountUiTests(unittest.TestCase):
         script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
         header_block = self._block(
             script,
-            "function createCardHeader(deliverable, isPrimary, card, project) {",
+            "function createCardHeader(deliverable, card, project) {",
             "function createExpandToggle(card) {",
         )
         card_block = self._block(
             script,
-            "function renderDeliverableCard(deliverable, isPrimary, project) {",
+            "function renderDeliverableCard(deliverable, project) {",
             "function normalizeProjectMatchValue(value) {",
         )
 

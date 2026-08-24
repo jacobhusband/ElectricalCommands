@@ -70,6 +70,16 @@ class ReactPageEditorIslandTests(unittest.TestCase):
         self.assertIn("if (pageNav.globalPage) return saveGlobalPages({ silent: true });", script)
         self.assertIn("return save({ silent: true });", script)
 
+    def test_page_title_does_not_reconcile_browser_managed_contenteditable_children(self):
+        main = EDITOR_MAIN_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("const titleElementRef = useRef(null);", main)
+        self.assertIn('const titleValueRef = useRef(context.title || "");', main)
+        self.assertIn("ref={titleElementRef}", main)
+        self.assertIn("titleValueRef.current = value;", main)
+        self.assertNotIn("const [title, setTitle]", main)
+        self.assertNotIn("setTitle(value);", main)
+
     def test_desktop_build_packages_editor_bundle(self):
         root_spec = ROOT_SPEC_PATH.read_text(encoding="utf-8")
         build_spec = BUILD_SPEC_PATH.read_text(encoding="utf-8")

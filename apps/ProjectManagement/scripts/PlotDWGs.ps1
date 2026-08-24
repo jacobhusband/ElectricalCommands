@@ -1,6 +1,7 @@
 param(
   [string]$AcadCore,
   [string]$AutoDetectPaperSize = "true",
+  [string]$AutoAcceptDetectedPaperSize = "false",
   [int]$ShrinkPercent = 100,
   [string]$StripPdfLayers = "true",
   [string]$RefreshExcelOleLinks = "true",
@@ -24,6 +25,7 @@ function Convert-ToBool {
 }
 
 $AutoDetectPaperSize = Convert-ToBool $AutoDetectPaperSize $true
+$AutoAcceptDetectedPaperSize = Convert-ToBool $AutoAcceptDetectedPaperSize $false
 $StripPdfLayers = Convert-ToBool $StripPdfLayers $true
 $RefreshExcelOleLinks = Convert-ToBool $RefreshExcelOleLinks $true
 
@@ -372,6 +374,9 @@ if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
   if ($PSBoundParameters.ContainsKey('AutoDetectPaperSize')) {
     $argsList += @("-AutoDetectPaperSize", $AutoDetectPaperSize)
   }
+  if ($PSBoundParameters.ContainsKey('AutoAcceptDetectedPaperSize')) {
+    $argsList += @("-AutoAcceptDetectedPaperSize", $AutoAcceptDetectedPaperSize)
+  }
   if ($PSBoundParameters.ContainsKey('ShrinkPercent')) {
     $argsList += @("-ShrinkPercent", $ShrinkPercent)
   }
@@ -444,7 +449,8 @@ function Invoke-FullAutoCadOleRefresh {
     [string]$AcadExe,
     [string]$DwgPath,
     [string]$LogFile,
-    [int]$TimeoutSeconds = 180
+    [int]$TimeoutSeconds = 180,
+    [int]$RefreshWaitSeconds = 15
   )
 
   if ([string]::IsNullOrWhiteSpace($AcadExe) -or -not (Test-Path -LiteralPath $AcadExe -PathType Leaf)) {
@@ -462,21 +468,32 @@ function Invoke-FullAutoCadOleRefresh {
     }
   }
 
-  $refreshScript = Join-Path $env:TEMP ("acies_refresh_ole_{0}.scr" -f [guid]::NewGuid().ToString("N"))
+  $refreshId = [guid]::NewGuid().ToString("N")
+  $refreshScript = Join-Path $env:TEMP "acies_refresh_ole_$refreshId.scr"
+  $refreshCompleteMarker = Join-Path $env:TEMP "acies_refresh_ole_$refreshId.complete"
+  $refreshCompleteMarkerForLisp = Convert-ToLispPath $refreshCompleteMarker
+  $refreshWaitMilliseconds = [Math]::Max(1, [Math]::Min(30, $RefreshWaitSeconds)) * 1000
   $scriptContent = @"
-REGENALL
-QSAVE
-QUIT
+(setvar "FILEDIA" 0)
+(setvar "CMDDIA" 0)
+(command "_.DELAY" $refreshWaitMilliseconds)
+(command "_.REGENALL")
+(command "_.DELAY" 2000)
+(command "_.QSAVE")
+(progn (setq aciesOleRefreshMarker (open "$refreshCompleteMarkerForLisp" "w")) (if aciesOleRefreshMarker (progn (write-line "ACIES_OLE_REFRESH:COMPLETE" aciesOleRefreshMarker) (close aciesOleRefreshMarker))))
+(command "_.QUIT")
 "@
 
   try {
     Set-Content -Encoding ASCII -LiteralPath $refreshScript -Value $scriptContent
-    $argumentLine = ('"{0}" /nologo /b "{1}"' -f $DwgPath, $refreshScript)
+    $argumentLine = ('"{0}" /nologo /nohardware /nossm /b "{1}"' -f $DwgPath, $refreshScript)
     "OLE_REFRESH_COMMAND: $AcadExe $argumentLine" | Out-File $LogFile -Append
+    "OLE_REFRESH_WAIT_SECONDS: $RefreshWaitSeconds" | Out-File $LogFile -Append
 
     $process = Start-Process -FilePath $AcadExe `
       -ArgumentList $argumentLine `
       -PassThru `
+      -WorkingDirectory (Split-Path -Path $AcadExe -Parent) `
       -WindowStyle Hidden
 
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
@@ -495,9 +512,16 @@ QUIT
       }
     }
 
+    if (-not (Test-Path -LiteralPath $refreshCompleteMarker -PathType Leaf)) {
+      return [pscustomobject]@{
+        Status = "incomplete"
+        Message = "Full AutoCAD exited without confirming that the drawing was opened, refreshed, and saved."
+      }
+    }
+
     return [pscustomobject]@{
       Status = "success"
-      Message = "Linked Excel OLE content was refreshed and the drawing was saved."
+      Message = "Linked Excel OLE content was given time to refresh in full AutoCAD and the drawing was saved."
     }
   }
   catch {
@@ -507,8 +531,10 @@ QUIT
     }
   }
   finally {
-    if (Test-Path -LiteralPath $refreshScript -PathType Leaf) {
-      Remove-Item -LiteralPath $refreshScript -Force -ErrorAction SilentlyContinue
+    foreach ($tempPath in @($refreshScript, $refreshCompleteMarker)) {
+      if (Test-Path -LiteralPath $tempPath -PathType Leaf) {
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+      }
     }
   }
 }
@@ -583,9 +609,9 @@ if ($AutoDetectPaperSize) {
   if (Test-Path $detectSizeScriptPath) {
     Write-Host "PROGRESS: Detecting paper size from existing PDFs..."
     try {
-      # Quote the path in case it contains spaces
-      $dwgPathArg = "`"$($files[0])`""
-      $detectOutput = & $pythonExecutable $detectSizeScriptPath $dwgPathArg 2>&1
+      # PowerShell passes a string argument with spaces intact. Adding literal
+      # quote characters here prevents the detector from resolving the project.
+      $detectOutput = & $pythonExecutable $detectSizeScriptPath ([string]$files[0]) 2>&1
 
       # Check if there was an error (stderr output will be error records)
       $errorOutput = $detectOutput | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
@@ -595,10 +621,14 @@ if ($AutoDetectPaperSize) {
         $detectedPaperSize = ($stdOutput | Out-String).Trim()
       }
 
-      if ($detectedPaperSize) {
+      if ($detectedPaperSize -and ($paperSizes -contains $detectedPaperSize)) {
         Write-Host "PROGRESS: Detected paper size: $detectedPaperSize"
         $detectionStatus = "detected"
       } else {
+        if ($detectedPaperSize) {
+          Write-Host "PROGRESS: Detected an unsupported paper size: $detectedPaperSize"
+          $detectedPaperSize = ""
+        }
         if ($errorOutput) {
           Write-Host "PROGRESS: Detection error: $($errorOutput | Out-String)"
         }
@@ -619,6 +649,19 @@ if ($AutoDetectPaperSize) {
 else {
   Write-Host "PROGRESS: Auto-detect disabled. Please enter paper size manually."
   $detectionStatus = "disabled"
+}
+
+# --- Automatically accept a valid detected size or ask the user for one ---
+$selectedPaperSize = ""
+if ($AutoAcceptDetectedPaperSize -and $detectionStatus -eq "detected" -and $detectedPaperSize) {
+  $selectedPaperSize = $detectedPaperSize
+  Write-Host "PROGRESS: Automatically using detected paper size: $selectedPaperSize"
+  Write-Host "PROGRESS: TRACE branch=paper_size_auto_accepted"
+}
+else {
+if ($AutoAcceptDetectedPaperSize) {
+  Write-Host "PROGRESS: Automatic paper-size selection unavailable ($detectionStatus). Please enter or select a paper size."
+  Write-Host "PROGRESS: INPUT_REQUIRED: PAPER_SIZE"
 }
 
 # --- Let the user select/confirm a paper size ---
@@ -738,6 +781,7 @@ if ([string]::IsNullOrWhiteSpace($selectedPaperSize)) {
   Write-Host "PROGRESS: ERROR: No paper size selected."
   exit 1
 }
+}
 
 # --- BATCH PROCESSING SETUP ---
 Write-Host "PROGRESS: Preparing to plot $($files.Count) file(s)..."
@@ -765,6 +809,7 @@ $logFile = Join-Path $batchOutputDir "_BatchPlotLog.txt"
 # Initialize lists to track progress and generated files
 $allGeneratedPdfs = [System.Collections.ArrayList]::new()
 $failed = @()
+$oleRefreshFailures = @()
 $arcAlignedTextSupportFailures = @()
 $noPdfOutputFailures = @()
 $pdfMergeFailed = $false
@@ -792,43 +837,11 @@ function Invoke-CorePlotAttempt {
 (setq *acies-refresh-excel-ole-links* $oleRefreshEnabledLiteral)
 (setq *acies-ole-refresh-attempted* $oleRefreshAttemptedLiteral)
 
-(defun LinkedOLEObjectP (obj / ename data typePair)
-  (if (= (vla-get-ObjectName obj) "AcDbOle2Frame")
-    (progn
-      (setq ename (vl-catch-all-apply 'vlax-vla-object->ename (list obj)))
-      (if (vl-catch-all-error-p ename)
-        nil
-        (progn
-          (setq data (entget ename))
-          (setq typePair (assoc 71 data))
-          (and typePair (= (cdr typePair) 1))
-        )
-      )
-    )
-    nil
-  )
-)
-
-(defun CountLinkedOLEsInBlock (blk / count)
-  (setq count 0)
-  (vlax-for obj blk
-    (if (LinkedOLEObjectP obj)
-      (setq count (1+ count))
-    )
-  )
-  count
-)
-
-(defun InspectLinkedOLEs (/ acad doc count)
-  (vl-load-com)
-  (setq acad (vlax-get-acad-object))
-  (setq doc (vla-get-ActiveDocument acad))
-  (setq count (CountLinkedOLEsInBlock (vla-get-ModelSpace doc)))
-  (vlax-for lay (vla-get-Layouts doc)
-    (if (/= (strcase (vla-get-Name lay)) "MODEL")
-      (setq count (+ count (CountLinkedOLEsInBlock (vla-get-Block lay))))
-    )
-  )
+(defun InspectLinkedOLEs (/ selection count)
+  ;; DXF group 71 identifies the OLE item type: 1=linked, 2=embedded,
+  ;; 3=static. ssget avoids ActiveX, which is not dependable in Core Console.
+  (setq selection (ssget "_X" '((0 . "OLE2FRAME") (71 . 1))))
+  (setq count (if selection (sslength selection) 0))
   (if (> count 0)
     (princ (strcat "\n${oleCheckPresentMarker}:" (itoa count)))
     (princ "\n$oleCheckAbsentMarker")
@@ -844,41 +857,6 @@ function Invoke-CorePlotAttempt {
       -1
     )
     result
-  )
-)
-
-(defun UpdateBlockOLELinks (blk / res)
-  (vlax-for obj blk
-    (if (equal (vla-get-ObjectName obj) "AcDbOle2Frame")
-      (progn
-        (setq res (vl-catch-all-apply 'vla-Update (list obj)))
-        (if (vl-catch-all-error-p res)
-          (princ (strcat "\nOLE update failed: " (vl-catch-all-error-message res)))
-          (setq *ole-updated-count* (1+ *ole-updated-count*))
-        )
-      )
-    )
-  )
-)
-
-(defun RefreshLinkedOLEs (/ acad doc)
-  (vl-load-com)
-  (setq acad (vlax-get-acad-object))
-  (setq doc (vla-get-ActiveDocument acad))
-  (setq *ole-updated-count* 0)
-  (UpdateBlockOLELinks (vla-get-ModelSpace doc))
-  (vlax-for lay (vla-get-Layouts doc)
-    (if (/= (strcase (vla-get-Name lay)) "MODEL")
-      (UpdateBlockOLELinks (vla-get-Block lay))
-    )
-  )
-  (princ (strcat "\nOLE links refreshed: " (itoa *ole-updated-count*)))
-)
-
-(defun SafeRefreshLinkedOLEs (/ res)
-  (setq res (vl-catch-all-apply 'RefreshLinkedOLEs '()))
-  (if (vl-catch-all-error-p res)
-    (princ (strcat "\nOLE refresh skipped: " (vl-catch-all-error-message res)))
   )
 )
 
@@ -934,7 +912,6 @@ function Invoke-CorePlotAttempt {
   (setvar "FILEDIA" 0)
   (setvar "DEMANDLOAD" 3)
   (setvar "PROXYSHOW" 1)
-  (SafeRefreshLinkedOLEs)
   (setq hasArcAlignedText nil)
   (setq arcSelectResult (vl-catch-all-apply 'ssget (list "_X" (list (cons 0 "ARCALIGNEDTEXT")))))
   (if (vl-catch-all-error-p arcSelectResult)
@@ -1014,15 +991,19 @@ function Invoke-CorePlotAttempt {
 
 (defun c:PlotAllLayouts (/ linkedOleCount)
   (setq linkedOleCount (SafeInspectLinkedOLEs))
-  (if (and *acies-refresh-excel-ole-links*
-           (not *acies-ole-refresh-attempted*)
-           (> linkedOleCount 0))
-    (progn
+  (cond
+    ((< linkedOleCount 0)
+      (AciesLog "$plotDecisionSkipMarker")
+      (command "QUIT" "N")
+    )
+    ((and *acies-refresh-excel-ole-links*
+          (not *acies-ole-refresh-attempted*)
+          (> linkedOleCount 0))
       (AciesLog "$oleRefreshRequiredMarker")
       (AciesLog "$plotDecisionRefreshOleMarker")
       (command "QUIT" "N")
     )
-    (PlotLayoutsAfterPreflight)
+    (T (PlotLayoutsAfterPreflight))
   )
   (princ)
 )
@@ -1098,7 +1079,16 @@ foreach ($dwgPath in $files) {
       Write-Host "PROGRESS: Refreshed linked Excel content and saved $($dwgItem.Name)."
     }
     else {
-      Write-Host "PROGRESS: WARNING: $($dwgItem.Name) - $($oleRefreshResult.Message) Publishing cached OLE content."
+      Write-Host "PROGRESS: ERROR: $($dwgItem.Name) - $($oleRefreshResult.Message) Plot skipped to prevent stale OLE content."
+      "Plot skipped because linked Excel OLE refresh did not complete." | Out-File $logFile -Append
+      if (-not ($oleRefreshFailures -contains $dwgPath)) {
+        $oleRefreshFailures += $dwgPath
+      }
+      if (-not ($failed -contains $dwgPath)) {
+        $failed += $dwgPath
+      }
+      "===== $(Get-Date -f 'yyyy-MM-dd HH:mm:ss') Done: $($dwgItem.Name) =====" | Out-File $logFile -Append
+      continue
     }
 
     $plotAttempt = Invoke-CorePlotAttempt `
@@ -1154,7 +1144,7 @@ foreach ($dwgPath in $files) {
   elseif ($oleCheckError) { $oleCheckStatus = "error" }
 
   if ($oleCheckError) {
-    Write-Host "PROGRESS: WARNING: $($dwgItem.Name) - Could not inspect linked Excel OLE objects. Publishing cached drawing content."
+    Write-Host "PROGRESS: ERROR: $($dwgItem.Name) - Could not inspect linked Excel OLE objects. Plot skipped to prevent stale OLE content."
   }
   elseif ($oleCheckAbsent) {
     Write-Host "PROGRESS: No linked Excel OLE content detected in $($dwgItem.Name); continuing headless publish."
@@ -1305,6 +1295,12 @@ if ($arcAlignedTextSupportFailures.Count) {
   Write-Host "PROGRESS: ERROR: Install/repair AutoCAD Express Tools (ctextapp.arx) for the selected AutoCAD Core Console."
   $arcFailMsg | Out-File $logFile -Append
   "Install/repair AutoCAD Express Tools and verify ctextapp.arx can be loaded by accoreconsole." | Out-File $logFile -Append
+}
+if ($oleRefreshFailures.Count) {
+  $oleFails = @($oleRefreshFailures | Select-Object -Unique)
+  $oleFailMsg = "Linked Excel OLE refresh did not complete; stale drawings were not plotted: $($oleFails -join ', ')"
+  Write-Host "PROGRESS: ERROR: $oleFailMsg"
+  $oleFailMsg | Out-File $logFile -Append
 }
 if ($noPdfOutputFailures.Count) {
   $noPdfFails = @($noPdfOutputFailures | Select-Object -Unique)

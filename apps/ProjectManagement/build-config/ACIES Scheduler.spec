@@ -21,6 +21,7 @@ a = Analysis(
         (os.path.join(project_root, 'assets', 'acies.png'), 'assets'),
         (os.path.join(project_root, 'assets', 'lighting'), os.path.join('assets', 'lighting')),
         (os.path.join(project_root, 'scripts', 'merge_pdfs.py'), 'scripts'),
+        (os.path.join(project_root, 'scripts', 'shrink_pdf.py'), 'scripts'),
         (os.path.join(project_root, 'scripts', 'strip_pdf_layers.py'), 'scripts'),
         (os.path.join(project_root, 'scripts', 'detect_pdf_size.py'), 'scripts'),
         (os.path.join(project_root, 'scripts', 'PlotDWGs.ps1'), 'scripts'),

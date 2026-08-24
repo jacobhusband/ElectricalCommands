@@ -5,73 +5,79 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML_PATH = REPO_ROOT / "index.html"
 SCRIPT_JS_PATH = REPO_ROOT / "script.js"
+STYLES_CSS_PATH = REPO_ROOT / "styles.css"
 
 
-class ProjectDeliverableActiveUiTests(unittest.TestCase):
-    def test_deliverable_active_markup_and_settings_copy_exist(self):
+class ProjectDeliverableActiveFeatureRemovalTests(unittest.TestCase):
+    def test_active_controls_and_copy_are_removed(self):
         html = INDEX_HTML_PATH.read_text(encoding="utf-8")
 
-        self.assertIn('class="d-active"', html)
-        self.assertIn(">Active</label>", html)
-        self.assertIn("Auto-Set Latest as Active", html)
-        self.assertIn("latest due date as active", html)
-        self.assertNotIn('class="d-primary"', html)
-        self.assertNotIn(">Primary</label>", html)
+        self.assertNotIn('class="d-active"', html)
+        self.assertNotIn("Auto-Set Latest as Active", html)
+        self.assertNotIn('id="settings_autoPrimary"', html)
+        self.assertNotIn('data-filter-value="active"', html)
+        self.assertNotIn("Show only active deliverables", html)
+        self.assertIn("Show all deliverables", html)
+        self.assertIn("Show all incomplete deliverables", html)
 
-    def test_deliverable_active_script_wiring_exists(self):
+    def test_active_state_wiring_is_removed_and_legacy_data_is_cleaned(self):
         script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
 
-        for expected in (
-            "function isDeliverableActive(deliverable) {",
-            "function getProjectActiveDeliverables(project) {",
-            "function getActiveAnchorDeliverable(project) {",
-            "function getProjectListPriorityMeta(project) {",
-            "function getProjectListPriorityDeliverable(project) {",
-            "function syncProjectActiveDeliverables(project, { fallbackActiveId = \"\" } = {}) {",
-            "function projectNeedsActiveMigration(sourceProject, normalizedProject) {",
-            "function ensureModalProjectHasActiveDeliverable({ preferredCard = null } = {}) {",
-            "active: deliverable.active === true,",
-            "active: seed.active !== false,",
-            "const hasExplicitActiveDeliverables = deliverables.some((deliverable) =>",
-            "deliverable.active = deliverable.id === normalizedFallbackId;",
-            "if (!deliverables.some((deliverable) => deliverable?.active)) {",
-            "deliverables[0].active = true;",
-            "const activeWithDue = activeDeliverables.filter((deliverable) =>",
-            "return activeWithDue.sort(compareDeliverablesByDue)[0];",
-            "const activeAnchorDeliverable = getActiveAnchorDeliverable(project);",
-            "const activeIncompleteDeliverables = getProjectActiveDeliverables(project).filter(",
-            "(deliverable) => !isFinished(deliverable)",
-            "const activeIncompleteWithDue = activeIncompleteDeliverables.filter((deliverable) =>",
-            "const priorityDeliverable = activeIncompleteWithDue.sort(compareDeliverablesByDue)[0];",
-            "priorityDeliverable: activeAnchorDeliverable,",
-            "hasIncompleteActiveWork: false,",
-            "sortBucket: 2,",
-            "fallbackDueDate: parseDueStr(getEffectiveDueStr(activeAnchorDeliverable)),",
-            "hasIncompleteActiveWork: true,",
-            "sortBucket: 0,",
-            "sortDueDate: parseDueStr(getEffectiveDueStr(priorityDeliverable)),",
-            "sortBucket: 1,",
-            "return getProjectListPriorityMeta(project).priorityDeliverable;",
-            'const checkedInputs = Array.from(list.querySelectorAll(".d-active:checked"));',
-            'active: !!card.querySelector(".d-active")?.checked,',
-            "fallbackInput.checked = true;",
-            "syncProjectActiveDeliverables(project, {",
-            "syncProjectActiveDeliverables(target, {",
-            "syncProjectActiveDeliverables(base);",
+        for removed in (
+            "function isDeliverableActive(",
+            "function getProjectActiveDeliverables(",
+            "function getActiveAnchorDeliverable(",
+            "function syncProjectActiveDeliverables(",
+            "function autoSetPrimary(",
+            "ensureModalProjectHasActiveDeliverable",
+            ".d-active",
+            "deliverable.active",
+            "hasIncompleteActiveWork",
+            "activeAnchorDeliverable",
+            'return deliverablesFilter || "active";',
         ):
-            self.assertIn(expected, script)
+            self.assertNotIn(removed, script)
 
-        self.assertNotIn(".d-primary", script)
+        self.assertIn("function projectHasLegacyActiveState(project) {", script)
+        self.assertIn("delete out.overviewDeliverableId;", script)
+        self.assertIn("delete sanitized.active;", script)
+        self.assertIn("delete sanitized.overviewDeliverableId;", script)
+        self.assertIn('let deliverablesFilter = "all";', script)
+        self.assertIn('return deliverablesFilter || "all";', script)
 
-    def test_edit_modal_deliverables_sort_by_latest_due_date_first(self):
+    def test_project_priority_uses_incomplete_work_without_selection_state(self):
+        script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+        priority_start = script.index("function getProjectListPriorityMeta(project) {")
+        priority_end = script.index(
+            "function getProjectListPriorityDeliverable(project) {", priority_start
+        )
+        priority_block = script[priority_start:priority_end]
+
+        self.assertIn(
+            "const priorityDeliverable = getEarliestIncompleteDeliverable(project);",
+            priority_block,
+        )
+        self.assertIn("hasIncompleteWork: false,", priority_block)
+        self.assertIn("hasIncompleteWork: true,", priority_block)
+        self.assertNotIn("active", priority_block.lower())
+
+    def test_edit_modal_sorts_latest_due_first_and_expands_first_card(self):
         script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
         fill_form_start = script.index("function fillForm(project) {")
         fill_form_end = script.index("function getDeliverableCardEmailRefs", fill_form_start)
         fill_form_block = script[fill_form_start:fill_form_end]
 
         self.assertIn(".sort(compareDeliverablesByDueDesc);", fill_form_block)
-        self.assertNotIn("sortDeliverablesByPrimaryThenDueDesc(", fill_form_block)
-        self.assertIn("activeAnchorDeliverable?.id", fill_form_block)
+        self.assertIn("sortedDeliverables.forEach((deliverable, index) =>", fill_form_block)
+        self.assertIn("startExpanded: index === 0,", fill_form_block)
+        self.assertNotIn("active", fill_form_block.lower())
+
+    def test_active_card_highlight_styles_are_removed(self):
+        css = STYLES_CSS_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn(".deliverable-card.is-primary", css)
+        self.assertNotIn(".deliverable-card-new.is-primary", css)
+        self.assertNotIn(".deliverable-star", css)
 
 
 if __name__ == "__main__":

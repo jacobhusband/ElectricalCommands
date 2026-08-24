@@ -18,7 +18,7 @@ class ProjectDeliverableTaskPreviewUiTests(unittest.TestCase):
         script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
         card_block = self._block(
             script,
-            "function renderDeliverableCard(deliverable, isPrimary, project) {",
+            "function renderDeliverableCard(deliverable, project) {",
             "function normalizeProjectMatchValue(value) {",
         )
 

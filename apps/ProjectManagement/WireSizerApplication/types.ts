@@ -1,6 +1,6 @@
 export type ConductorMaterial = 'Copper' | 'Aluminum';
-export type Phase = 1 | 3;
-export type GroundingTableType = 'EGC' | 'GEC';
+type Phase = 1 | 3;
+type GroundingTableType = 'EGC' | 'GEC';
 
 export interface WireSizeData {
   size: string;

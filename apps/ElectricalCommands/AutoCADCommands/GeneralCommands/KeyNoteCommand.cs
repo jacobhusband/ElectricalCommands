@@ -18,6 +18,7 @@ namespace ElectricalCommands
     private const string KnTextStyleName = "ARIALNARROW-1-8";
     private const string KnTextStyleFont = "ARIALN.TTF";
     private const double KnAttributeHeight = 0.09375;
+    private static string _lastKnValue = "1";
 
     [CommandMethod("KN", CommandFlags.Modal)]
     public void KeyedNoteCommand()
@@ -44,18 +45,10 @@ namespace ElectricalCommands
           ed.WriteMessage($"\nFailed to prepare canonical {KnBlockName} block definition.");
           return;
         }
-        DumpKnBlockDiagnostics(db, ed);
       }
       catch (System.Exception ex)
       {
         ed.WriteMessage($"\nKN setup error: {ex.Message}");
-        return;
-      }
-
-      string keyValue = PromptKnKeyValue(ed);
-      if (keyValue == null)
-      {
-        ed.WriteMessage("\nKN canceled.");
         return;
       }
 
@@ -113,7 +106,7 @@ namespace ElectricalCommands
         };
 
         PromptResult jigResult;
-        KeyNoteJig jig = new KeyNoteJig(br, scaleDenom);
+        KeyNoteJig jig = new KeyNoteJig(br, scaleDenom, _lastKnValue);
         try
         {
           while (true)
@@ -121,6 +114,18 @@ namespace ElectricalCommands
             jigResult = ed.Drag(jig);
             if (jigResult.Status == PromptStatus.Keyword)
             {
+              if (string.Equals(jigResult.StringResult, "Value", StringComparison.OrdinalIgnoreCase))
+              {
+                string newVal = PromptKnKeyValue(ed, _lastKnValue);
+                if (!string.IsNullOrEmpty(newVal))
+                {
+                  _lastKnValue = newVal;
+                  jig.CurrentValue = _lastKnValue;
+                  ed.WriteMessage($"\nKeyed note value: {_lastKnValue}");
+                }
+                continue;
+              }
+
               if (jig.ApplyKeyword(jigResult.StringResult))
               {
                 ed.WriteMessage($"\nAnchor: {jig.CurrentAnchor}");
@@ -161,7 +166,7 @@ namespace ElectricalCommands
 
               AttributeReference ar = new AttributeReference();
               ar.SetAttributeFromBlock(ad, br.BlockTransform);
-              ar.TextString = keyValue;
+              ar.TextString = _lastKnValue;
               br.AttributeCollection.AppendAttribute(ar);
               tr.AddNewlyCreatedDBObject(ar, true);
               attributeUpdated = true;
@@ -175,7 +180,7 @@ namespace ElectricalCommands
             tr.Commit();
           }
 
-          ed.WriteMessage($"\nInserted {KnBlockName} with value {keyValue} on layer {KnLayerName}.");
+          ed.WriteMessage($"\nInserted {KnBlockName} with value {_lastKnValue} on layer {KnLayerName}.");
         }
         catch (System.Exception ex)
         {
@@ -339,9 +344,13 @@ namespace ElectricalCommands
       }
     }
 
-    private static string PromptKnKeyValue(Editor ed)
+    private static string PromptKnKeyValue(Editor ed, string defaultValue)
     {
-      PromptStringOptions pso = new PromptStringOptions("\nEnter keyed note value (e.g., 1, A, 2B, #3): ")
+      string prompt = string.IsNullOrEmpty(defaultValue)
+        ? "\nEnter keyed note value (e.g., 1, A, 2B, #3): "
+        : $"\nEnter keyed note value (e.g., 1, A, 2B, #3) <{defaultValue}>: ";
+
+      PromptStringOptions pso = new PromptStringOptions(prompt)
       {
         AllowSpaces = false
       };
@@ -349,7 +358,7 @@ namespace ElectricalCommands
       if (pr.Status != PromptStatus.OK) return null;
 
       string value = pr.StringResult?.Trim() ?? string.Empty;
-      if (value.Length == 0) return null;
+      if (value.Length == 0) return defaultValue;
 
       return value;
     }

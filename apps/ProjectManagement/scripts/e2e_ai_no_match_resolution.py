@@ -121,7 +121,6 @@ def build_fixture_tasks():
                     "emailRef": None,
                 }
             ],
-            "overviewDeliverableId": "dlv_alpha_base",
         },
         {
             "id": "DB-2002",
@@ -144,7 +143,6 @@ def build_fixture_tasks():
                     "emailRef": None,
                 }
             ],
-            "overviewDeliverableId": "dlv_delta_base",
         },
     ]
 

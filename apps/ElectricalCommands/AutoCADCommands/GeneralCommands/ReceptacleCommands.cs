@@ -16,51 +16,8 @@ namespace ElectricalCommands
     private const double ReceptModelInchesPerFoot = 12.0;
     private const double ReceptNoteGapInPaperInches = 0.0625;
 
-    [CommandMethod("RE", CommandFlags.Modal)]
-    public static void InsertReceptEast()
-    {
-      InsertRecept(
-        "east",
-        270.0,
-        0.0,
-        AttachmentPoint.MiddleLeft);
-    }
-
-    [CommandMethod("RN", CommandFlags.Modal)]
-    public static void InsertReceptNorth()
-    {
-      InsertRecept(
-        "north",
-        0.0,
-        270.0,
-        AttachmentPoint.MiddleRight);
-    }
-
-    [CommandMethod("RW", CommandFlags.Modal)]
-    public static void InsertReceptWest()
-    {
-      InsertRecept(
-        "west",
-        90.0,
-        0.0,
-        AttachmentPoint.MiddleRight);
-    }
-
-    [CommandMethod("RS", CommandFlags.Modal)]
-    public static void InsertReceptSouth()
-    {
-      InsertRecept(
-        "south",
-        180.0,
-        270.0,
-        AttachmentPoint.MiddleLeft);
-    }
-
-    private static void InsertRecept(
-      string direction,
-      double rotationDegrees,
-      double noteRotationDegrees,
-      AttachmentPoint noteAttachment)
+    [CommandMethod("R", CommandFlags.Modal)]
+    public static void InsertReceptacle()
     {
       Document doc = Application.DocumentManager.MdiActiveDocument;
       if (doc == null)
@@ -110,6 +67,85 @@ namespace ElectricalCommands
         return;
       }
 
+      PromptPointOptions basePointOptions = new PromptPointOptions(
+        "\nSpecify insertion point for receptacle: ")
+      {
+        AllowNone = false
+      };
+
+      PromptPointResult basePointResult = ed.GetPoint(basePointOptions);
+      if (basePointResult.Status != PromptStatus.OK)
+      {
+        return;
+      }
+
+      Point3d basePointUcs = basePointResult.Value;
+
+      PromptPointOptions orientOptions = new PromptPointOptions(
+        "\nSpecify orientation for receptacle: ")
+      {
+        BasePoint = basePointUcs,
+        UseBasePoint = true,
+        AllowNone = false
+      };
+
+      PromptPointResult orientResult = ed.GetPoint(orientOptions);
+      if (orientResult.Status != PromptStatus.OK)
+      {
+        return;
+      }
+
+      Point3d orientPointUcs = orientResult.Value;
+      Vector3d ucsDir = orientPointUcs - basePointUcs;
+
+      if (ucsDir.Length < 1e-6)
+      {
+        ed.WriteMessage("\nOrientation point cannot be identical to insertion point.");
+        return;
+      }
+
+      Matrix3d ucsToWcs = ed.CurrentUserCoordinateSystem;
+      Point3d insertionPoint = basePointUcs.TransformBy(ucsToWcs);
+      Vector3d wcsDir = ucsDir.TransformBy(ucsToWcs);
+
+      double wcsAngle = Math.Atan2(wcsDir.Y, wcsDir.X);
+      double blockRotation = wcsAngle - (Math.PI / 2.0);
+
+      // Determine note orientation & attachment based on quadrant angle
+      double deg = (wcsAngle * 180.0 / Math.PI) % 360.0;
+      if (deg < 0)
+      {
+        deg += 360.0;
+      }
+
+      double noteRotationDegrees;
+      AttachmentPoint noteAttachment;
+
+      if (deg >= 45.0 && deg < 135.0)
+      {
+        // Facing North (+Y)
+        noteRotationDegrees = 90.0;
+        noteAttachment = AttachmentPoint.MiddleLeft;
+      }
+      else if (deg >= 135.0 && deg < 225.0)
+      {
+        // Facing West (-X)
+        noteRotationDegrees = 0.0;
+        noteAttachment = AttachmentPoint.MiddleRight;
+      }
+      else if (deg >= 225.0 && deg < 315.0)
+      {
+        // Facing South (-Y)
+        noteRotationDegrees = 270.0;
+        noteAttachment = AttachmentPoint.MiddleLeft;
+      }
+      else
+      {
+        // Facing East (+X)
+        noteRotationDegrees = 0.0;
+        noteAttachment = AttachmentPoint.MiddleLeft;
+      }
+
       string panelCircuitLabel =
         BuildPanelLabel(panelName) + circuitNumber;
       double blockScale = ResolveReceptBlockScale(
@@ -117,22 +153,6 @@ namespace ElectricalCommands
       double textHeight = ResolveHomerunSymbolSize(
         scale.PaperInchesPerModelFoot);
       double noteGap = ReceptNoteGapInPaperInches * blockScale;
-
-      PromptPointOptions pointOptions = new PromptPointOptions(
-        $"\nSpecify insertion point for {direction} receptacle: ")
-      {
-        AllowNone = false
-      };
-
-      PromptPointResult pointResult = ed.GetPoint(pointOptions);
-      if (pointResult.Status != PromptStatus.OK)
-      {
-        return;
-      }
-
-      Point3d insertionPoint =
-        pointResult.Value.TransformBy(ed.CurrentUserCoordinateSystem);
-      double rotationRadians = rotationDegrees * Math.PI / 180.0;
 
       try
       {
@@ -163,7 +183,7 @@ namespace ElectricalCommands
             blockDefinitionId);
           blockReference.SetDatabaseDefaults(db);
           blockReference.ScaleFactors = new Scale3d(blockScale);
-          blockReference.Rotation = rotationRadians;
+          blockReference.Rotation = blockRotation;
 
           currentSpace.AppendEntity(blockReference);
           transaction.AddNewlyCreatedDBObject(blockReference, true);
@@ -174,7 +194,7 @@ namespace ElectricalCommands
             blockReference);
 
           Vector3d noteDirection = Vector3d.YAxis
-            .RotateBy(rotationRadians, Vector3d.ZAxis);
+            .RotateBy(blockRotation, Vector3d.ZAxis);
           Point3d noteLocation = ResolveReceptNoteLocation(
             blockReference,
             insertionPoint,
@@ -197,7 +217,7 @@ namespace ElectricalCommands
         }
 
         ed.WriteMessage(
-          $"\nInserted {ReceptBlockName} facing {direction} at " +
+          $"\nInserted {ReceptBlockName} at " +
           $"{scale.DisplayText} (X/Y/Z scale {FormatNumber(blockScale)}) " +
           $"with circuit label {panelCircuitLabel}.");
       }

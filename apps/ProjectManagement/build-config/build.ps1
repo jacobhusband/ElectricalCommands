@@ -100,9 +100,11 @@ try {
     $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
     $requirementsPath = Join-Path $projectRoot "requirements.txt"
     $pyInstallerSpecPath = Join-Path $projectRoot "build-config\ACIES Scheduler.spec"
+    $envPath = Join-Path $projectRoot ".env"
     Assert-PathExists -Path $venvPython -Message "Repo-local Python interpreter not found at $venvPython. Create or refresh .venv before building."
     Assert-PathExists -Path $requirementsPath -Message "requirements.txt not found at $requirementsPath."
     Assert-PathExists -Path $pyInstallerSpecPath -Message "PyInstaller spec not found at $pyInstallerSpecPath."
+    Assert-PathExists -Path $envPath -Message "Required build configuration file not found at $envPath. Copy .env.example to .env, fill in the required values, and rebuild."
     Write-Host "Using Python: $venvPython" -ForegroundColor Gray
     Write-Host "Using PyInstaller spec: $pyInstallerSpecPath" -ForegroundColor Gray
     Ensure-HeifBuildDependencies -PythonPath $venvPython -RequirementsPath $requirementsPath
@@ -186,8 +188,6 @@ try {
     try {
         $pyInstallerWorkPath = Join-Path $projectRoot "build\pyinstaller"
         $pyInstallerDistPath = Join-Path $projectRoot "dist"
-        $envPath = Join-Path $projectRoot ".env"
-        Assert-PathExists -Path $envPath -Message "Required build configuration file not found at $envPath. Create the repo-root .env before building."
         $pyInstallerArgs = @(
             "--noconfirm", "--clean",
             "--distpath", $pyInstallerDistPath,
@@ -209,7 +209,8 @@ try {
         (Join-Path $bundleInternal "symbol_counter_ui.js"),
         (Join-Path $bundleInternal "CircuitBreakerAI\ElectricalPanels\Template.xlsx"),
         (Join-Path $bundleInternal "WireSizerApplication\dist\index.html"),
-        (Join-Path $bundleInternal "project-pages-editor\dist\project-pages-editor.js")
+        (Join-Path $bundleInternal "project-pages-editor\dist\project-pages-editor.js"),
+        (Join-Path $bundleInternal "scripts\shrink_pdf.py")
     )
     foreach ($expectedPath in $expectedBundleFiles) {
         Assert-PathExists -Path $expectedPath -Message "PyInstaller bundle is missing expected output: $expectedPath"

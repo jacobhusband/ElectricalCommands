@@ -594,7 +594,7 @@ def _normalize_workflow_cad_defaults(value):
 # Api.get_workflow_tools() so it can render the correct editor controls.
 WORKFLOW_TOOL_REGISTRY = {
     'backupDrawings': {
-        'displayName': 'Backup DWGs',
+        'displayName': 'Archive',
         'description': 'Archive configured discipline folders and Xrefs into a timestamped Archive folder.',
         'invoke': (lambda api, ctx, aid, params:
                    api.backup_project_drawings(None, ctx)),
@@ -605,7 +605,7 @@ WORKFLOW_TOOL_REGISTRY = {
         ],
     },
     'manageLayers': {
-        'displayName': 'Freeze/Thaw Layers',
+        'displayName': 'Freeze / Thaw',
         'description': 'Freeze or thaw layers across selected DWGs. Patterns support wildcards (* and ?).',
         'invoke': (lambda api, ctx, aid, params:
                    api.run_manage_layers_script(ctx, aid, params)),
@@ -623,7 +623,7 @@ WORKFLOW_TOOL_REGISTRY = {
         ],
     },
     'cleanXrefs': {
-        'displayName': 'Prepare CAD for XREF',
+        'displayName': 'XREF',
         'description': 'Strip XREF paths, set colors by layer, purge, and audit.',
         'invoke': (lambda api, ctx, aid, params:
                    api.run_clean_xrefs_script(ctx, aid, params)),
@@ -640,7 +640,7 @@ WORKFLOW_TOOL_REGISTRY = {
         ],
     },
     'publishDwgs': {
-        'displayName': 'Publish DWGs',
+        'displayName': 'Publish',
         'description': 'Plot DWG layouts and combine outputs.',
         'invoke': (lambda api, ctx, aid, params:
                    api.run_publish_script(ctx, aid, params)),
@@ -756,6 +756,7 @@ def build_default_user_settings():
             'hatchColor': True
         },
         'publishDwgOptions': {
+            'automateProjectDisciplinePublish': False,
             'autoDetectPaperSize': True,
             'shrinkPercent': 100,
             'stripPdfLayers': True,
@@ -834,10 +835,6 @@ def _merge_missing_user_settings_from_legacy(current_settings, legacy_settings):
         merged["showSetupHelp"] = False
         changed = True
 
-    if merged.get("autoPrimary") is not True and legacy.get("autoPrimary") is True:
-        merged["autoPrimary"] = True
-        changed = True
-
     current_templates = merged.get("lightingTemplates")
     legacy_templates = legacy.get("lightingTemplates")
     if (
@@ -862,6 +859,10 @@ def _sanitize_user_settings_payload(settings):
 
     if "microsoftAuth" in normalized:
         normalized.pop("microsoftAuth", None)
+        changed = True
+
+    if "autoPrimary" in normalized:
+        normalized.pop("autoPrimary", None)
         changed = True
 
     if (
@@ -897,6 +898,16 @@ def _sanitize_user_settings_payload(settings):
         normalized["publishDwgOptions"] = deepcopy(default_publish_options)
         changed = True
     else:
+        if "automateProjectElectricalPublish" in source_publish_options:
+            migrated_publish_options = deepcopy(source_publish_options)
+            if "automateProjectDisciplinePublish" not in migrated_publish_options:
+                migrated_publish_options["automateProjectDisciplinePublish"] = bool(
+                    migrated_publish_options.get("automateProjectElectricalPublish")
+                )
+            migrated_publish_options.pop("automateProjectElectricalPublish", None)
+            normalized["publishDwgOptions"] = migrated_publish_options
+            source_publish_options = migrated_publish_options
+            changed = True
         merged_publish_options = deepcopy(default_publish_options)
         merged_publish_options.update(source_publish_options)
         if source_publish_options != merged_publish_options:
@@ -6921,6 +6932,31 @@ Return ONLY the JSON object.
             return {'status': 'success'}
         except Exception as e:
             logging.error(f"Error saving tasks: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def delete_project(self, project_id="", project_name=""):
+        """Deletes a project from the SQLite DB and checklist DB."""
+        try:
+            p_id = str(project_id or '').strip()
+            p_name = str(project_name or '').strip()
+
+            if db_layer is not None and (p_id or p_name):
+                try:
+                    db_layer.delete_project(p_id or p_name)
+                except Exception as e:
+                    logging.warning(f"Error deleting project from unified db: {e}")
+
+            if p_id:
+                try:
+                    with _open_project_checklist_db() as conn:
+                        conn.execute("DELETE FROM project_checklist_records WHERE project_id = ?", (p_id,))
+                        conn.commit()
+                except Exception as e:
+                    logging.warning(f"Error deleting project from checklist db: {e}")
+
+            return {'status': 'success'}
+        except Exception as e:
+            logging.error(f"Error in delete_project API: {e}")
             return {'status': 'error', 'message': str(e)}
 
     def get_panel_schedules(self, project_id):
@@ -16022,6 +16058,86 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             'run_manage_layers_script',
         }
 
+    def _resolve_project_discipline_publish_selection(self, settings, launch_context):
+        """Resolve every base-level DWG in the user's selected discipline folder."""
+        context = self._resolve_workroom_context(settings, launch_context)
+        launch_payload = self._normalize_launch_context(launch_context)
+        discipline_lookup = {
+            'electrical': 'Electrical',
+            'mechanical': 'Mechanical',
+            'plumbing': 'Plumbing',
+        }
+        selected_discipline = discipline_lookup.get(
+            str(launch_payload.get('discipline') or '').strip().lower()
+        ) or discipline_lookup.get(
+            str(settings.get('activeDiscipline') or '').strip().lower()
+        ) or discipline_lookup.get(
+            str(context.get('discipline') or '').strip().lower()
+        ) or 'Electrical'
+        project_path = str(context.get('project_path') or '').strip()
+        if not project_path:
+            return {
+                'status': 'input_required',
+                'reason': 'missing_project_path',
+                'project_path': '',
+                'folder_path': '',
+                'discipline': selected_discipline,
+            }
+
+        folder_resolution = self._resolve_workroom_discipline_folder(
+            project_path, selected_discipline)
+        discipline_folder = str(
+            folder_resolution.get('resolved_folder') or '').strip()
+        if not discipline_folder:
+            candidates = folder_resolution.get('candidates') or []
+            return {
+                'status': 'input_required',
+                'reason': 'discipline_folder_not_found',
+                'project_path': project_path,
+                'folder_path': candidates[0] if candidates else os.path.join(
+                    project_path, selected_discipline),
+                'candidates': candidates,
+                'discipline': selected_discipline,
+            }
+
+        dwg_files = self._list_base_level_dwgs(discipline_folder)
+        if not dwg_files:
+            return {
+                'status': 'input_required',
+                'reason': 'no_dwgs_in_discipline_folder',
+                'project_path': project_path,
+                'folder_path': discipline_folder,
+                'discipline': selected_discipline,
+            }
+
+        files_list_path = self._write_files_list_temp(dwg_files)
+        selection = {
+            'files_list_path': files_list_path,
+            'project_path': project_path,
+            'discipline': selected_discipline,
+            'folder_path': discipline_folder,
+            'count': len(dwg_files),
+            'resolution_mode': 'project_discipline_auto_publish',
+        }
+        self._trace_cad_auto_select(
+            'auto_publish_discipline_selected',
+            tool_id='toolPublishDwgs',
+            project_path=project_path,
+            discipline=selected_discipline,
+            folder_path=discipline_folder,
+            files_list_path=files_list_path,
+            count=len(dwg_files),
+            file_paths=dwg_files,
+        )
+        return {
+            'status': 'success',
+            'reason': '',
+            'project_path': project_path,
+            'folder_path': discipline_folder,
+            'discipline': selected_discipline,
+            'selection': selection,
+        }
+
     def _resolve_workroom_auto_file_selection(self, settings, launch_context, tool_name):
         if not self._is_workroom_auto_select_tool_allowed(tool_name):
             logging.info(
@@ -16622,7 +16738,8 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
         """Runs the PlotDWGs.ps1 PowerShell script with progress updates.
 
         params_override (dict, optional): per-invocation overrides for publishDwgOptions
-        (autoDetectPaperSize, shrinkPercent, stripPdfLayers, refreshExcelOleLinks).
+        (automateProjectDisciplinePublish, autoDetectPaperSize, shrinkPercent,
+        stripPdfLayers, refreshExcelOleLinks).
         Used by the workflow runner.
         """
         script_path = os.path.join(BASE_DIR, "scripts", "PlotDWGs.ps1")
@@ -16645,6 +16762,10 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
         publish_options = dict(settings.get('publishDwgOptions') or {})
         if isinstance(params_override, dict):
             publish_options.update(params_override)
+        automate_project_discipline_publish = publish_options.get(
+            'automateProjectDisciplinePublish',
+            publish_options.get('automateProjectElectricalPublish', False),
+        ) is True
         auto_detect = publish_options.get('autoDetectPaperSize', True)
         shrink_percent = publish_options.get('shrinkPercent', 100)
         strip_pdf_layers = publish_options.get('stripPdfLayers', True)
@@ -16653,12 +16774,69 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
         def _ps_bool(value):
             return "1" if value else "0"
 
-        auto_selection = self._resolve_workroom_auto_file_selection(
-            settings, launch_context, 'run_publish_script')
+        explicit_dwg_files = self._get_launch_context_cad_file_paths(
+            launch_context)
+        workflow_preselected = launch_payload.get(
+            'workflowPreselectedDwgFiles') is True
+        automatic_publish_attempted = bool(
+            automate_project_discipline_publish
+            and not explicit_dwg_files
+            and not workflow_preselected
+        )
+        automatic_publish_succeeded = False
+        automatic_publish_resolution = None
+        auto_selection = None
+        manual_selection_message = "Select DWG files to publish..."
+        if automatic_publish_attempted:
+            automatic_publish_resolution = (
+                self._resolve_project_discipline_publish_selection(
+                    settings, launch_context)
+            )
+            if automatic_publish_resolution.get('status') == 'success':
+                auto_selection = automatic_publish_resolution.get('selection')
+                automatic_publish_succeeded = bool(auto_selection)
+            else:
+                fallback_reason = automatic_publish_resolution.get('reason') or ''
+                fallback_folder = automatic_publish_resolution.get('folder_path') or ''
+                selected_discipline = automatic_publish_resolution.get(
+                    'discipline') or 'selected discipline'
+                if fallback_reason == 'discipline_folder_not_found':
+                    fallback_message = (
+                        f"Automatic Publish could not find the {selected_discipline} folder at "
+                        f"{fallback_folder}. Select the DWG files manually."
+                    )
+                elif fallback_reason == 'no_dwgs_in_discipline_folder':
+                    fallback_message = (
+                        f"Automatic Publish found no DWG files in the "
+                        f"{selected_discipline} folder at {fallback_folder}. "
+                        "Select the DWG files manually."
+                    )
+                else:
+                    fallback_message = (
+                        "Automatic Publish needs a project folder. "
+                        "Select the DWG files manually."
+                    )
+                manual_selection_message = fallback_message
+                self._trace_cad_auto_select(
+                    'auto_publish_discipline_input_required',
+                    tool_id='toolPublishDwgs',
+                    reason=fallback_reason or 'missing_project_path',
+                    discipline=selected_discipline,
+                    project_path=automatic_publish_resolution.get(
+                        'project_path') or '',
+                    folder_path=fallback_folder,
+                )
+        else:
+            auto_selection = self._resolve_workroom_auto_file_selection(
+                settings, launch_context, 'run_publish_script')
         default_directory = self._resolve_launch_context_default_directory(
             launch_context
         )
-        if self._is_workroom_auto_select_enabled(settings, launch_context) and not auto_selection:
+        if (
+            not automatic_publish_attempted
+            and self._is_workroom_auto_select_enabled(settings, launch_context)
+            and not auto_selection
+        ):
             fallback_context = self._resolve_workroom_context(
                 settings, launch_context)
             logging.info(
@@ -16684,7 +16862,7 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
         if not auto_selection:
             self._notify_tool_status(
                 'toolPublishDwgs',
-                "Select DWG files to publish...",
+                manual_selection_message,
                 activity_id=activity_id,
             )
             picker_result = self._select_cad_files_in_app(
@@ -16717,6 +16895,8 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             acad_path,
             '-AutoDetectPaperSize',
             _ps_bool(auto_detect),
+            '-AutoAcceptDetectedPaperSize',
+            _ps_bool(automatic_publish_succeeded),
             '-ShrinkPercent',
             shrink_percent,
             '-StripPdfLayers',

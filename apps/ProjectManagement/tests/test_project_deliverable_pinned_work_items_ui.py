@@ -35,7 +35,7 @@ class ProjectDeliverablePinnedWorkItemsUiTests(unittest.TestCase):
             "function createDeliverableStatusSection(deliverable, project, card) {",
             "function renderDeliverablePinnedPreview(container, deliverable) {",
             "function updateDeliverableWorkItemUi(card, deliverable) {",
-            "function renderDeliverableCard(deliverable, isPrimary, project) {",
+            "function renderDeliverableCard(deliverable, project) {",
             'className: "deliverable-status-inline-group",',
             'className: "deliverable-pinned-inline-group"',
             'pillIcon.classList.add("deliverable-pinned-inline-pill-icon");',
@@ -48,7 +48,7 @@ class ProjectDeliverablePinnedWorkItemsUiTests(unittest.TestCase):
 
         current_card_block = self._script_block(
             script,
-            "function renderDeliverableCard(deliverable, isPrimary, project) {",
+            "function renderDeliverableCard(deliverable, project) {",
             "function normalizeProjectMatchValue(value) {",
         )
         self.assertIn(
@@ -65,7 +65,7 @@ class ProjectDeliverablePinnedWorkItemsUiTests(unittest.TestCase):
         helper_block = self._script_block(
             script,
             "function getExpandedProjectDeliverableIds() {",
-            "function renderDeliverableCardLegacy(deliverable, isPrimary, project) {",
+            "function renderDeliverableCardLegacy(deliverable, project) {",
         )
         for expected in (
             'document.getElementById("tbody")',

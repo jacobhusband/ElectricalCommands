@@ -112,6 +112,15 @@ class PowerShellCadWrapperTests(unittest.TestCase):
                 self.assertNotIn("$dlg.ShowDialog()", text)
                 self.assertIn('Write-Host "PROGRESS: INPUT_FOLDER: $inputFolder"', text)
                 if script_path.name == "PlotDWGs.ps1":
+                    self.assertIn('[string]$AutoAcceptDetectedPaperSize = "false"', text)
+                    self.assertIn(
+                        '$AutoAcceptDetectedPaperSize = Convert-ToBool $AutoAcceptDetectedPaperSize $false',
+                        text,
+                    )
+                    self.assertIn(
+                        '@("-AutoAcceptDetectedPaperSize", $AutoAcceptDetectedPaperSize)',
+                        text,
+                    )
                     self.assertIn('[string]$StripPdfLayers = "true"', text)
                     self.assertIn('$StripPdfLayers = Convert-ToBool $StripPdfLayers $true', text)
                     self.assertIn('$stripPdfLayersScriptPath = Join-Path $scriptRoot "strip_pdf_layers.py"', text)
@@ -144,6 +153,19 @@ class PowerShellCadWrapperTests(unittest.TestCase):
                         'Write-Host "PROGRESS: Waiting for paper size confirmation..."',
                         text,
                     )
+                    self.assertIn(
+                        'Write-Host "PROGRESS: TRACE branch=paper_size_auto_accepted"',
+                        text,
+                    )
+                    self.assertIn(
+                        'Write-Host "PROGRESS: INPUT_REQUIRED: PAPER_SIZE"',
+                        text,
+                    )
+                    self.assertIn(
+                        '& $pythonExecutable $detectSizeScriptPath ([string]$files[0]) 2>&1',
+                        text,
+                    )
+                    self.assertNotIn('$dwgPathArg = "`"$($files[0])`""', text)
                     self.assertIn(
                         'Write-Host "PROGRESS: Paper size dialog should be visible on the primary display."',
                         text,
@@ -194,23 +216,32 @@ class PowerShellCadWrapperTests(unittest.TestCase):
             'Join-Path $acadInstallDir "acad.exe"',
             'function Invoke-FullAutoCadOleRefresh {',
             'function Invoke-CorePlotAttempt {',
-            '(and typePair (= (cdr typePair) 1))',
+            '(ssget "_X" \'((0 . "OLE2FRAME") (71 . 1)))',
             '$oleCheckPresentMarker = "ACIES_OLE_CHECK:PRESENT"',
             '$oleRefreshRequiredMarker = "ACIES_OLE_REFRESH:REQUIRED"',
             '(not *acies-ole-refresh-attempted*)',
             '-OleRefreshAlreadyAttempted $false',
             '-OleRefreshAlreadyAttempted $true',
             '-TimeoutSeconds 180',
+            '[int]$RefreshWaitSeconds = 15',
             '-WindowStyle Hidden',
-            'REGENALL',
-            'QSAVE',
-            'Publishing cached OLE content.',
+            '(command "_.DELAY" $refreshWaitMilliseconds)',
+            '(command "_.REGENALL")',
+            '(command "_.QSAVE")',
+            'ACIES_OLE_REFRESH:COMPLETE',
+            'Test-Path -LiteralPath $refreshCompleteMarker -PathType Leaf',
+            'Plot skipped to prevent stale OLE content.',
+            '$oleRefreshFailures += $dwgPath',
             'Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue',
         ):
             self.assertIn(expected, text)
 
-        self.assertIn('Write-Host "PROGRESS: WARNING:', text)
-        self.assertNotIn('Write-Host "PROGRESS: ERROR: $($dwgItem.Name) - $($oleRefreshResult.Message)', text)
+        self.assertIn(
+            'Write-Host "PROGRESS: ERROR: $($dwgItem.Name) - $($oleRefreshResult.Message)',
+            text,
+        )
+        self.assertNotIn('Publishing cached OLE content.', text)
+        self.assertNotIn('(vlax-get-acad-object)', text)
 
     def test_publish_excel_ole_refresh_setting_is_bound_in_both_uis(self):
         script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
@@ -224,6 +255,21 @@ class PowerShellCadWrapperTests(unittest.TestCase):
             self.assertIn(control_id, script)
             self.assertIn(f'id="{control_id}"', html)
         self.assertIn("Refresh linked Excel OLE content and save source DWGs", html)
+
+    def test_automatic_discipline_publish_setting_is_bound_in_both_uis(self):
+        script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+        html = INDEX_HTML_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("automateProjectDisciplinePublish: false,", script)
+        self.assertIn("discipline: getActiveDiscipline(),", script)
+        for control_id in (
+            "settings_publish_automateProjectDisciplinePublish",
+            "publish_modal_automateProjectDisciplinePublish",
+        ):
+            self.assertIn(control_id, script)
+            self.assertIn(f'id="{control_id}"', html)
+        self.assertIn("Automate selected-discipline publish", html)
+        self.assertIn("Electrical, Plumbing, or Mechanical", html)
 
     def test_clean_xrefs_script_reports_output_folder_marker(self):
         text = CLEAN_XREF_SCRIPT_PATH.read_text(encoding="utf-8")
@@ -350,12 +396,14 @@ class PowerShellCadWrapperTests(unittest.TestCase):
         text = SCRIPT_JS_PATH.read_text(encoding="utf-8")
 
         for expected in (
-            "async function resolveCadFilesBeforeLaunch(launchContext = null) {",
-            'if (source === "workroom" || existingFiles.length)',
+            'async function resolveCadFilesBeforeLaunch(launchContext = null, toolId = "") {',
+            'userSettings.publishDwgOptions?.automateProjectDisciplinePublish === true',
+            '(automaticDisciplinePublish && hasLaunchContextProjectPath(context))',
             "window.pywebview.api.select_files({",
             'file_types: ["Drawing Files (*.dwg)", "All Files (*.*)"],',
             "default_directory: getLaunchContextProjectRoot(context) || undefined,",
-            "launchContext = await resolveCadFilesBeforeLaunch(launchContext);",
+            'launchContext = await resolveCadFilesBeforeLaunch(launchContext, "toolPublishDwgs");',
+            'launchContext = await resolveCadFilesBeforeLaunch(launchContext, "toolManageLayers");',
         ):
             self.assertIn(expected, text)
 

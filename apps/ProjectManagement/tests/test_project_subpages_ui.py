@@ -62,6 +62,18 @@ class ProjectSubpagesUiTests(unittest.TestCase):
         self.assertIn('className: "page-child-link page-child-link-add"', links_block)
         self.assertIn("onclick: () => createProjectSubpageFromSlash(),", links_block)
 
+    def test_legacy_child_link_renderer_does_not_mutate_react_owned_subtree(self):
+        script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+        links_block = self._block(
+            script,
+            "function renderPageChildLinks(project, activeSubpage = null) {",
+            "function queuePageTitleSave() {",
+        )
+
+        ownership_guard = "if (getProjectPagesEditorRoot()?.contains(container)) return;"
+        self.assertIn(ownership_guard, links_block)
+        self.assertLess(links_block.index(ownership_guard), links_block.index('container.innerHTML = "";'))
+
     def test_tree_sidebar_controls_are_removed(self):
         script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
 

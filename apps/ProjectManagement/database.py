@@ -219,6 +219,18 @@ def list_projects(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
         return [dict(row) for row in cursor.fetchall()]
 
 
+def delete_project(project_id_or_number: str, db_path: Optional[str] = None) -> bool:
+    """Deletes a project record and cascades deletion of drawings, panel schedules, etc."""
+    init_db(db_path)
+    with db_session(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE FROM projects
+            WHERE id = ? OR project_number = ?
+        """, (str(project_id_or_number or ""), str(project_id_or_number or "")))
+        return cursor.rowcount > 0
+
+
 # ==============================================================================
 # DRAWING CRUD OPERATIONS
 # ==============================================================================

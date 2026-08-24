@@ -65,7 +65,7 @@ class ConsolidationMigrationsTests(unittest.TestCase):
         normalize_block = self._block(
             script,
             "function normalizeProject(project) {",
-            "function getLatestDueDeliverableId(deliverables = []) {",
+            "function isDeliverablePinned(deliverable) {",
         )
         self.assertIn("migrateProjectNotesToPage(out);", normalize_block)
         self.assertIn("migrateCoordinationItemsToPage(out);", normalize_block)

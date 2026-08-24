@@ -16,15 +16,27 @@ namespace ElectricalCommands
     private bool _pendingRedraw = false;
     private Anchor _anchor = Anchor.Center;
     private readonly double _scale;
+    private string _currentValue = "1";
 
-    public KeyNoteJig(BlockReference blockReference, double scale) : base(blockReference)
+    public KeyNoteJig(BlockReference blockReference, double scale, string initialValue = "1") : base(blockReference)
     {
       _scale = scale;
+      _currentValue = string.IsNullOrEmpty(initialValue) ? "1" : initialValue;
     }
 
     public Point3d InsertionPoint => ComputePosition();
 
     public Anchor CurrentAnchor => _anchor;
+
+    public string CurrentValue
+    {
+      get => _currentValue;
+      set
+      {
+        _currentValue = string.IsNullOrEmpty(value) ? "1" : value;
+        _pendingRedraw = true;
+      }
+    }
 
     public bool ApplyKeyword(string keyword)
     {
@@ -63,11 +75,12 @@ namespace ElectricalCommands
     protected override SamplerStatus Sampler(JigPrompts prompts)
     {
       JigPromptPointOptions opts = new JigPromptPointOptions(
-        $"\nSpecify keyed note insertion point (anchor: {_anchor})")
+        $"\nSpecify keyed note insertion point or [Value/Center/Left/Right/Up/Down] <{_currentValue}> (anchor: {_anchor}): ")
       {
         UserInputControls = UserInputControls.Accept3dCoordinates
           | UserInputControls.NoNegativeResponseAccepted
       };
+      opts.Keywords.Add("Value");
       opts.Keywords.Add("Center");
       opts.Keywords.Add("Left");
       opts.Keywords.Add("Right");

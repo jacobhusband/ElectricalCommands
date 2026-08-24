@@ -16,7 +16,9 @@ class ProjectFiltersUiTests(unittest.TestCase):
         )
         table_start = html.index('<table class="table projects-table">')
         projects_filters_block = html[projects_filters_start:table_start]
-        settings_block_start = html.index('<input type="checkbox" id="settings_autoPrimary">')
+        settings_block_start = html.index(
+            '<div class="setting-label">Separate Incomplete and Complete Deliverables</div>'
+        )
         settings_block_end = html.index("<!-- Danger Zone -->")
         settings_block = html[settings_block_start:settings_block_end]
 
@@ -31,8 +33,9 @@ class ProjectFiltersUiTests(unittest.TestCase):
         self.assertIn('data-filter-dropdown="deliverables"', html)
         self.assertIn('id="deliverablesFilterTrigger"', html)
         self.assertIn('id="deliverablesFilterMenu"', html)
-        self.assertIn('data-filter-value="active"', html)
-        self.assertIn("Show only active deliverables", html)
+        self.assertNotIn('data-filter-value="active"', html)
+        self.assertNotIn("Show only active deliverables", html)
+        self.assertIn("Show all deliverables", html)
         self.assertIn("Show all incomplete deliverables", html)
         self.assertIn('role="menuitemradio"', html)
         self.assertNotIn('id="timeframeFilterSelect"', html)
@@ -41,7 +44,7 @@ class ProjectFiltersUiTests(unittest.TestCase):
         self.assertNotIn('data-filter-value="primary"', html)
         self.assertNotIn('id="separateDeliverableCompletionToggle"', projects_filters_block)
         self.assertNotIn('id="groupDeliverablesByProjectToggle"', projects_filters_block)
-        self.assertIn('id="settings_autoPrimary"', settings_block)
+        self.assertNotIn('id="settings_autoPrimary"', html)
         self.assertIn(
             'id="settings_separateDeliverableCompletionGroups"', settings_block
         )
@@ -214,7 +217,7 @@ class ProjectFiltersUiTests(unittest.TestCase):
         self.assertIn('if (filterKey === "timeframe") return dueFilter || "all";', script)
         self.assertIn('if (filterKey === "status") return statusFilter || "all";', script)
         self.assertIn(
-            'if (filterKey === "deliverables") return deliverablesFilter || "active";',
+            'if (filterKey === "deliverables") return deliverablesFilter || "all";',
             script,
         )
         self.assertIn('dueFilter = value;', script)
@@ -232,13 +235,12 @@ class ProjectFiltersUiTests(unittest.TestCase):
         self.assertIn('statusFilter === "all"', script)
         self.assertIn("const projectListPriority = getProjectListPriorityMeta(project);", script)
         self.assertIn(
-            "const activeAnchorDeliverable = projectListPriority.priorityDeliverable;",
+            "const priorityDeliverable = projectListPriority.priorityDeliverable;",
             script,
         )
-        self.assertIn("const overviewDeliverables = getOverviewDeliverables(project, {", script)
-        self.assertIn("primaryId: activeAnchorDeliverable.id,", script)
+        self.assertIn("const overviewDeliverables = getOverviewDeliverables(project);", script)
         self.assertIn(
-            "hasIncompleteActiveWork: projectListPriority.hasIncompleteActiveWork,",
+            "hasIncompleteWork: projectListPriority.hasIncompleteWork,",
             script,
         )
         self.assertIn("sortBucket: projectListPriority.sortBucket,", script)
@@ -254,7 +256,7 @@ class ProjectFiltersUiTests(unittest.TestCase):
         self.assertIn("let lastCompleteWeekKey = null;", script)
         self.assertIn("const isCompleteOnlyProject =", script)
         self.assertIn(
-            "shouldSortCompletedProjectsLast() && !projectListContext.hasIncompleteActiveWork;",
+            "shouldSortCompletedProjectsLast() && !projectListContext.hasIncompleteWork;",
             script,
         )
         self.assertIn('appendSectionSeparator("Complete Projects");', script)
@@ -317,13 +319,14 @@ class ProjectFiltersUiTests(unittest.TestCase):
         self.assertIn("compareDueDateValues(", deliverable_row_comparator_block)
         self.assertIn(": projectListPriority.sortDueDate", script)
         self.assertIn(": projectListPriority.fallbackDueDate,", script)
-        self.assertIn("Active deliverable is outside this timeframe.", script)
+        self.assertIn("The highest-priority deliverable is outside this timeframe.", script)
         self.assertIn('statusFilter !== "all" || deliverablesFilter !== "all"', script)
         self.assertNotIn("function syncProjectsViewToggles() {", script)
         self.assertNotIn('"separateDeliverableCompletionToggle"', script)
         self.assertNotIn('"groupDeliverablesByProjectToggle"', script)
         self.assertNotIn("toggleNonPrimaryBtn", script)
         self.assertNotIn('return deliverablesFilter || "primary";', script)
+        self.assertNotIn('return deliverablesFilter || "active";', script)
 
     def test_project_filter_styles_keep_dropdown_classes_without_inline_toggle_styles(self):
         css = STYLES_CSS_PATH.read_text(encoding="utf-8")

@@ -63,7 +63,7 @@ class ProjectCardScrollUiTests(unittest.TestCase):
         self.assertNotIn("scroll-snap-type", view_block)
         self.assertNotIn("scroll-snap-align", column_block)
 
-    def test_card_view_fills_available_window_height(self):
+    def test_card_view_categories_wrap_tightly_without_scrolling(self):
         css = STYLES_CSS_PATH.read_text(encoding="utf-8")
         view_start = css.index(".projects-card-view {")
         view_end = css.index(".projects-card-view[hidden]", view_start)
@@ -71,18 +71,17 @@ class ProjectCardScrollUiTests(unittest.TestCase):
         column_start = css.index(".kanban-column {")
         column_end = css.index(".kanban-card-project-meta", column_start)
         column_block = css[column_start:column_end]
+        cards_start = css.index(".kanban-column__cards {")
+        cards_end = css.index(".kanban-column__cards.dropdown-open", cards_start)
+        cards_block = css[cards_start:cards_end]
 
-        self.assertIn("--projects-card-view-height: max(", view_block)
-        self.assertIn(
-            "calc(100vh - var(--header-height) - var(--toolbar-height) - 5.5rem)",
-            view_block,
-        )
-        self.assertIn("min-height: var(--projects-card-view-height);", view_block)
-        self.assertIn("min-height: var(--projects-card-view-height);", column_block)
-        self.assertIn("max-height: var(--projects-card-view-height);", column_block)
-        self.assertNotIn("min-height: 300px;", view_block)
-        self.assertNotIn("max-height: calc(100vh - 240px);", column_block)
-        self.assertNotIn("min-height: 200px;", column_block)
+        self.assertIn("align-items: flex-start;", view_block)
+        self.assertIn("height: auto;", column_block)
+        self.assertIn("align-self: flex-start;", column_block)
+        self.assertIn("overflow: visible;", cards_block)
+        self.assertNotIn("min-height: var(--projects-card-view-height);", column_block)
+        self.assertNotIn("max-height: var(--projects-card-view-height);", column_block)
+        self.assertNotIn("overflow-y: auto;", cards_block)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ import { AppState, CalculationResult, WireSizeData, ConductorMaterial } from '..
 
 export const isThreePhaseAllowed = (voltage: number) => voltage !== 120 && voltage !== 277;
 
-export const getHotCount = (phase: number, voltage: number) => {
+const getHotCount = (phase: number, voltage: number) => {
   if (phase === 3) return 3;
   if (phase === 1) {
     if (voltage === 120 || voltage === 277) return 1;

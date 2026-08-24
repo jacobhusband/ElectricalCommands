@@ -6,13 +6,10 @@ NEC phase load balancing calculations, diagnostics generation, and SQLite synchr
 
 import os
 import re
-import json
-import math
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 
 import openpyxl
-from apps.ProjectManagement.database import upsert_panel_schedule, get_panel_schedule
+from apps.ProjectManagement.database import upsert_panel_schedule
 
 # Column mapping conforming to ACIES Panel Schedule Excel Template
 COL_L_NOTE = "B"
@@ -173,8 +170,7 @@ def parse_panel_sheet(ws: openpyxl.worksheet.worksheet.Worksheet, workbook_path:
         phase_count = 3
 
     enclosure = clean_cell_str(ws["K4"].value) or "NEMA 1"
-    mounting = clean_cell_str(ws["N2"].value) or "SURFACE"
-    
+
     aic_raw = ws["N3"].value
     aic_rating = parse_integer(aic_raw, default=10000)
     if aic_rating < 1000:
