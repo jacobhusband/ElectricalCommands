@@ -26,7 +26,9 @@
   <!-- WPF XAML Pages -->
   <ItemGroup>
     <Page Include="AddNotePickerWindow.xaml" />
+    <Page Include="OpenDrawingLayerWindow.xaml" />
     <Page Include="ProjectChecklistWindow.xaml" />
+    <Page Include="ViewportFromRegionOptionsWindow.xaml" />
     <Page Include="XrefPickerWindow.xaml" />
   </ItemGroup>
 

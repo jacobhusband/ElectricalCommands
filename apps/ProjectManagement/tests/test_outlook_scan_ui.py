@@ -55,10 +55,28 @@ class OutlookScanUiTests(unittest.TestCase):
         self.assertIn('message: "Processing with AI..."', script)
         self.assertIn("function buildEmailIntakeProjectContext() {", script)
         self.assertIn("async function processEmailIntakePaste() {", script)
+        self.assertIn("const EMAIL_INTAKE_REQUEST_TIMEOUT_MS = 300000;", script)
+        self.assertIn("const EMAIL_INTAKE_SLOW_NOTICE_MS = 90000;", script)
+        self.assertNotIn("const AI_EMAIL_TIMEOUT_MS = 120000;", script)
+        self.assertIn(
+            '"Gemini is busy; automatic retries are still running..."',
+            script,
+        )
+        self.assertIn(
+            "}, EMAIL_INTAKE_SLOW_NOTICE_MS);",
+            script,
+        )
+        self.assertIn(
+            "}, EMAIL_INTAKE_REQUEST_TIMEOUT_MS);",
+            script,
+        )
+        self.assertIn("if (slowNoticeId) clearTimeout(slowNoticeId);", script)
         self.assertIn("const projectContext = buildEmailIntakeProjectContext();", script)
         self.assertIn("getActiveDisciplineList(),\n      projectContext", script)
         self.assertIn('closeDlg("outlookScanDlg");', script)
         self.assertIn("handleAiProjectResult(res.data || {});", script)
+        self.assertIn("failEmailIntakeActivity(errorMessage);", script)
+        self.assertNotIn('failEmailIntakeActivity("AI Error: " + errorMessage);', script)
         self.assertIn('outlookScanBtn.onclick = () => openOutlookScanDialog();', script)
         self.assertIn('btnProcessEmail.onclick = () => processEmailIntakePaste();', script)
 
@@ -89,6 +107,23 @@ class OutlookScanUiTests(unittest.TestCase):
         self.assertIn("JSON.stringify(candidate)", body)
         self.assertNotIn("deliverables", body)
         self.assertNotIn("tasks", body)
+
+    def test_existing_project_without_deliverable_routes_to_project_important_page(self):
+        html = INDEX_HTML_PATH.read_text(encoding="utf-8")
+        script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('id="aiNoMatchAddHelp"', html)
+        self.assertIn("function hasAiSeparateDeliverable(rawAiData = {}) {", script)
+        self.assertIn("function buildAiImportantText(rawAiData = {}) {", script)
+        self.assertIn("function appendAiImportantToProject(project, rawAiData = {}) {", script)
+        self.assertIn('const block = `<p data-important="true">${escapeHtml(text)}</p>`;', script)
+        self.assertIn("function addAiImportantToProject(projectIndex, aiProject, rawAiData) {", script)
+        self.assertIn("function addAiResultToProject(projectIndex, aiProject, rawAiData) {", script)
+        self.assertIn("if (hasAiSeparateDeliverable(rawAiData)) {", script)
+        self.assertIn("return addAiImportantToProject(projectIndex, aiProject, rawAiData);", script)
+        self.assertIn("pendingImportantPageScroll = true;", script)
+        self.assertIn("openProjectPage(target, appended.subpage);", script)
+        self.assertIn("add the email content to its page as /important", script)
 
     def test_email_intake_styles_exist(self):
         css = STYLES_CSS_PATH.read_text(encoding="utf-8")

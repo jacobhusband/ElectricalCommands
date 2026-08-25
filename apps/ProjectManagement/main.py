@@ -537,6 +537,9 @@ OUTLOOK_SCAN_RETRY_SKIP_REASON = (
 )
 EMAIL_INTAKE_PROJECT_CONTEXT_MAX_PROJECTS = 200
 EMAIL_INTAKE_PROJECT_CONTEXT_BUDGET_CHARS = 25000
+EMAIL_INTAKE_GEMINI_MODEL = "gemini-3.7-flash"
+EMAIL_INTAKE_CAPACITY_RETRY_DELAYS_SECONDS = (1.0, 2.0)
+EMAIL_INTAKE_REQUEST_TIMEOUT_MS = 240000
 FIREBASE_API_KEY_ENV = "FIREBASE_API_KEY"
 FIREBASE_AUTH_DOMAIN_ENV = "FIREBASE_AUTH_DOMAIN"
 FIREBASE_PROJECT_ID_ENV = "FIREBASE_PROJECT_ID"
@@ -6045,10 +6048,11 @@ CURRENT_DELIVERABLES_IN_PERIOD:
             self._ensure_aiohttp()
             client = genai.Client(
                 api_key=final_api_key,
-                http_options=types.HttpOptions(timeout=120000),
+                http_options=types.HttpOptions(timeout=EMAIL_INTAKE_REQUEST_TIMEOUT_MS),
             )
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
+            response = self._generate_email_intake_content_with_retry(
+                client,
+                model=EMAIL_INTAKE_GEMINI_MODEL,
                 contents=[
                     types.Content(
                         role="user",
@@ -6058,6 +6062,8 @@ CURRENT_DELIVERABLES_IN_PERIOD:
                 config=types.GenerateContentConfig(
                     temperature=0,
                     response_mime_type="application/json",
+                    automatic_function_calling={"disable": True},
+                    thinking_config={"thinking_level": "LOW"},
                 ),
             )
 
@@ -6096,10 +6102,12 @@ CURRENT_DELIVERABLES_IN_PERIOD:
                 )
             if "model" in lower and ("not found" in lower or "does not exist" in lower):
                 raise RuntimeError(
-                    "AI model not available. The Gemini 3 Flash model may not be accessible with your API key."
+                    "AI model not available. The Gemini 3.7 Flash model may not be accessible with your API key."
                 )
             if "quota" in lower or "rate limit" in lower:
                 raise RuntimeError("API rate limit exceeded. Please wait a moment and try again.")
+            if self._is_email_intake_retryable_error(exc):
+                raise RuntimeError(self._email_intake_transient_error_message(exc))
             raise RuntimeError(f"AI error: {msg}")
 
     def _analyze_outlook_scan_batch(
@@ -6677,6 +6685,68 @@ CURRENT_DELIVERABLES_IN_PERIOD:
             )
         return final_api_key
 
+    def _is_email_intake_capacity_error(self, error):
+        message = str(error or "").lower()
+        return any(
+            marker in message
+            for marker in (
+                "503",
+                "unavailable",
+                "high demand",
+                "temporarily overloaded",
+                "model is overloaded",
+            )
+        )
+
+    def _is_email_intake_deadline_error(self, error):
+        message = str(error or "").lower()
+        return any(
+            marker in message
+            for marker in (
+                "504",
+                "deadline_exceeded",
+                "deadline exceeded",
+                "deadline expired",
+            )
+        )
+
+    def _is_email_intake_retryable_error(self, error):
+        return (
+            self._is_email_intake_capacity_error(error)
+            or self._is_email_intake_deadline_error(error)
+        )
+
+    def _email_intake_transient_error_message(self, error):
+        if self._is_email_intake_deadline_error(error):
+            return (
+                "Gemini 3.7 Flash timed out after automatic retries. Google may "
+                "still be experiencing high demand. Please wait a minute and try "
+                "again; no project data was changed."
+            )
+        return (
+            "Gemini 3.7 Flash is temporarily at capacity. Email Intake retried "
+            "automatically, but Google is still unavailable. Please wait a minute "
+            "and try again; no project data was changed."
+        )
+
+    def _generate_email_intake_content_with_retry(self, client, **request_kwargs):
+        delays = EMAIL_INTAKE_CAPACITY_RETRY_DELAYS_SECONDS
+        for attempt in range(len(delays) + 1):
+            try:
+                return client.models.generate_content(**request_kwargs)
+            except Exception as exc:
+                if not self._is_email_intake_retryable_error(exc) or attempt >= len(delays):
+                    raise
+                delay = delays[attempt]
+                logging.warning(
+                    "Gemini email intake transient error; retrying attempt %s of %s in %.1fs: %s",
+                    attempt + 2,
+                    len(delays) + 1,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+
     def _build_email_analysis_prompt(self, email_text, user_name, discipline, project_context=None):
         current_date = datetime.date.today().strftime("%m/%d/%Y")
         disciplines_str = ', '.join(discipline) if isinstance(
@@ -6707,13 +6777,14 @@ KNOWN_PROJECTS:
         known_projects_text = f"\n{known_projects_section}\n" if known_projects_section else ""
         return f"""
 You are an intelligent assistant for {user_name}, a(n) {disciplines_str} engineering project manager. Your task is to analyze an email and extract specific project details. Focus ONLY on the primary {disciplines_str} engineering tasks mentioned. Ignore tasks for other disciplines.
-Analyze the following email text and extract the information into a valid JSON object with the following keys: "id", "name", "due", "path", "deliverable", "tasks", "notes".
+Analyze the following email text and extract the information into a valid JSON object with the following keys: "id", "name", "due", "path", "deliverable", "important", "tasks", "notes".
 {known_projects_text}
 - "id": Find a project number or project ID (e.g., "250597", "P-12345", "Job #1042"). Look in the subject line, headers, and body. This could be called a job number, project number, project ID, or similar. If none, leave it empty.
 - "name": Determine the project name, typically including the client and address or building name (e.g., "BofA, 22004 Sherman Way, Canoga Park, CA"). Include enough detail to uniquely identify the project. If no formal name is found and no known project is clearly supported, compose one from the client name and location mentioned.
 - "due": Find the due date and format it as "MM/DD/YY". The current date is {current_date}. If the year is not specified in the email, assume the current year or the next year if the date would be in the past. Ensure the due date is on or after today. If multiple dates, choose the most relevant upcoming one.
 - "path": Find the main project file path (e.g., "M:\\\\Gensler\\\\...").
-- "deliverable": Infer the deliverable name from the email if possible. Prefer concise, standardized names when present (for example: DD60, DD90, CD60, CD90, CD100, CDF, RFI, RFI #2, Submittal, Lighting Submittal, Controls Submittal, Record Set, Record Drawings, IFP, Site Survey, Survey Report, ASR, ASR #2, PCC, PCC #3, Bulletin #2, Coordination, Meeting, Revision). If no deliverable is clear, leave it empty.
+- "deliverable": Return a deliverable only when the email names or clearly requests a distinct, separately trackable project deliverable. Prefer concise, standardized names when present (for example: DD60, DD90, CD60, CD90, CD100, CDF, RFI, RFI #2, Submittal, Lighting Submittal, Controls Submittal, Record Set, Record Drawings, IFP, Site Survey, Survey Report, ASR, ASR #2, PCC, PCC #3, Bulletin #2, Coordination, Meeting, Revision). Do not invent a generic deliverable for routine project correspondence, decisions, approvals, status updates, reference information, or incidental coordination. A request to confirm, coordinate, answer, review, or remember something is not by itself a separate deliverable. Use Coordination, Meeting, or Revision only when the email clearly identifies it as a separately tracked milestone or output. If no separate deliverable is clear, leave it empty.
+- "important": When "deliverable" is empty, write one concise, self-contained line capturing the project-relevant email content that should be preserved on the existing project's page as an important item. Include material requests, decisions, dates, constraints, approvals, contacts, and next steps as applicable. When "deliverable" is not empty, return "".
 {task_notes_contract}
 If a piece of information is not found, the value should be an empty string "" for strings, or an empty array [] for tasks.
 Here is the email:
@@ -6733,8 +6804,10 @@ Return ONLY the JSON object.
         project_data.setdefault("due", "")
         project_data.setdefault("path", "")
         project_data.setdefault("deliverable", "")
+        project_data.setdefault("important", "")
         project_data.setdefault("tasks", [])
         project_data.setdefault("notes", "")
+        project_data["important"] = str(project_data.get("important") or "").strip()
         normalized_tasks = []
         if isinstance(project_data.get("tasks"), list):
             for task in project_data["tasks"]:
@@ -6838,10 +6911,11 @@ Return ONLY the JSON object.
             self._ensure_aiohttp()
             client = genai.Client(
                 api_key=final_api_key,
-                http_options=types.HttpOptions(timeout=120000),
+                http_options=types.HttpOptions(timeout=EMAIL_INTAKE_REQUEST_TIMEOUT_MS),
             )
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
+            response = self._generate_email_intake_content_with_retry(
+                client,
+                model=EMAIL_INTAKE_GEMINI_MODEL,
                 contents=[
                     types.Content(
                         role="user",
@@ -6851,6 +6925,8 @@ Return ONLY the JSON object.
                 config=types.GenerateContentConfig(
                     temperature=0,
                     response_mime_type="application/json",
+                    automatic_function_calling={"disable": True},
+                    thinking_config={"thinking_level": "LOW"},
                 ),
             )
 
@@ -6889,10 +6965,12 @@ Return ONLY the JSON object.
                 )
             if "model" in lower and ("not found" in lower or "does not exist" in lower):
                 raise RuntimeError(
-                    'AI model not available. The Gemini 3 Flash model may not be accessible with your API key.'
+                    'AI model not available. The Gemini 3.7 Flash model may not be accessible with your API key.'
                 )
             if "quota" in lower or "rate limit" in lower:
                 raise RuntimeError('API rate limit exceeded. Please wait a moment and try again.')
+            if self._is_email_intake_retryable_error(e):
+                raise RuntimeError(self._email_intake_transient_error_message(e))
             raise RuntimeError(f"AI error: {msg}")
 
     def process_email_with_ai(self, email_text, api_key, user_name, discipline, project_context=None):

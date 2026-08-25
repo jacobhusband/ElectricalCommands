@@ -1379,8 +1379,8 @@
                 <div class="email-intake-panel-head">
                     <div>
                         <div class="label">Paste Email</div>
-                        <div class="tiny muted">Paste the full email content below. The AI will extract the project
-                            details.</div>
+                        <div class="tiny muted">Paste the full email content below. The AI will match the project and
+                            extract either a deliverable or an important page item.</div>
                     </div>
                     <button type="button" class="btn-primary tiny" id="btnProcessEmail">Process with AI</button>
                 </div>
@@ -1409,7 +1409,7 @@
                 <label class="label" for="aiNoMatchSearchInput">Search Existing Projects</label>
                 <input id="aiNoMatchSearchInput" type="search" placeholder="Search by project name or nickname..." />
                 <div id="aiNoMatchProjectList" class="timesheet-project-list ai-no-match-project-list"></div>
-                <p class="tiny muted">Select one project and then add the new AI deliverable to it.</p>
+                <p class="tiny muted" id="aiNoMatchAddHelp">Select one project and then add the AI result to it.</p>
                 <div class="modal-footer ai-no-match-footer">
                     <button class="btn ghost" id="aiNoMatchBackBtn">Back</button>
                     <button class="btn ghost" id="aiNoMatchCreateNewFallbackBtn">Create New Project Instead</button>

@@ -494,6 +494,36 @@ class DeliverableAiPromptContractTests(unittest.TestCase):
     def setUp(self):
         self.api = Api.__new__(Api)
 
+    def _run_email_extraction_with_models(self, models):
+        client = types.SimpleNamespace(models=models)
+        with patch.object(
+            self.api, "_ensure_aiohttp", return_value=None
+        ), patch(
+            "main.genai.Client", return_value=client, create=True
+        ), patch(
+            "main.types.GenerateContentConfig",
+            side_effect=lambda **kwargs: kwargs,
+            create=True,
+        ), patch(
+            "main.types.HttpOptions",
+            side_effect=lambda **kwargs: kwargs,
+            create=True,
+        ), patch(
+            "main.types.Content",
+            side_effect=lambda **kwargs: kwargs,
+            create=True,
+        ), patch(
+            "main.types.Part",
+            types.SimpleNamespace(from_text=lambda text: text),
+            create=True,
+        ):
+            return self.api._extract_project_data_from_email_text(
+                "The architect approved the finish.",
+                "api-key",
+                "Jacob Husband",
+                ["Electrical"],
+            )
+
     def test_build_email_analysis_prompt_separates_tasks_from_notes(self):
         prompt = self.api._build_email_analysis_prompt(
             "Please revise the lighting plans and wait for architect approval before final issue.",
@@ -520,6 +550,19 @@ class DeliverableAiPromptContractTests(unittest.TestCase):
         )
         self.assertIn('Example: "Awaiting architect approval before final issue."', prompt)
         self.assertNotIn('summary of the email', prompt)
+
+    def test_build_email_analysis_prompt_routes_non_deliverable_content_to_important(self):
+        prompt = self.api._build_email_analysis_prompt(
+            "The architect approved the alternate finish. No new package is requested.",
+            "Jacob Husband",
+            ["Electrical"],
+        )
+
+        self.assertIn('"deliverable", "important", "tasks", "notes"', prompt)
+        self.assertIn("distinct, separately trackable project deliverable", prompt)
+        self.assertIn("Do not invent a generic deliverable for routine project correspondence", prompt)
+        self.assertIn('When "deliverable" is empty', prompt)
+        self.assertIn("preserved on the existing project's page as an important item", prompt)
 
     def test_build_email_analysis_prompt_includes_known_project_matching_context(self):
         prompt = self.api._build_email_analysis_prompt(
@@ -683,6 +726,123 @@ class DeliverableAiPromptContractTests(unittest.TestCase):
             ],
             result["tasks"],
         )
+
+    def test_normalize_email_project_data_preserves_trimmed_important_content(self):
+        result = self.api._normalize_email_project_data(
+            {
+                "deliverable": "",
+                "important": "  Architect approved the alternate fixture finish.  ",
+            }
+        )
+
+        self.assertEqual(
+            "Architect approved the alternate fixture finish.",
+            result["important"],
+        )
+
+    def test_email_intake_uses_gemini_3_7_flash(self):
+        generate_content_calls = []
+
+        class FakeModels:
+            def generate_content(self, **kwargs):
+                generate_content_calls.append(kwargs)
+                return types.SimpleNamespace(
+                    text=(
+                        '{"id":"250597","name":"Client Project","due":"",'
+                        '"path":"","deliverable":"","important":"Finish approved.",'
+                        '"tasks":[],"notes":""}'
+                    )
+                )
+
+        result = self._run_email_extraction_with_models(FakeModels())
+
+        self.assertEqual("Finish approved.", result["important"])
+        self.assertEqual(1, len(generate_content_calls))
+        self.assertEqual(
+            main_module.EMAIL_INTAKE_GEMINI_MODEL,
+            generate_content_calls[0]["model"],
+        )
+        self.assertEqual("gemini-3.7-flash", generate_content_calls[0]["model"])
+        self.assertEqual(
+            {"disable": True},
+            generate_content_calls[0]["config"]["automatic_function_calling"],
+        )
+        self.assertEqual(
+            {"thinking_level": "LOW"},
+            generate_content_calls[0]["config"]["thinking_config"],
+        )
+        self.assertEqual(
+            main_module.EMAIL_INTAKE_REQUEST_TIMEOUT_MS,
+            240000,
+        )
+
+    def test_email_intake_retries_503_then_504_then_succeeds(self):
+        attempts = []
+
+        class FakeModels:
+            def generate_content(self, **kwargs):
+                attempts.append(kwargs)
+                if len(attempts) == 1:
+                    raise RuntimeError(
+                        "503 UNAVAILABLE: This model is currently experiencing high demand."
+                    )
+                if len(attempts) == 2:
+                    raise RuntimeError(
+                        "504 DEADLINE_EXCEEDED: Deadline expired before operation could complete."
+                    )
+                return types.SimpleNamespace(
+                    text=(
+                        '{"id":"250597","name":"Client Project","due":"",'
+                        '"path":"","deliverable":"","important":"Finish approved.",'
+                        '"tasks":[],"notes":""}'
+                    )
+                )
+
+        with patch("main.time.sleep") as sleep_mock:
+            result = self._run_email_extraction_with_models(FakeModels())
+
+        self.assertEqual("Finish approved.", result["important"])
+        self.assertEqual(3, len(attempts))
+        self.assertEqual(
+            [1.0, 2.0],
+            [call.args[0] for call in sleep_mock.call_args_list],
+        )
+
+    def test_email_intake_exhausted_503_has_clear_capacity_message(self):
+        class FakeModels:
+            def generate_content(self, **kwargs):
+                raise RuntimeError(
+                    "503 UNAVAILABLE: This model is currently experiencing high demand."
+                )
+
+        with patch("main.time.sleep") as sleep_mock:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Gemini 3.7 Flash is temporarily at capacity",
+            ) as error_context:
+                self._run_email_extraction_with_models(FakeModels())
+
+        self.assertEqual(2, sleep_mock.call_count)
+        self.assertIn("Please wait a minute and try again", str(error_context.exception))
+        self.assertIn("no project data was changed", str(error_context.exception))
+
+    def test_email_intake_exhausted_504_has_clear_deadline_message(self):
+        class FakeModels:
+            def generate_content(self, **kwargs):
+                raise RuntimeError(
+                    "504 DEADLINE_EXCEEDED: Deadline expired before operation could complete."
+                )
+
+        with patch("main.time.sleep") as sleep_mock:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Gemini 3.7 Flash timed out after automatic retries",
+            ) as error_context:
+                self._run_email_extraction_with_models(FakeModels())
+
+        self.assertEqual(2, sleep_mock.call_count)
+        self.assertIn("Google may still be experiencing high demand", str(error_context.exception))
+        self.assertIn("no project data was changed", str(error_context.exception))
 
     def test_normalize_outlook_scan_batch_suggestions_preserves_context_notes_and_tasks(self):
         result = self.api._normalize_outlook_scan_batch_suggestions(

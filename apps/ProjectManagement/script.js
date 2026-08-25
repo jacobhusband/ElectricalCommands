@@ -265,6 +265,8 @@ const CHECK_ICON_PATH =
 const MAX_DELIVERABLE_EMAIL_REFS = 3;
 const EMAIL_INTAKE_PROJECT_CONTEXT_MAX_PROJECTS = 200;
 const EMAIL_INTAKE_PROJECT_CONTEXT_MAX_CHARS = 25000;
+const EMAIL_INTAKE_REQUEST_TIMEOUT_MS = 300000;
+const EMAIL_INTAKE_SLOW_NOTICE_MS = 90000;
 
 // Checklists Data
 let checklistsDb = {
@@ -11388,8 +11390,8 @@ async function processEmailIntakePaste() {
   }
   const txt = val("emailArea");
   if (!txt) return;
-  const AI_EMAIL_TIMEOUT_MS = 120000;
   let timeoutId = null;
+  let slowNoticeId = null;
   emailIntakeBusy = true;
   beginEmailIntakeActivity();
   renderOutlookScanUi();
@@ -11403,21 +11405,31 @@ async function processEmailIntakePaste() {
       projectContext
     );
     updateEmailIntakeActivity("Waiting for AI response...", 35);
+    slowNoticeId = setTimeout(() => {
+      updateEmailIntakeActivity(
+        "Gemini is busy; automatic retries are still running...",
+        65
+      );
+    }, EMAIL_INTAKE_SLOW_NOTICE_MS);
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => {
         reject(
           new Error(
-            `AI request timed out after ${Math.round(
-              AI_EMAIL_TIMEOUT_MS / 1000
-            )} seconds. Please try again.`
+            `Gemini did not respond after ${Math.round(
+              EMAIL_INTAKE_REQUEST_TIMEOUT_MS / 60000
+            )} minutes. Google may still be at capacity; please try again later.`
           )
         );
-      }, AI_EMAIL_TIMEOUT_MS);
+      }, EMAIL_INTAKE_REQUEST_TIMEOUT_MS);
     });
     const res = await Promise.race([aiRequest, timeoutPromise]);
     if (timeoutId) {
       clearTimeout(timeoutId);
       timeoutId = null;
+    }
+    if (slowNoticeId) {
+      clearTimeout(slowNoticeId);
+      slowNoticeId = null;
     }
     if (res?.status === "success") {
       const emailField = document.getElementById("emailArea");
@@ -11430,9 +11442,10 @@ async function processEmailIntakePaste() {
     throw new Error(res?.message || "Failed to process email.");
   } catch (e) {
     const errorMessage = e?.message || "Unknown error.";
-    failEmailIntakeActivity("AI Error: " + errorMessage);
+    failEmailIntakeActivity(errorMessage);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
+    if (slowNoticeId) clearTimeout(slowNoticeId);
     emailIntakeBusy = false;
     renderOutlookScanUi();
   }
@@ -24123,6 +24136,73 @@ function buildAiDeliverableFromData(rawAiData = {}) {
   });
 }
 
+function hasAiSeparateDeliverable(rawAiData = {}) {
+  return !!String(rawAiData?.deliverable || "").trim();
+}
+
+function buildAiImportantText(rawAiData = {}) {
+  const explicitImportant = String(rawAiData?.important || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (explicitImportant) return explicitImportant;
+
+  const parts = [];
+  const tasks = (Array.isArray(rawAiData?.tasks) ? rawAiData.tasks : [])
+    .map((task) => String(task?.text || task || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (tasks.length) {
+    parts.push(tasks.length === 1 ? tasks[0] : `Action items: ${tasks.join("; ")}`);
+  }
+  const notes = String(rawAiData?.notes || "").replace(/\s+/g, " ").trim();
+  if (notes) parts.push(notes);
+  const due = String(rawAiData?.due || "").trim();
+  if (due) parts.push(`Relevant date: ${due}.`);
+  return parts.join(" ").trim();
+}
+
+function appendAiImportantToProject(project, rawAiData = {}) {
+  if (!project) return null;
+  const text = buildAiImportantText(rawAiData);
+  if (!text) return null;
+
+  let subpage = null;
+  let page = normalizePage(project.page);
+  if (isCanvasPage(page)) {
+    const subpages = getProjectSubpages(project);
+    subpage =
+      subpages.find(
+        (candidate) =>
+          String(candidate?.title || "").trim().toLowerCase() === "email intake" &&
+          !isCanvasPage(candidate?.page)
+      ) || null;
+    if (!subpage) {
+      subpage = createProjectSubpage({
+        title: "Email Intake",
+        order: subpages.length,
+      });
+      subpages.push(subpage);
+    }
+    page = normalizePage(subpage.page);
+  }
+
+  const duplicate = extractImportantPageLines(page.html, {
+    subpageId: subpage?.id || null,
+    pageTitle: subpage?.title || project.name || "Project notes",
+  }).some(
+    (item) =>
+      String(item?.text || "").trim().toLowerCase() === text.toLowerCase()
+  );
+  if (!duplicate) {
+    const block = `<p data-important="true">${escapeHtml(text)}</p>`;
+    page.html = page.html ? `${page.html}${block}` : block;
+    page.updatedAt = new Date().toISOString();
+  }
+
+  if (subpage) subpage.page = page;
+  else project.page = page;
+  return { added: !duplicate, subpage, text };
+}
+
 function openAiCreateNewProject(rawAiData = {}) {
   openNew();
   fillForm(rawAiData || {});
@@ -24251,6 +24331,19 @@ function openAiNoMatchResolution(rawAiData = {}, aiProject = null) {
 
   const searchInput = document.getElementById("aiNoMatchSearchInput");
   if (searchInput) searchInput.value = aiNoMatchState.query;
+  const addsDeliverable = hasAiSeparateDeliverable(rawAiData);
+  const help = document.getElementById("aiNoMatchAddHelp");
+  const addBtn = document.getElementById("aiNoMatchAddBtn");
+  if (help) {
+    help.textContent = addsDeliverable
+      ? "Select one project and then add the new AI deliverable to it."
+      : "Select one project and add the email content to its page as /important.";
+  }
+  if (addBtn) {
+    addBtn.textContent = addsDeliverable
+      ? "Add Deliverable to Selected Project"
+      : "Add to Selected Project /important";
+  }
   renderAiNoMatchProjectOptions();
   showDialog(dlg);
   return getAiNoMatchDialogState();
@@ -24328,14 +24421,51 @@ function addAiDeliverableToProject(projectIndex, aiProject, rawAiData) {
   return true;
 }
 
+function addAiImportantToProject(projectIndex, aiProject, rawAiData) {
+  if (!Number.isInteger(projectIndex) || projectIndex < 0 || !db[projectIndex]) {
+    return null;
+  }
+
+  const target = normalizeProject(db[projectIndex]);
+  if (!target) return null;
+  if (!target.path && aiProject?.path) target.path = aiProject.path;
+  if (!target.id && aiProject?.id) target.id = aiProject.id;
+
+  const appended = appendAiImportantToProject(target, rawAiData);
+  if (!appended) return null;
+  db[projectIndex] = target;
+  void save();
+  render();
+  pendingImportantPageScroll = true;
+  openProjectPage(target, appended.subpage);
+  return { kind: "important", ...appended };
+}
+
+function addAiResultToProject(projectIndex, aiProject, rawAiData) {
+  if (hasAiSeparateDeliverable(rawAiData)) {
+    return addAiDeliverableToProject(projectIndex, aiProject, rawAiData)
+      ? { kind: "deliverable", added: true }
+      : null;
+  }
+  return addAiImportantToProject(projectIndex, aiProject, rawAiData);
+}
+
 function applyAiToMatchedProject(match, aiProject, rawAiData) {
   if (!match || !Number.isInteger(match.index)) return false;
-  const applied = addAiDeliverableToProject(match.index, aiProject, rawAiData);
-  if (!applied) return false;
+  const result = addAiResultToProject(match.index, aiProject, rawAiData);
+  if (!result) return false;
   const confidenceText = Number.isFinite(match.score)
     ? `${Math.round(match.score * 100)}% confidence`
     : "match confirmed";
-  toast(`Matched existing project (${match.method || "auto"}, ${confidenceText}).`);
+  if (result.kind === "important") {
+    toast(
+      result.added
+        ? `Matched existing project (${match.method || "auto"}, ${confidenceText}) and added the email content to /important.`
+        : `Matched existing project (${match.method || "auto"}, ${confidenceText}); that /important item already exists.`
+    );
+  } else {
+    toast(`Matched existing project (${match.method || "auto"}, ${confidenceText}).`);
+  }
   return true;
 }
 
@@ -24347,9 +24477,17 @@ function confirmAiNoMatchAddToProject() {
   const aiProject = aiNoMatchState.aiProject || normalizeProject(aiNoMatchState.rawAiData || {});
   const rawAiData = aiNoMatchState.rawAiData || {};
   closeAiNoMatchDialog();
-  const applied = addAiDeliverableToProject(selectedIndex, aiProject, rawAiData);
-  if (applied) toast("Added deliverable to selected project.");
-  return applied;
+  const result = addAiResultToProject(selectedIndex, aiProject, rawAiData);
+  if (result?.kind === "important") {
+    toast(
+      result.added
+        ? "Added the email content to the selected project's /important page items."
+        : "That /important item already exists on the selected project."
+    );
+  } else if (result) {
+    toast("Added deliverable to selected project.");
+  }
+  return !!result;
 }
 
 function handleAiProjectResult(rawAiData) {
