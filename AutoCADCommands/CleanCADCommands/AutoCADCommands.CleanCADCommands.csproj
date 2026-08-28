@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="*.cs" />
+    <Compile Include="..\Shared\ProjectTitleBlockSettings.cs" Link="Shared\ProjectTitleBlockSettings.cs" />
   </ItemGroup>
 
   <!-- XML GENERATION (Runs once on net48 build) -->

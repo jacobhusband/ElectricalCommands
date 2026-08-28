@@ -18,22 +18,46 @@ namespace ElectricalCommands
     private const string KnTextStyleName = "ARIALNARROW-1-8";
     private const string KnTextStyleFont = "ARIALN.TTF";
     private const double KnAttributeHeight = 0.09375;
+    private static string _lastKnValue = "1";
 
     [CommandMethod("KN", CommandFlags.Modal)]
     public void KeyedNoteCommand()
     {
+      RunKeyedNoteCommand(false);
+    }
+
+    [CommandMethod("KNV", CommandFlags.Modal)]
+    public void KeyedNoteValueCommand()
+    {
+      RunKeyedNoteCommand(true);
+    }
+
+    private void RunKeyedNoteCommand(bool reuseValue)
+    {
       var (doc, db, ed) = Globals.GetGlobals();
       if (doc == null || db == null || ed == null) return;
 
-      ed.WriteMessage("\n[KN / C# jig]");
+      string commandName = reuseValue ? "KNV" : "KN";
+      ed.WriteMessage($"\n[{commandName} / C# jig]");
 
       if (db.TileMode)
       {
-        ed.WriteMessage("\nKN requires a paperspace layout. Switch to a layout tab and run again.");
+        ed.WriteMessage($"\n{commandName} requires a paperspace layout. Switch to a layout tab and run again.");
         return;
       }
       bool inViewportEditing =
         System.Convert.ToInt16(Application.GetSystemVariable("CVPORT")) > 1;
+
+      string keyValue = _lastKnValue;
+      if (!reuseValue)
+      {
+        keyValue = PromptKnKeyValue(ed, null);
+        if (string.IsNullOrEmpty(keyValue))
+        {
+          ed.WriteMessage($"\n{commandName} canceled.");
+          return;
+        }
+      }
 
       try
       {
@@ -44,18 +68,10 @@ namespace ElectricalCommands
           ed.WriteMessage($"\nFailed to prepare canonical {KnBlockName} block definition.");
           return;
         }
-        DumpKnBlockDiagnostics(db, ed);
       }
       catch (System.Exception ex)
       {
-        ed.WriteMessage($"\nKN setup error: {ex.Message}");
-        return;
-      }
-
-      string keyValue = PromptKnKeyValue(ed);
-      if (keyValue == null)
-      {
-        ed.WriteMessage("\nKN canceled.");
+        ed.WriteMessage($"\n{commandName} setup error: {ex.Message}");
         return;
       }
 
@@ -65,7 +81,7 @@ namespace ElectricalCommands
         scaleDenom = ResolveViewportScaleDenominator(ed, db);
         if (scaleDenom <= 0.0)
         {
-          ed.WriteMessage("\nKN canceled: Could not resolve active viewport scale.");
+          ed.WriteMessage($"\n{commandName} canceled: Could not resolve active viewport scale.");
           return;
         }
         string ratioScale = FormatRatio(scaleDenom);
@@ -84,7 +100,7 @@ namespace ElectricalCommands
         BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
         if (!bt.Has(KnBlockName))
         {
-          ed.WriteMessage($"\nKN failed: {KnBlockName} block is missing.");
+          ed.WriteMessage($"\n{commandName} failed: {KnBlockName} block is missing.");
           tr.Commit();
           return;
         }
@@ -113,7 +129,7 @@ namespace ElectricalCommands
         };
 
         PromptResult jigResult;
-        KeyNoteJig jig = new KeyNoteJig(br, scaleDenom);
+        KeyNoteJig jig = new KeyNoteJig(br, scaleDenom, keyValue, reuseValue);
         try
         {
           while (true)
@@ -121,6 +137,19 @@ namespace ElectricalCommands
             jigResult = ed.Drag(jig);
             if (jigResult.Status == PromptStatus.Keyword)
             {
+              if (reuseValue && string.Equals(jigResult.StringResult, "Value", StringComparison.OrdinalIgnoreCase))
+              {
+                string newVal = PromptKnKeyValue(ed, keyValue);
+                if (!string.IsNullOrEmpty(newVal))
+                {
+                  keyValue = newVal;
+                  _lastKnValue = newVal;
+                  jig.CurrentValue = keyValue;
+                  ed.WriteMessage($"\nKeyed note value: {keyValue}");
+                }
+                continue;
+              }
+
               if (jig.ApplyKeyword(jigResult.StringResult))
               {
                 ed.WriteMessage($"\nAnchor: {jig.CurrentAnchor}");
@@ -133,14 +162,14 @@ namespace ElectricalCommands
         catch (System.Exception ex)
         {
           br.Dispose();
-          ed.WriteMessage($"\nKN jig error: {ex.Message}");
+          ed.WriteMessage($"\n{commandName} jig error: {ex.Message}");
           return;
         }
 
         if (jigResult.Status != PromptStatus.OK)
         {
           br.Dispose();
-          ed.WriteMessage("\nKN canceled.");
+          ed.WriteMessage($"\n{commandName} canceled.");
           return;
         }
 
@@ -179,7 +208,7 @@ namespace ElectricalCommands
         }
         catch (System.Exception ex)
         {
-          ed.WriteMessage($"\nKN placement error: {ex.Message}");
+          ed.WriteMessage($"\n{commandName} placement error: {ex.Message}");
         }
       }
       finally
@@ -339,9 +368,13 @@ namespace ElectricalCommands
       }
     }
 
-    private static string PromptKnKeyValue(Editor ed)
+    private static string PromptKnKeyValue(Editor ed, string defaultValue)
     {
-      PromptStringOptions pso = new PromptStringOptions("\nEnter keyed note value (e.g., 1, A, 2B, #3): ")
+      string prompt = string.IsNullOrEmpty(defaultValue)
+        ? "\nEnter keyed note value (e.g., 1, A, 2B, #3): "
+        : $"\nEnter keyed note value (e.g., 1, A, 2B, #3) <{defaultValue}>: ";
+
+      PromptStringOptions pso = new PromptStringOptions(prompt)
       {
         AllowSpaces = false
       };
@@ -349,7 +382,7 @@ namespace ElectricalCommands
       if (pr.Status != PromptStatus.OK) return null;
 
       string value = pr.StringResult?.Trim() ?? string.Empty;
-      if (value.Length == 0) return null;
+      if (value.Length == 0) return defaultValue;
 
       return value;
     }

@@ -16,15 +16,33 @@ namespace ElectricalCommands
     private bool _pendingRedraw = false;
     private Anchor _anchor = Anchor.Center;
     private readonly double _scale;
+    private readonly bool _allowValueKeyword;
+    private string _currentValue = "1";
 
-    public KeyNoteJig(BlockReference blockReference, double scale) : base(blockReference)
+    public KeyNoteJig(
+      BlockReference blockReference,
+      double scale,
+      string initialValue = "1",
+      bool allowValueKeyword = true) : base(blockReference)
     {
       _scale = scale;
+      _allowValueKeyword = allowValueKeyword;
+      _currentValue = string.IsNullOrEmpty(initialValue) ? "1" : initialValue;
     }
 
     public Point3d InsertionPoint => ComputePosition();
 
     public Anchor CurrentAnchor => _anchor;
+
+    public string CurrentValue
+    {
+      get => _currentValue;
+      set
+      {
+        _currentValue = string.IsNullOrEmpty(value) ? "1" : value;
+        _pendingRedraw = true;
+      }
+    }
 
     public bool ApplyKeyword(string keyword)
     {
@@ -62,12 +80,19 @@ namespace ElectricalCommands
 
     protected override SamplerStatus Sampler(JigPrompts prompts)
     {
+      string keywords = _allowValueKeyword
+        ? "Value/Center/Left/Right/Up/Down"
+        : "Center/Left/Right/Up/Down";
       JigPromptPointOptions opts = new JigPromptPointOptions(
-        $"\nSpecify keyed note insertion point (anchor: {_anchor})")
+        $"\nSpecify keyed note insertion point or [{keywords}] <{_currentValue}> (anchor: {_anchor}): ")
       {
         UserInputControls = UserInputControls.Accept3dCoordinates
           | UserInputControls.NoNegativeResponseAccepted
       };
+      if (_allowValueKeyword)
+      {
+        opts.Keywords.Add("Value");
+      }
       opts.Keywords.Add("Center");
       opts.Keywords.Add("Left");
       opts.Keywords.Add("Right");

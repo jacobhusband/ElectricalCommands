@@ -14,7 +14,7 @@ namespace ElectricalCommands
     /// - P36
     /// - PLOTMOVE
     /// </summary>
-    public class PlotCommands
+    public partial class PlotCommands
     {
         /// <summary>
         /// Core helper used by P22/P24/P30/P36 to drive -PLOT for a specific paper size.

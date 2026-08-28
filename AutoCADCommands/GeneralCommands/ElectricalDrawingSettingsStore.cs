@@ -14,6 +14,7 @@ namespace ElectricalCommands
     private const string PanelLocationKey = "PANEL_LOCATION";
     private const string ScaleKey = "DRAWING_SCALE";
     private const string PanelNameKey = "PANEL_NAME";
+    private const string PanelScheduleKey = "PANEL_SCHEDULE";
     private const string HomerunLayerKey = "HOMERUN_LAYER";
     private const int RecordVersion = 1;
 
@@ -29,6 +30,12 @@ namespace ElectricalCommands
       /// <summary>Paper inches representing one model foot (0.25 for 1/4" = 1'-0").</summary>
       public double PaperInchesPerModelFoot { get; set; }
       public string DisplayText { get; set; } = string.Empty;
+    }
+
+    internal sealed class PanelScheduleSetting
+    {
+      public string WorkbookPath { get; set; } = string.Empty;
+      public int CircuitCapacity { get; set; }
     }
 
     public static void WritePanelLocation(
@@ -156,6 +163,59 @@ namespace ElectricalCommands
 
       panelName = (Convert.ToString(values[1].Value) ?? string.Empty).Trim();
       return panelName.Length > 0;
+    }
+
+    public static void WritePanelSchedule(
+      Database database,
+      string workbookPath,
+      int circuitCapacity)
+    {
+      WriteRecord(
+        database,
+        PanelScheduleKey,
+        new ResultBuffer(
+          new TypedValue((int)DxfCode.Int32, RecordVersion),
+          new TypedValue((int)DxfCode.Text, workbookPath ?? string.Empty),
+          new TypedValue((int)DxfCode.Int32, circuitCapacity)
+        )
+      );
+    }
+
+    public static bool TryReadPanelSchedule(
+      Database database,
+      out PanelScheduleSetting setting)
+    {
+      setting = null;
+      TypedValue[] values = ReadRecord(database, PanelScheduleKey);
+      if (values == null || values.Length < 3 || !HasSupportedVersion(values))
+      {
+        return false;
+      }
+
+      try
+      {
+        string workbookPath =
+          (Convert.ToString(values[1].Value) ?? string.Empty).Trim();
+        int circuitCapacity = Convert.ToInt32(values[2].Value);
+        if (workbookPath.Length == 0 ||
+            circuitCapacity < 6 ||
+            circuitCapacity % 2 != 0)
+        {
+          return false;
+        }
+
+        setting = new PanelScheduleSetting
+        {
+          WorkbookPath = workbookPath,
+          CircuitCapacity = circuitCapacity,
+        };
+        return true;
+      }
+      catch
+      {
+        setting = null;
+        return false;
+      }
     }
 
     public static void WriteHomerunLayer(Database database, string layerName)
