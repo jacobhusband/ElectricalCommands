@@ -3,6 +3,7 @@ using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
+using Acies.AutoCAD.Shared;
 using System;
 using System.IO;
 using System.Linq;
@@ -25,6 +26,26 @@ namespace AutoCADCleanupTool
             {
                 CleanupCommands.ResetStrictTitleBlockProtection();
                 _lastFoundTitleBlockPoly = null;
+
+                if (ProjectTitleBlockSettingsStore.TryLoad(
+                    doc,
+                    db,
+                    out ProjectTitleBlockSettings savedSettings,
+                    out string projectRoot,
+                    out _,
+                    out string settingsFailure))
+                {
+                    _lastFoundTitleBlockPoly = savedSettings.ToBoundaryPolygon();
+                    ed.WriteMessage(
+                        $"\nCLEANTBLK: Using the saved {savedSettings.Width:0.###} x {savedSettings.Height:0.###} " +
+                        $"titleblock boundary for project '{projectRoot}'.");
+                }
+                else
+                {
+                    ed.WriteMessage(
+                        $"\nCLEANTBLK: {settingsFailure}" +
+                        $"\nSelect the boundary when prompted, or run {ProjectTitleBlockSettingsStore.SetCommandName} first.");
+                }
 
                 EnsureAllLayersVisibleAndUnlocked(db, ed);
 

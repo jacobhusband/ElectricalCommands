@@ -118,6 +118,9 @@ class CloudSyncHelperTests(unittest.TestCase):
         self.assertFalse(
             settings["publishDwgOptions"]["automateProjectDisciplinePublish"]
         )
+        self.assertFalse(
+            settings["manageLayersOptions"]["autoSelectProjectDisciplineDwgs"]
+        )
 
     def test_sanitize_user_settings_preserves_valid_unconfigured_active_discipline(self):
         payload = main_module.build_default_user_settings()
@@ -190,6 +193,20 @@ class CloudSyncHelperTests(unittest.TestCase):
         self.assertNotIn(
             "automateProjectElectricalPublish", sanitized["publishDwgOptions"]
         )
+
+    def test_sanitize_user_settings_adds_missing_manage_layers_auto_select_default(self):
+        payload = main_module.build_default_user_settings()
+        payload["manageLayersOptions"] = {"scanAllLayers": False}
+
+        sanitized, changed = main_module._sanitize_user_settings_payload(payload)
+
+        self.assertTrue(changed)
+        self.assertFalse(sanitized["manageLayersOptions"]["scanAllLayers"])
+        self.assertFalse(
+            sanitized["manageLayersOptions"]["autoSelectProjectDisciplineDwgs"]
+        )
+        self.assertEqual([], sanitized["manageLayersOptions"]["freezePatterns"])
+        self.assertEqual([], sanitized["manageLayersOptions"]["thawPatterns"])
 
     def test_build_google_auth_record_preserves_id_token(self):
         existing_auth = {"idToken": "existing-id-token", "refreshToken": "refresh-token"}

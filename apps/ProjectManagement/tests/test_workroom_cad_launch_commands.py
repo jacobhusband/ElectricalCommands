@@ -646,6 +646,119 @@ class WorkroomCadLaunchCommandTests(unittest.TestCase):
                 for message in fallback_messages
             ))
 
+    def test_automatic_project_manage_layers_uses_active_discipline_dwgs(self):
+        manage_case = next(
+            case for case in TOOL_CASES if case["method_name"] == "run_manage_layers_script"
+        )
+        settings = {
+            **manage_case["settings"],
+            "discipline": ["Electrical", "Mechanical", "Plumbing"],
+            "activeDiscipline": "Plumbing",
+            "manageLayersOptions": {
+                **manage_case["settings"]["manageLayersOptions"],
+                "autoSelectProjectDisciplineDwgs": True,
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="acies-auto-manage-layers-") as temp_dir:
+            project_path = Path(temp_dir)
+            discipline_path = project_path / "Plumbing"
+            discipline_path.mkdir()
+            first_dwg = discipline_path / "P001.dwg"
+            second_dwg = discipline_path / "P002.DWG"
+            for dwg_path in (first_dwg, second_dwg):
+                dwg_path.write_text("", encoding="utf-8")
+
+            captured = []
+            with patch.object(self.api, "get_user_settings", return_value=settings), patch.object(
+                self.api,
+                "_run_script_with_progress",
+                side_effect=lambda command, tool_id, **kwargs: captured.append(
+                    (command, tool_id, kwargs)
+                ),
+            ), patch.object(
+                self.api,
+                "_select_cad_files_in_app",
+            ) as picker_mock, patch.object(
+                self.api,
+                "_notify_tool_status",
+            ) as notify_mock:
+                result = self.api.run_manage_layers_script({
+                    "source": "projects-tab",
+                    "projectPath": str(project_path),
+                })
+
+            self.assertEqual("success", result["status"])
+            picker_mock.assert_not_called()
+            self.assertEqual(1, len(captured))
+            command = captured[0][0]
+            files_list_path = Path(command[command.index("-FilesListPath") + 1])
+            try:
+                self.assertEqual(
+                    [str(first_dwg), str(second_dwg)],
+                    files_list_path.read_text(encoding="utf-8").splitlines(),
+                )
+            finally:
+                files_list_path.unlink(missing_ok=True)
+            notify_mock.assert_any_call(
+                "toolManageLayers",
+                "Using auto-selected DWGs (2) via project_discipline_auto_manage_layers...",
+                activity_id=None,
+            )
+
+    def test_automatic_project_manage_layers_missing_folder_prompts_for_files(self):
+        manage_case = next(
+            case for case in TOOL_CASES if case["method_name"] == "run_manage_layers_script"
+        )
+        settings = {
+            **manage_case["settings"],
+            "activeDiscipline": "Mechanical",
+            "manageLayersOptions": {
+                **manage_case["settings"]["manageLayersOptions"],
+                "autoSelectProjectDisciplineDwgs": True,
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="acies-auto-manage-layers-missing-") as temp_dir:
+            captured = []
+            with patch.object(self.api, "get_user_settings", return_value=settings), patch.object(
+                self.api,
+                "_run_script_with_progress",
+                side_effect=lambda command, tool_id, **kwargs: captured.append(
+                    (command, tool_id, kwargs)
+                ),
+            ), patch.object(
+                self.api,
+                "_select_cad_files_in_app",
+                return_value={
+                    "status": "success",
+                    "selection": {
+                        "files_list_path": AUTO_SELECTED_FILES_LIST,
+                        "count": 1,
+                        "resolution_mode": "app_file_picker",
+                    },
+                },
+            ) as picker_mock, patch.object(
+                self.api,
+                "_notify_tool_status",
+            ) as notify_mock:
+                result = self.api.run_manage_layers_script({
+                    "source": "projects-tab",
+                    "projectPath": temp_dir,
+                })
+
+            self.assertEqual("success", result["status"])
+            picker_mock.assert_called_once_with(str(Path(temp_dir)))
+            self.assertEqual(1, len(captured))
+            fallback_messages = [
+                args[1]
+                for args, _kwargs in notify_mock.call_args_list
+                if len(args) > 1
+            ]
+            self.assertTrue(any(
+                "could not find the Mechanical folder" in message
+                and "Select the DWG files manually" in message
+                for message in fallback_messages
+            ))
+
     def test_automatic_project_publish_prefers_workroom_discipline_context(self):
         with tempfile.TemporaryDirectory(prefix="acies-auto-publish-workroom-") as temp_dir:
             discipline_path = Path(temp_dir) / "Plumbing"

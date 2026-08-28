@@ -23,18 +23,41 @@ namespace ElectricalCommands
     [CommandMethod("KN", CommandFlags.Modal)]
     public void KeyedNoteCommand()
     {
+      RunKeyedNoteCommand(false);
+    }
+
+    [CommandMethod("KNV", CommandFlags.Modal)]
+    public void KeyedNoteValueCommand()
+    {
+      RunKeyedNoteCommand(true);
+    }
+
+    private void RunKeyedNoteCommand(bool reuseValue)
+    {
       var (doc, db, ed) = Globals.GetGlobals();
       if (doc == null || db == null || ed == null) return;
 
-      ed.WriteMessage("\n[KN / C# jig]");
+      string commandName = reuseValue ? "KNV" : "KN";
+      ed.WriteMessage($"\n[{commandName} / C# jig]");
 
       if (db.TileMode)
       {
-        ed.WriteMessage("\nKN requires a paperspace layout. Switch to a layout tab and run again.");
+        ed.WriteMessage($"\n{commandName} requires a paperspace layout. Switch to a layout tab and run again.");
         return;
       }
       bool inViewportEditing =
         System.Convert.ToInt16(Application.GetSystemVariable("CVPORT")) > 1;
+
+      string keyValue = _lastKnValue;
+      if (!reuseValue)
+      {
+        keyValue = PromptKnKeyValue(ed, null);
+        if (string.IsNullOrEmpty(keyValue))
+        {
+          ed.WriteMessage($"\n{commandName} canceled.");
+          return;
+        }
+      }
 
       try
       {
@@ -48,7 +71,7 @@ namespace ElectricalCommands
       }
       catch (System.Exception ex)
       {
-        ed.WriteMessage($"\nKN setup error: {ex.Message}");
+        ed.WriteMessage($"\n{commandName} setup error: {ex.Message}");
         return;
       }
 
@@ -58,7 +81,7 @@ namespace ElectricalCommands
         scaleDenom = ResolveViewportScaleDenominator(ed, db);
         if (scaleDenom <= 0.0)
         {
-          ed.WriteMessage("\nKN canceled: Could not resolve active viewport scale.");
+          ed.WriteMessage($"\n{commandName} canceled: Could not resolve active viewport scale.");
           return;
         }
         string ratioScale = FormatRatio(scaleDenom);
@@ -77,7 +100,7 @@ namespace ElectricalCommands
         BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
         if (!bt.Has(KnBlockName))
         {
-          ed.WriteMessage($"\nKN failed: {KnBlockName} block is missing.");
+          ed.WriteMessage($"\n{commandName} failed: {KnBlockName} block is missing.");
           tr.Commit();
           return;
         }
@@ -106,7 +129,7 @@ namespace ElectricalCommands
         };
 
         PromptResult jigResult;
-        KeyNoteJig jig = new KeyNoteJig(br, scaleDenom, _lastKnValue);
+        KeyNoteJig jig = new KeyNoteJig(br, scaleDenom, keyValue, reuseValue);
         try
         {
           while (true)
@@ -114,14 +137,15 @@ namespace ElectricalCommands
             jigResult = ed.Drag(jig);
             if (jigResult.Status == PromptStatus.Keyword)
             {
-              if (string.Equals(jigResult.StringResult, "Value", StringComparison.OrdinalIgnoreCase))
+              if (reuseValue && string.Equals(jigResult.StringResult, "Value", StringComparison.OrdinalIgnoreCase))
               {
-                string newVal = PromptKnKeyValue(ed, _lastKnValue);
+                string newVal = PromptKnKeyValue(ed, keyValue);
                 if (!string.IsNullOrEmpty(newVal))
                 {
+                  keyValue = newVal;
                   _lastKnValue = newVal;
-                  jig.CurrentValue = _lastKnValue;
-                  ed.WriteMessage($"\nKeyed note value: {_lastKnValue}");
+                  jig.CurrentValue = keyValue;
+                  ed.WriteMessage($"\nKeyed note value: {keyValue}");
                 }
                 continue;
               }
@@ -138,14 +162,14 @@ namespace ElectricalCommands
         catch (System.Exception ex)
         {
           br.Dispose();
-          ed.WriteMessage($"\nKN jig error: {ex.Message}");
+          ed.WriteMessage($"\n{commandName} jig error: {ex.Message}");
           return;
         }
 
         if (jigResult.Status != PromptStatus.OK)
         {
           br.Dispose();
-          ed.WriteMessage("\nKN canceled.");
+          ed.WriteMessage($"\n{commandName} canceled.");
           return;
         }
 
@@ -166,7 +190,7 @@ namespace ElectricalCommands
 
               AttributeReference ar = new AttributeReference();
               ar.SetAttributeFromBlock(ad, br.BlockTransform);
-              ar.TextString = _lastKnValue;
+              ar.TextString = keyValue;
               br.AttributeCollection.AppendAttribute(ar);
               tr.AddNewlyCreatedDBObject(ar, true);
               attributeUpdated = true;
@@ -180,11 +204,11 @@ namespace ElectricalCommands
             tr.Commit();
           }
 
-          ed.WriteMessage($"\nInserted {KnBlockName} with value {_lastKnValue} on layer {KnLayerName}.");
+          ed.WriteMessage($"\nInserted {KnBlockName} with value {keyValue} on layer {KnLayerName}.");
         }
         catch (System.Exception ex)
         {
-          ed.WriteMessage($"\nKN placement error: {ex.Message}");
+          ed.WriteMessage($"\n{commandName} placement error: {ex.Message}");
         }
       }
       finally

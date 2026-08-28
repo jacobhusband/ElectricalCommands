@@ -2638,6 +2638,7 @@ const WORKROOM_LAUNCH_CONTEXT_TOOL_IDS = new Set([
   ...WORKROOM_CAD_TOOL_IDS,
   ...WORKROOM_TEMPLATE_TOOL_IDS,
   "toolBackupDrawings",
+  "toolPanelScheduleManager",
 ]);
 const WORKROOM_HIDDEN_TOOL_IDS = new Set([]);
 const WORKROOM_PHASE_CHECKLIST_MAP = {
@@ -2658,7 +2659,7 @@ const WORKROOM_PHASE_CHECKLIST_MAP = {
 };
 const WORKROOM_PHASE_TOOL_MAP = {
   pre_design: ["toolCleanXrefs"],
-  design: ["toolLightingSchedule", "toolCircuitBreaker"],
+  design: ["toolLightingSchedule", "toolPanelScheduleManager", "toolCircuitBreaker"],
   preflight: ["toolManageLayers", "toolPublishDwgs"],
   post_permit: ["toolCreateNarrativeTemplate", "toolCreatePlanCheckTemplate"],
 };
@@ -2666,6 +2667,7 @@ const WORKROOM_ALWAYS_AVAILABLE_TOOLS = [
   "toolCopyProjectLocally",
   "toolBackupDrawings",
   "toolWireSizer",
+  "toolPanelScheduleManager",
   "toolCircuitBreaker",
 ];
 const MAX_HOURS_PER_DAY = 24;
@@ -3913,6 +3915,16 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     isReady: true,
   },
   {
+    id: "toolPanelScheduleManager",
+    label: "Panel Schedules",
+    menuLabel: "Panel Schedules",
+    launchType: "modal",
+    category: "electrical",
+    iconSvg:
+      '<rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path>',
+    isReady: true,
+  },
+  {
     id: "toolCircuitBreaker",
     label: "Panel Schedule AI",
     menuLabel: "Panel Schedule AI",
@@ -4000,6 +4012,7 @@ function getDeliverableToolMenuEntries() {
     "toolCreateNarrativeTemplate",
     "toolCreatePlanCheckTemplate",
     "toolWireSizer",
+    "toolPanelScheduleManager",
     "toolCircuitBreaker",
     "toolBackupDrawings",
     "toolCopyProjectLocally",
@@ -4127,6 +4140,11 @@ async function resolveCadFilesBeforeLaunch(launchContext = null, toolId = "") {
   const automaticDisciplinePublish =
     toolId === "toolPublishDwgs" &&
     userSettings.publishDwgOptions?.automateProjectDisciplinePublish === true;
+  const automaticDisciplineManageLayers =
+    toolId === "toolManageLayers" &&
+    userSettings.manageLayersOptions?.autoSelectProjectDisciplineDwgs === true;
+  const automaticDisciplineSelection =
+    automaticDisciplinePublish || automaticDisciplineManageLayers;
 
   // Workroom launches resolve the discipline folder in the backend. Every
   // other launch selects files in the app so a hidden PowerShell child never
@@ -4134,12 +4152,13 @@ async function resolveCadFilesBeforeLaunch(launchContext = null, toolId = "") {
   if (
     source === "workroom" ||
     existingFiles.length ||
-    (automaticDisciplinePublish && hasLaunchContextProjectPath(context))
+    (automaticDisciplineSelection && hasLaunchContextProjectPath(context))
   ) {
     return { ...context, cadFilePaths: existingFiles };
   }
-  if (automaticDisciplinePublish) {
-    toast("Automatic Publish needs a project folder. Select DWG files manually.");
+  if (automaticDisciplineSelection) {
+    const toolLabel = automaticDisciplinePublish ? "Publish" : "Freeze / Thaw selection";
+    toast(`Automatic ${toolLabel} needs a project folder. Select DWG files manually.`);
   }
   if (!window.pywebview?.api?.select_files) {
     throw new Error("The DWG file picker is unavailable.");
@@ -8604,6 +8623,80 @@ function getToolActivityLabel(toolId, fallback = "") {
   return normalizedFallback || normalizedToolId || "Activity";
 }
 
+function findActivityProjectForPath(rawPath) {
+  const normalizedPath = normalizeWindowsPath(rawPath).toLowerCase();
+  if (!normalizedPath || !Array.isArray(db)) return null;
+
+  const parsedProject = parseProjectFromPath(rawPath);
+  const parsedProjectId = String(parsedProject?.id || "").trim().toLowerCase();
+  if (parsedProjectId) {
+    const idMatch = db.find(
+      (project) => String(project?.id || "").trim().toLowerCase() === parsedProjectId
+    );
+    if (idMatch) return idMatch;
+  }
+
+  let bestMatch = null;
+  let bestMatchLength = -1;
+  db.forEach((project) => {
+    [project?.path, project?.localProjectPath].forEach((projectPath) => {
+      const normalizedProjectPath = normalizeWindowsPath(projectPath).toLowerCase();
+      if (
+        !normalizedProjectPath ||
+        (normalizedPath !== normalizedProjectPath &&
+          !normalizedPath.startsWith(`${normalizedProjectPath}\\`)) ||
+        normalizedProjectPath.length <= bestMatchLength
+      ) {
+        return;
+      }
+      bestMatch = project;
+      bestMatchLength = normalizedProjectPath.length;
+    });
+  });
+  return bestMatch;
+}
+
+function getActivityProjectName({
+  projectName = "",
+  launchContext = null,
+  rerunDefaultPath = "",
+  openFolderPath = "",
+} = {}) {
+  const explicitName = String(projectName || launchContext?.projectName || "").trim();
+  if (explicitName) return explicitName;
+
+  const projectId = String(launchContext?.projectId || "").trim().toLowerCase();
+  if (projectId && Array.isArray(db)) {
+    const project = db.find(
+      (candidate) => String(candidate?.id || "").trim().toLowerCase() === projectId
+    );
+    const matchedName = String(
+      project?.name || project?.nick || project?.id || ""
+    ).trim();
+    if (matchedName) return matchedName;
+  }
+
+  const candidatePaths = [
+    launchContext?.rootProjectPath,
+    launchContext?.projectPath,
+    ...(Array.isArray(launchContext?.cadFilePaths) ? launchContext.cadFilePaths : []),
+    rerunDefaultPath,
+    openFolderPath,
+  ];
+  for (const candidatePath of candidatePaths) {
+    const project = findActivityProjectForPath(candidatePath);
+    const matchedName = String(
+      project?.name || project?.nick || project?.id || ""
+    ).trim();
+    if (matchedName) return matchedName;
+
+    const parsedProject = parseProjectFromPath(candidatePath);
+    const parsedName = String(parsedProject?.name || parsedProject?.id || "").trim();
+    if (parsedName) return parsedName;
+  }
+  return "";
+}
+
 function isRerunnableToolId(toolId) {
   const normalizedToolId = String(toolId || "").trim();
   if (!ACTIVITY_RERUN_TOOL_IDS.has(normalizedToolId)) return false;
@@ -8729,6 +8822,7 @@ function renderActivityTray() {
   items.forEach((item) => {
     const status = String(item.status || ACTIVITY_STATUS.RUNNING).trim().toLowerCase();
     const workflowTitle = String(item.workflowTitle || "").trim();
+    const projectName = String(item.projectName || "").trim();
     const activityTitle =
       String(item.toolId || "").trim() === "toolWorkflow" && workflowTitle
         ? `Workflow: ${workflowTitle}`
@@ -8753,12 +8847,25 @@ function renderActivityTray() {
     });
     const content = el("div", { className: "activity-card-content" });
     const header = el("div", { className: "activity-card-header" });
-    header.append(
+    const titleGroup = el("div", { className: "activity-card-title-group" });
+    titleGroup.appendChild(
       el("div", {
         className: "activity-card-title",
         textContent: activityTitle,
         title: activityTitle,
-      }),
+      })
+    );
+    if (projectName) {
+      titleGroup.appendChild(
+        el("div", {
+          className: "activity-card-project",
+          textContent: `Project: ${projectName}`,
+          title: projectName,
+        })
+      );
+    }
+    header.append(
+      titleGroup,
       el("div", {
         className: "activity-card-percent",
         textContent: `${clampActivityProgress(item.progress, 0)}%`,
@@ -9062,11 +9169,23 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
   const nextRerunLaunchContext = hasIncomingRerunContext
     ? deepCloneJson(incoming.rerunLaunchContext, null)
     : deepCloneJson(existing?.rerunLaunchContext, null);
+  const mergedRerunDefaultPath = String(
+    incoming.rerunDefaultPath || existing?.rerunDefaultPath || ""
+  ).trim();
+  const mergedOpenFolderPath = String(
+    incoming.openFolderPath || existing?.openFolderPath || ""
+  ).trim();
   const merged = {
     id: incoming.id,
     kind: existing?.kind || incoming.kind || "tool",
     toolId: mergedToolId,
     label: String(incoming.label || existing?.label || "Activity").trim(),
+    projectName: getActivityProjectName({
+      projectName: incoming.projectName || existing?.projectName || "",
+      launchContext: nextRerunLaunchContext,
+      rerunDefaultPath: mergedRerunDefaultPath,
+      openFolderPath: mergedOpenFolderPath,
+    }),
     message: String(
       incoming.message == null ? existing?.message || "" : incoming.message
     ).trim(),
@@ -9077,9 +9196,7 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
       incoming.progress == null ? existing?.progress ?? 0 : incoming.progress,
       existing?.progress ?? 0
     ),
-    openFolderPath: String(
-      incoming.openFolderPath || existing?.openFolderPath || ""
-    ).trim(),
+    openFolderPath: mergedOpenFolderPath,
     openFolderLabel: String(
       incoming.openFolderLabel || existing?.openFolderLabel || "Open Folder"
     ).trim(),
@@ -9089,9 +9206,7 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
     workflowTitle: String(
       incoming.workflowTitle || existing?.workflowTitle || ""
     ).trim(),
-    rerunDefaultPath: String(
-      incoming.rerunDefaultPath || existing?.rerunDefaultPath || ""
-    ).trim(),
+    rerunDefaultPath: mergedRerunDefaultPath,
     rerunLaunchContext: nextRerunLaunchContext,
     canRerun:
       incoming.canRerun == null
@@ -9138,6 +9253,7 @@ function beginActivity({
   activityId = "",
   toolId = "",
   label = "",
+  projectName = "",
   message = "Starting...",
   progress = 5,
   kind = "tool",
@@ -9156,6 +9272,7 @@ function beginActivity({
       kind,
       toolId,
       label: getToolActivityLabel(toolId, label),
+      projectName,
       message,
       status: ACTIVITY_STATUS.RUNNING,
       progress,
@@ -9354,6 +9471,12 @@ function updateActivityStatusFromPayload(payload = {}) {
   const workflowTitle = String(
     payload?.workflowTitle || existing?.workflowTitle || ""
   ).trim();
+  const projectName = getActivityProjectName({
+    projectName: payload?.projectName || existing?.projectName || "",
+    launchContext: rerunLaunchContext,
+    rerunDefaultPath,
+    openFolderPath,
+  });
   const activityLabel = getActivityLabelFromPayload(toolId, payload, existing);
 
   if (rawMessage.startsWith("OUTPUT_FOLDER:")) {
@@ -9399,6 +9522,7 @@ function updateActivityStatusFromPayload(payload = {}) {
       activityId,
       toolId,
       label: activityLabel,
+      projectName,
       message: nextMessage || "Starting...",
       progress: nextProgress,
       openFolderPath,
@@ -9414,6 +9538,7 @@ function updateActivityStatusFromPayload(payload = {}) {
 
   const commonPatch = {
     label: activityLabel,
+    projectName,
     message:
       nextMessage ||
       existing?.message ||
@@ -9672,6 +9797,7 @@ function normalizePublishDwgOptions(value) {
   return normalized;
 }
 const DEFAULT_MANAGE_LAYERS_OPTIONS = {
+  autoSelectProjectDisciplineDwgs: false,
   scanAllLayers: true,
   freezePatterns: [],
   thawPatterns: [],
@@ -14415,6 +14541,14 @@ function syncPublishOptionsInputs() {
 
 function syncManageLayersOptionsInputs() {
   const manageOptions = userSettings.manageLayersOptions || {};
+  setCheckboxValue(
+    "settings_manageLayers_autoSelectProjectDisciplineDwgs",
+    manageOptions.autoSelectProjectDisciplineDwgs === true
+  );
+  setCheckboxValue(
+    "manageLayers_modal_autoSelectProjectDisciplineDwgs",
+    manageOptions.autoSelectProjectDisciplineDwgs === true
+  );
   setCheckboxValue(
     "settings_manageLayers_scanAllLayers",
     manageOptions.scanAllLayers
@@ -29765,6 +29899,741 @@ function closeWireSizer() {
   if (frame) frame.src = "about:blank";
 }
 
+// --- Project Panel Schedule Manager ---
+const panelScheduleManagerState = {
+  sessionId: "",
+  projectId: "",
+  projectPath: "",
+  workbookPath: "",
+  panels: [],
+  activeWorksheetName: "",
+  revision: "",
+  dirty: false,
+  loading: false,
+  saving: false,
+  pollTimer: 0,
+  conflictPath: "",
+  conflictChanges: [],
+  lastSyncedAt: "",
+  launchContext: null,
+};
+
+function getPanelScheduleManagerProjectKey(project, index = 0) {
+  return String(
+    project?.id ||
+      project?.number ||
+      project?.projectNumber ||
+      project?.name ||
+      "project-" + (index + 1)
+  ).trim();
+}
+
+function getPanelScheduleManagerProjectOptions() {
+  return (Array.isArray(db) ? db : [])
+    .map((project, index) => ({
+      project,
+      id: getPanelScheduleManagerProjectKey(project, index),
+      label: String(
+        project?.nick || project?.name || project?.id || "Project " + (index + 1)
+      ).trim(),
+      path: normalizeProjectPath(project?.path || ""),
+    }))
+    .filter((entry) => entry.id);
+}
+
+function getSelectedPanelScheduleManagerProject() {
+  return (
+    getPanelScheduleManagerProjectOptions().find(
+      (entry) => entry.id === panelScheduleManagerState.projectId
+    ) || null
+  );
+}
+
+function clearPanelScheduleManagerPoll() {
+  if (panelScheduleManagerState.pollTimer) {
+    clearTimeout(panelScheduleManagerState.pollTimer);
+    panelScheduleManagerState.pollTimer = 0;
+  }
+}
+
+function schedulePanelScheduleManagerPoll() {
+  clearPanelScheduleManagerPoll();
+  const dlg = document.getElementById("panelScheduleManagerDlg");
+  if (!dlg?.open || !panelScheduleManagerState.sessionId) return;
+  panelScheduleManagerState.pollTimer = window.setTimeout(() => {
+    void pollPanelScheduleManager();
+  }, 5000);
+}
+
+function setPanelScheduleManagerLoading(loading, message = "Reading panel schedules") {
+  panelScheduleManagerState.loading = Boolean(loading);
+  const loadingEl = document.getElementById("psmLoading");
+  if (loadingEl) {
+    loadingEl.hidden = !loading;
+    const spinner = loadingEl.querySelector(".spinner");
+    if (spinner) spinner.textContent = message;
+  }
+  renderPanelScheduleManagerVisibility();
+}
+
+function setPanelScheduleManagerSyncStatus(text, kind = "") {
+  const status = document.getElementById("psmSyncStatus");
+  if (!status) return;
+  status.textContent = text;
+  status.classList.toggle("is-synced", kind === "synced");
+  status.classList.toggle("is-dirty", kind === "dirty");
+  status.classList.toggle("is-conflict", kind === "conflict");
+}
+
+function renderPanelScheduleManagerVisibility() {
+  const hasPanels = panelScheduleManagerState.panels.length > 0;
+  const loading = panelScheduleManagerState.loading;
+  const empty = document.getElementById("psmEmpty");
+  const workspace = document.getElementById("psmWorkspace");
+  if (empty) empty.hidden = loading || hasPanels;
+  if (workspace) workspace.hidden = loading || !hasPanels;
+}
+
+function renderPanelScheduleManagerProjects() {
+  const select = document.getElementById("psmProjectSelect");
+  if (!select) return;
+  const options = getPanelScheduleManagerProjectOptions();
+  select.replaceChildren();
+  if (!options.length) {
+    select.appendChild(el("option", { value: "", textContent: "No projects available" }));
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  options.forEach((entry) => {
+    select.appendChild(el("option", { value: entry.id, textContent: entry.label }));
+  });
+  if (!options.some((entry) => entry.id === panelScheduleManagerState.projectId)) {
+    panelScheduleManagerState.projectId = options[0].id;
+    panelScheduleManagerState.projectPath = options[0].path;
+  }
+  select.value = panelScheduleManagerState.projectId;
+}
+
+function renderPanelScheduleManagerConnection() {
+  const pathButton = document.getElementById("psmWorkbookPath");
+  const openButton = document.getElementById("psmOpenWorkbookBtn");
+  const path = panelScheduleManagerState.workbookPath;
+  if (pathButton) {
+    pathButton.textContent = path || "No workbook selected";
+    pathButton.title = path ? "Open " + path : "No workbook selected";
+    pathButton.disabled = !path;
+  }
+  if (openButton) openButton.disabled = !path;
+}
+
+function getActivePanelScheduleManagerPanel() {
+  return (
+    panelScheduleManagerState.panels.find(
+      (panel) => panel.worksheetName === panelScheduleManagerState.activeWorksheetName
+    ) || panelScheduleManagerState.panels[0] || null
+  );
+}
+
+function getPanelScheduleManagerDisplayName(panel) {
+  const panelName = String(panel?.panelName || panel?.worksheetName || "Panel").trim();
+  const section = String(panel?.sectionLabel || "").trim();
+  return section && !panelName.toUpperCase().includes(section.toUpperCase())
+    ? panelName + " - " + section
+    : panelName;
+}
+
+function renderPanelScheduleManagerPanelList() {
+  const list = document.getElementById("psmPanelList");
+  const count = document.getElementById("psmPanelCount");
+  if (count) count.textContent = String(panelScheduleManagerState.panels.length);
+  if (!list) return;
+  list.replaceChildren();
+  panelScheduleManagerState.panels.forEach((panel) => {
+    const button = el("button", {
+      type: "button",
+      className:
+        panel.worksheetName === panelScheduleManagerState.activeWorksheetName
+          ? "is-active"
+          : "",
+    });
+    button.append(
+      el("span", { textContent: getPanelScheduleManagerDisplayName(panel) }),
+      el("span", { textContent: String(panel.worksheetName || "") })
+    );
+    button.addEventListener("click", () => {
+      panelScheduleManagerState.activeWorksheetName = panel.worksheetName;
+      renderPanelScheduleManager();
+    });
+    list.appendChild(button);
+  });
+}
+
+function setPanelScheduleManagerInputValue(input, value) {
+  const normalized = value === null || value === undefined ? "" : String(value);
+  if (input.value !== normalized) input.value = normalized;
+}
+
+function createPanelScheduleCircuitInput(circuitIndex, field, value, className = "") {
+  return el("input", {
+    type: "text",
+    value: value === null || value === undefined ? "" : String(value),
+    className,
+    "data-psm-circuit-index": String(circuitIndex),
+    "data-psm-circuit-field": field,
+    autocomplete: "off",
+  });
+}
+
+function getPanelScheduleManagerCircuitPairs(circuits = []) {
+  const pairsByRow = new Map();
+  (Array.isArray(circuits) ? circuits : []).forEach((circuit, circuitIndex) => {
+    const circuitNumber = Number(circuit?.circuitNumber);
+    const sourceRow = Number(circuit?.sourceRow);
+    const order = Number.isFinite(sourceRow) && sourceRow > 0
+      ? sourceRow
+      : Math.ceil((Number.isFinite(circuitNumber) ? circuitNumber : circuitIndex + 1) / 2);
+    const key = Number.isFinite(sourceRow) && sourceRow > 0
+      ? "row-" + sourceRow
+      : "pair-" + order;
+    const pair = pairsByRow.get(key) || { order, left: null, right: null };
+    const declaredSide = String(circuit?.side || "").toLowerCase();
+    const side = declaredSide === "left" || declaredSide === "right"
+      ? declaredSide
+      : circuitNumber % 2 === 0
+        ? "right"
+        : "left";
+    pair[side] = { circuit, circuitIndex };
+    pairsByRow.set(key, pair);
+  });
+  return Array.from(pairsByRow.values()).sort((left, right) => left.order - right.order);
+}
+
+function appendPanelScheduleManagerCircuitCell(row, entry, field, className, side) {
+  const cell = document.createElement("td");
+  cell.classList.add("psm-circuit-input-cell", "psm-" + side + "-side");
+  if (entry) {
+    cell.appendChild(
+      createPanelScheduleCircuitInput(
+        entry.circuitIndex,
+        field,
+        entry.circuit[field],
+        className
+      )
+    );
+  }
+  row.appendChild(cell);
+}
+
+function appendPanelScheduleManagerCircuitNumber(row, entry, side) {
+  row.appendChild(
+    el("td", {
+      className: "psm-circuit-number psm-" + side + "-side",
+      textContent: entry ? String(entry.circuit.circuitNumber ?? "") : "",
+    })
+  );
+}
+
+function updatePanelScheduleManagerCircuitCount(panel = null) {
+  const count = document.getElementById("psmCircuitCountText");
+  if (!count) return;
+  const circuits = Array.isArray(panel?.circuits) ? panel.circuits : [];
+  const highestCircuit = circuits.reduce(
+    (highest, circuit) => Math.max(highest, Number(circuit?.circuitNumber) || 0),
+    0
+  );
+  count.textContent = highestCircuit
+    ? highestCircuit + " circuits loaded"
+    : "No circuits loaded";
+}
+
+function scrollPanelScheduleManagerCircuits(destination = "page") {
+  const viewport = document.getElementById("psmCircuitTableWrap");
+  if (!viewport) return;
+  const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+  const pageSize = Math.max(160, Math.floor(viewport.clientHeight * 0.8));
+  if (destination === "bottom") {
+    viewport.scrollTop = maxScrollTop;
+  } else if (destination === "top") {
+    viewport.scrollTop = 0;
+  } else {
+    viewport.scrollTop = Math.min(maxScrollTop, viewport.scrollTop + pageSize);
+  }
+  viewport.focus({ preventScroll: true });
+}
+
+function handlePanelScheduleManagerCircuitWheel(event) {
+  const viewport = event.currentTarget;
+  if (!(viewport instanceof HTMLElement) || event.ctrlKey || event.shiftKey) return;
+  if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+  const multiplier = event.deltaMode === 1
+    ? 36
+    : event.deltaMode === 2
+      ? viewport.clientHeight
+      : 1;
+  const delta = event.deltaY * multiplier;
+  const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+  const nextScrollTop = Math.min(
+    maxScrollTop,
+    Math.max(0, viewport.scrollTop + delta)
+  );
+  if (nextScrollTop === viewport.scrollTop) return;
+  event.preventDefault();
+  event.stopPropagation();
+  viewport.scrollTop = nextScrollTop;
+}
+
+function renderPanelScheduleManagerEditor() {
+  const panel = getActivePanelScheduleManagerPanel();
+  const title = document.getElementById("psmActivePanelTitle");
+  const worksheet = document.getElementById("psmWorksheetName");
+  const validation = document.getElementById("psmPanelValidation");
+  const rows = document.getElementById("psmCircuitRows");
+  if (!panel) {
+    if (rows) rows.replaceChildren();
+    updatePanelScheduleManagerCircuitCount();
+    return;
+  }
+  if (title) title.textContent = getPanelScheduleManagerDisplayName(panel);
+  if (worksheet) worksheet.textContent = "Excel worksheet: " + (panel.worksheetName || "");
+  if (validation) validation.textContent = panel.validationStatus || "VALID";
+  updatePanelScheduleManagerCircuitCount(panel);
+
+  const editableFields = new Set(panel.editablePanelFields || []);
+  document.querySelectorAll("[data-psm-panel-field]").forEach((input) => {
+    const field = input.dataset.psmPanelField;
+    setPanelScheduleManagerInputValue(input, panel[field]);
+    input.disabled = editableFields.size > 0 && !editableFields.has(field);
+  });
+  const mainBreakerInput = document.querySelector(
+    '[data-psm-panel-field="mainBreakerAmps"]'
+  );
+  if (mainBreakerInput) {
+    mainBreakerInput.disabled =
+      (editableFields.size > 0 && !editableFields.has("mainBreakerAmps")) ||
+      panel.mainType === "MLO";
+  }
+
+  if (!rows) return;
+  rows.replaceChildren();
+  getPanelScheduleManagerCircuitPairs(panel.circuits).forEach((pair) => {
+    const row = document.createElement("tr");
+    appendPanelScheduleManagerCircuitNumber(row, pair.left, "odd");
+    const oddFields = [
+      ["notes", "psm-cell-notes"],
+      ["loadTypeCode", "psm-cell-load"],
+      ["polesInput", "psm-cell-poles"],
+      ["breakerAmpsInput", "psm-cell-trip"],
+      ["loadDescription", "psm-cell-description"],
+      ["connectedKvaInput", "psm-cell-kva"],
+    ];
+    oddFields.forEach(([field, className]) => {
+      appendPanelScheduleManagerCircuitCell(row, pair.left, field, className, "odd");
+    });
+
+    row.appendChild(
+      el("td", {
+        className: "psm-circuit-phase",
+        textContent: String(
+          pair.left?.circuit?.phasePole || pair.right?.circuit?.phasePole || ""
+        ),
+      })
+    );
+
+    const evenFields = [
+      ["connectedKvaInput", "psm-cell-kva"],
+      ["loadDescription", "psm-cell-description"],
+      ["breakerAmpsInput", "psm-cell-trip"],
+      ["polesInput", "psm-cell-poles"],
+      ["loadTypeCode", "psm-cell-load"],
+      ["notes", "psm-cell-notes"],
+    ];
+    evenFields.forEach(([field, className]) => {
+      appendPanelScheduleManagerCircuitCell(row, pair.right, field, className, "even");
+    });
+    appendPanelScheduleManagerCircuitNumber(row, pair.right, "even");
+    rows.appendChild(row);
+  });
+}
+
+function renderPanelScheduleManagerConflict() {
+  const banner = document.getElementById("psmConflictBanner");
+  const message = document.getElementById("psmConflictMessage");
+  const changes = document.getElementById("psmConflictChanges");
+  const hasConflict = Boolean(panelScheduleManagerState.conflictPath);
+  if (banner) banner.hidden = !hasConflict;
+  if (!hasConflict) return;
+  if (message) {
+    message.textContent =
+      "The linked workbook was left untouched. Review the highlighted copy, then reload Excel changes before saving again.";
+  }
+  if (changes) {
+    const items = panelScheduleManagerState.conflictChanges
+      .slice(0, 4)
+      .map(
+        (change) =>
+          change.worksheetName + " " + change.address + ": " + change.field
+      );
+    const remaining = Math.max(
+      panelScheduleManagerState.conflictChanges.length - items.length,
+      0
+    );
+    changes.textContent =
+      items.join(" • ") + (remaining ? " • +" + remaining + " more" : "");
+  }
+}
+
+function formatPanelScheduleManagerSyncTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function updatePanelScheduleManagerControls() {
+  const reloadButton = document.getElementById("psmReloadBtn");
+  const saveButton = document.getElementById("psmSaveBtn");
+  const footer = document.getElementById("psmFooterMessage");
+  const connected = Boolean(panelScheduleManagerState.sessionId);
+  const conflicted = Boolean(panelScheduleManagerState.conflictPath);
+  if (reloadButton) reloadButton.disabled = !connected || panelScheduleManagerState.saving;
+  if (saveButton) {
+    saveButton.disabled =
+      !connected ||
+      !panelScheduleManagerState.dirty ||
+      panelScheduleManagerState.saving ||
+      conflicted;
+    saveButton.textContent = panelScheduleManagerState.saving
+      ? "Saving to Excel..."
+      : "Save changes to Excel";
+  }
+  if (conflicted) {
+    setPanelScheduleManagerSyncStatus("Conflict copy created", "conflict");
+    if (footer) {
+      footer.textContent = "Reload from Excel before continuing this edit session.";
+    }
+  } else if (panelScheduleManagerState.dirty) {
+    setPanelScheduleManagerSyncStatus("Unsaved app changes", "dirty");
+    if (footer) footer.textContent = "Changes are local until you save them to Excel.";
+  } else if (connected) {
+    setPanelScheduleManagerSyncStatus("Excel synchronized", "synced");
+    if (footer) {
+      const syncTime = formatPanelScheduleManagerSyncTime(
+        panelScheduleManagerState.lastSyncedAt
+      );
+      footer.textContent =
+        "Watching Excel for changes" + (syncTime ? " • Last synced " + syncTime : "") + ".";
+    }
+  } else {
+    setPanelScheduleManagerSyncStatus("Not connected");
+    if (footer) footer.textContent = "Choose a project workbook to begin.";
+  }
+}
+
+function renderPanelScheduleManager() {
+  renderPanelScheduleManagerProjects();
+  renderPanelScheduleManagerConnection();
+  renderPanelScheduleManagerVisibility();
+  renderPanelScheduleManagerPanelList();
+  renderPanelScheduleManagerEditor();
+  renderPanelScheduleManagerConflict();
+  updatePanelScheduleManagerControls();
+}
+
+function applyPanelScheduleManagerPayload(payload, { preserveSelection = true } = {}) {
+  const previousWorksheet = preserveSelection
+    ? panelScheduleManagerState.activeWorksheetName
+    : "";
+  panelScheduleManagerState.sessionId = String(payload?.sessionId || "").trim();
+  panelScheduleManagerState.workbookPath = String(payload?.workbookPath || "").trim();
+  panelScheduleManagerState.panels = deepCloneJson(payload?.panels, []);
+  panelScheduleManagerState.revision = String(payload?.revision || "").trim();
+  panelScheduleManagerState.lastSyncedAt = String(payload?.lastSyncedAt || "").trim();
+  panelScheduleManagerState.activeWorksheetName =
+    panelScheduleManagerState.panels.some(
+      (panel) => panel.worksheetName === previousWorksheet
+    )
+      ? previousWorksheet
+      : String(panelScheduleManagerState.panels[0]?.worksheetName || "");
+  panelScheduleManagerState.dirty = false;
+  panelScheduleManagerState.conflictPath = "";
+  panelScheduleManagerState.conflictChanges = [];
+  renderPanelScheduleManager();
+  schedulePanelScheduleManagerPoll();
+}
+
+async function closePanelScheduleManagerSession() {
+  clearPanelScheduleManagerPoll();
+  const sessionId = panelScheduleManagerState.sessionId;
+  panelScheduleManagerState.sessionId = "";
+  if (sessionId && window.pywebview?.api?.close_panel_schedule_manager) {
+    try {
+      await window.pywebview.api.close_panel_schedule_manager(sessionId);
+    } catch (_) {
+      // Session cleanup is best effort when the window is closing.
+    }
+  }
+}
+
+async function connectPanelScheduleManager(workbookPath = "") {
+  if (!panelScheduleManagerState.projectId) {
+    toast("Choose a project first.");
+    return;
+  }
+  if (!window.pywebview?.api?.start_panel_schedule_manager) {
+    toast("Panel Schedule Manager is unavailable in this environment.");
+    return;
+  }
+  await closePanelScheduleManagerSession();
+  panelScheduleManagerState.panels = [];
+  panelScheduleManagerState.workbookPath = String(workbookPath || "").trim();
+  panelScheduleManagerState.dirty = false;
+  panelScheduleManagerState.conflictPath = "";
+  setPanelScheduleManagerLoading(true);
+  try {
+    const result = await window.pywebview.api.start_panel_schedule_manager(
+      panelScheduleManagerState.projectId,
+      panelScheduleManagerState.workbookPath || null
+    );
+    if (result?.status === "unbound") {
+      panelScheduleManagerState.workbookPath = "";
+      panelScheduleManagerState.panels = [];
+      renderPanelScheduleManager();
+      return;
+    }
+    if (result?.status !== "success") {
+      throw new Error(result?.message || "Could not read the panel schedule workbook.");
+    }
+    applyPanelScheduleManagerPayload(result, { preserveSelection: false });
+  } catch (error) {
+    panelScheduleManagerState.panels = [];
+    panelScheduleManagerState.workbookPath = "";
+    toast(error?.message || "Could not open the panel schedule workbook.");
+    renderPanelScheduleManager();
+  } finally {
+    setPanelScheduleManagerLoading(false);
+  }
+}
+
+async function choosePanelScheduleManagerWorkbook() {
+  if (!window.pywebview?.api?.select_files) {
+    toast("The Excel file picker is unavailable.");
+    return;
+  }
+  const selectedProject = getSelectedPanelScheduleManagerProject();
+  try {
+    const selection = await window.pywebview.api.select_files({
+      allow_multiple: false,
+      file_types: ["Excel Panel Schedules (*.xls;*.xlsx)"],
+      default_directory:
+        selectedProject?.path || panelScheduleManagerState.projectPath || undefined,
+    });
+    if (selection?.status === "success" && selection.paths?.length) {
+      await connectPanelScheduleManager(selection.paths[0]);
+    }
+  } catch (error) {
+    toast(error?.message || "Could not select the Excel workbook.");
+  }
+}
+
+async function openPanelScheduleManagerPath(path) {
+  const target = String(path || "").trim();
+  if (!target || !window.pywebview?.api?.open_path) return;
+  const result = await window.pywebview.api.open_path(target);
+  if (result?.status && result.status !== "success") {
+    toast(result.message || "Could not open the Excel workbook.");
+  }
+}
+
+function showPanelScheduleManagerConflict(result) {
+  panelScheduleManagerState.conflictPath = String(result?.conflictPath || "").trim();
+  panelScheduleManagerState.conflictChanges = deepCloneJson(result?.changes, []);
+  renderPanelScheduleManagerConflict();
+  updatePanelScheduleManagerControls();
+  toast("Excel changed while you were editing. A highlighted conflict copy was created.");
+}
+
+async function pollPanelScheduleManager() {
+  clearPanelScheduleManagerPoll();
+  const dlg = document.getElementById("panelScheduleManagerDlg");
+  if (
+    !dlg?.open ||
+    !panelScheduleManagerState.sessionId ||
+    panelScheduleManagerState.saving
+  ) {
+    schedulePanelScheduleManagerPoll();
+    return;
+  }
+  try {
+    const result = await window.pywebview.api.poll_panel_schedule_manager(
+      panelScheduleManagerState.sessionId,
+      panelScheduleManagerState.dirty
+    );
+    if (result?.status === "updated") {
+      applyPanelScheduleManagerPayload(result);
+      toast("Panel schedules refreshed from Excel.");
+      return;
+    }
+    if (result?.status === "conflict") {
+      showPanelScheduleManagerConflict(result);
+    } else if (result?.status === "error") {
+      setPanelScheduleManagerSyncStatus("Excel sync unavailable", "conflict");
+    }
+  } catch (_) {
+    setPanelScheduleManagerSyncStatus("Excel sync unavailable", "conflict");
+  }
+  schedulePanelScheduleManagerPoll();
+}
+
+async function reloadPanelScheduleManagerFromExcel({ skipConfirm = false } = {}) {
+  if (!panelScheduleManagerState.sessionId || panelScheduleManagerState.saving) return;
+  if (
+    !skipConfirm &&
+    panelScheduleManagerState.dirty &&
+    !window.confirm(
+      "Discard the unsaved application edits and reload the latest Excel values?"
+    )
+  ) {
+    return;
+  }
+  setPanelScheduleManagerLoading(true, "Reloading Excel changes");
+  try {
+    const result = await window.pywebview.api.reload_panel_schedule_manager(
+      panelScheduleManagerState.sessionId
+    );
+    if (result?.status !== "updated") {
+      throw new Error(result?.message || "Could not reload the panel schedule workbook.");
+    }
+    applyPanelScheduleManagerPayload(result);
+    toast("Latest Excel changes loaded.");
+  } catch (error) {
+    toast(error?.message || "Could not reload the Excel workbook.");
+  } finally {
+    setPanelScheduleManagerLoading(false);
+  }
+}
+
+async function savePanelScheduleManager() {
+  if (
+    !panelScheduleManagerState.sessionId ||
+    !panelScheduleManagerState.dirty ||
+    panelScheduleManagerState.saving ||
+    panelScheduleManagerState.conflictPath
+  ) {
+    return;
+  }
+  panelScheduleManagerState.saving = true;
+  updatePanelScheduleManagerControls();
+  try {
+    const result = await window.pywebview.api.save_panel_schedule_manager(
+      panelScheduleManagerState.sessionId,
+      panelScheduleManagerState.panels
+    );
+    if (result?.status === "conflict") {
+      showPanelScheduleManagerConflict(result);
+      return;
+    }
+    if (result?.status !== "saved") {
+      throw new Error(result?.message || "Could not save changes to Excel.");
+    }
+    applyPanelScheduleManagerPayload(result);
+    const count = Number(result.changedCellCount || 0);
+    toast(
+      "Saved " + count + " changed Excel cell" + (count === 1 ? "" : "s") + "."
+    );
+  } catch (error) {
+    toast(error?.message || "Could not save changes to Excel.");
+  } finally {
+    panelScheduleManagerState.saving = false;
+    updatePanelScheduleManagerControls();
+    schedulePanelScheduleManagerPoll();
+  }
+}
+
+function markPanelScheduleManagerDirty() {
+  panelScheduleManagerState.dirty = true;
+  updatePanelScheduleManagerControls();
+}
+
+function handlePanelScheduleManagerInput(event) {
+  const target = event.target;
+  const panel = getActivePanelScheduleManagerPanel();
+  if (
+    !panel ||
+    !(
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLSelectElement
+    )
+  ) {
+    return;
+  }
+  const panelField = target.dataset.psmPanelField;
+  if (panelField) {
+    panel[panelField] = target.value;
+    if (panelField === "panelName" || panelField === "sectionLabel") {
+      panel.displayName = getPanelScheduleManagerDisplayName(panel);
+      renderPanelScheduleManagerPanelList();
+      const title = document.getElementById("psmActivePanelTitle");
+      if (title) title.textContent = panel.displayName;
+    }
+    if (panelField === "mainType") {
+      const mainBreakerInput = document.querySelector(
+        '[data-psm-panel-field="mainBreakerAmps"]'
+      );
+      if (mainBreakerInput) mainBreakerInput.disabled = target.value === "MLO";
+    }
+    markPanelScheduleManagerDirty();
+    return;
+  }
+  const circuitIndex = Number(target.dataset.psmCircuitIndex);
+  const circuitField = target.dataset.psmCircuitField;
+  if (
+    Number.isInteger(circuitIndex) &&
+    circuitField &&
+    panel.circuits?.[circuitIndex]
+  ) {
+    panel.circuits[circuitIndex][circuitField] = target.value;
+    markPanelScheduleManagerDirty();
+  }
+}
+
+async function openPanelScheduleManager() {
+  const launchContext = resolveCadLaunchContextForTool();
+  panelScheduleManagerState.launchContext = deepCloneJson(launchContext, null);
+  const contextProjectId = getLaunchContextProjectId(launchContext);
+  const projects = getPanelScheduleManagerProjectOptions();
+  const contextProject = projects.find((entry) => entry.id === contextProjectId);
+  const selected = contextProject || projects[0] || null;
+  panelScheduleManagerState.projectId = selected?.id || contextProjectId || "";
+  panelScheduleManagerState.projectPath =
+    selected?.path || getLaunchContextProjectRoot(launchContext) || "";
+  panelScheduleManagerState.workbookPath = "";
+  panelScheduleManagerState.panels = [];
+  panelScheduleManagerState.activeWorksheetName = "";
+  panelScheduleManagerState.dirty = false;
+  panelScheduleManagerState.conflictPath = "";
+  panelScheduleManagerState.conflictChanges = [];
+  const dlg = document.getElementById("panelScheduleManagerDlg");
+  if (!dlg) return;
+  if (!dlg.open) dlg.showModal();
+  renderPanelScheduleManager();
+  if (panelScheduleManagerState.projectId) {
+    await connectPanelScheduleManager();
+  }
+}
+
+async function closePanelScheduleManager() {
+  if (
+    panelScheduleManagerState.dirty &&
+    !window.confirm("Close Panel Schedules and discard unsaved application edits?")
+  ) {
+    return;
+  }
+  await closePanelScheduleManagerSession();
+  const dlg = document.getElementById("panelScheduleManagerDlg");
+  if (dlg?.open) dlg.close();
+}
+
 // --- Circuit Breaker AI (Panel Schedule) ---
 
 const circuitBreakerState = {
@@ -37223,6 +38092,91 @@ function initEventListeners() {
     });
   }
 
+  // Project Panel Schedule Manager event listeners
+  const panelScheduleManagerBtn = document.getElementById("toolPanelScheduleManager");
+  if (panelScheduleManagerBtn) {
+    panelScheduleManagerBtn.addEventListener("click", () => {
+      void openPanelScheduleManager();
+    });
+    panelScheduleManagerBtn.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        void openPanelScheduleManager();
+      }
+    });
+  }
+
+  const panelScheduleManagerDlg = document.getElementById("panelScheduleManagerDlg");
+  if (panelScheduleManagerDlg) {
+    panelScheduleManagerDlg.addEventListener("input", handlePanelScheduleManagerInput);
+    panelScheduleManagerDlg.addEventListener("change", handlePanelScheduleManagerInput);
+    panelScheduleManagerDlg.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      void closePanelScheduleManager();
+    });
+    panelScheduleManagerDlg.addEventListener("close", () => {
+      clearPanelScheduleManagerPoll();
+      void closePanelScheduleManagerSession();
+    });
+  }
+
+  document.getElementById("psmCloseBtn")?.addEventListener("click", () => {
+    void closePanelScheduleManager();
+  });
+  document.getElementById("psmChooseWorkbookBtn")?.addEventListener("click", () => {
+    void choosePanelScheduleManagerWorkbook();
+  });
+  document.getElementById("psmEmptyChooseBtn")?.addEventListener("click", () => {
+    void choosePanelScheduleManagerWorkbook();
+  });
+  document.getElementById("psmOpenWorkbookBtn")?.addEventListener("click", () => {
+    void openPanelScheduleManagerPath(panelScheduleManagerState.workbookPath);
+  });
+  document.getElementById("psmWorkbookPath")?.addEventListener("click", () => {
+    void openPanelScheduleManagerPath(panelScheduleManagerState.workbookPath);
+  });
+  document.getElementById("psmOpenConflictBtn")?.addEventListener("click", () => {
+    void openPanelScheduleManagerPath(panelScheduleManagerState.conflictPath);
+  });
+  document.getElementById("psmReloadConflictBtn")?.addEventListener("click", () => {
+    void reloadPanelScheduleManagerFromExcel();
+  });
+  document.getElementById("psmReloadBtn")?.addEventListener("click", () => {
+    void reloadPanelScheduleManagerFromExcel();
+  });
+  document.getElementById("psmSaveBtn")?.addEventListener("click", () => {
+    void savePanelScheduleManager();
+  });
+  document.getElementById("psmCircuitPageDownBtn")?.addEventListener("click", () => {
+    scrollPanelScheduleManagerCircuits("page");
+  });
+  document.getElementById("psmCircuitBottomBtn")?.addEventListener("click", () => {
+    scrollPanelScheduleManagerCircuits("bottom");
+  });
+  document.getElementById("psmCircuitTableWrap")?.addEventListener(
+    "wheel",
+    handlePanelScheduleManagerCircuitWheel,
+    { passive: false }
+  );
+
+  const psmProjectSelect = document.getElementById("psmProjectSelect");
+  if (psmProjectSelect) {
+    psmProjectSelect.addEventListener("change", async (e) => {
+      const previousProjectId = panelScheduleManagerState.projectId;
+      if (
+        panelScheduleManagerState.dirty &&
+        !window.confirm("Discard unsaved panel edits and switch projects?")
+      ) {
+        e.target.value = previousProjectId;
+        return;
+      }
+      panelScheduleManagerState.projectId = String(e.target.value || "").trim();
+      const selected = getSelectedPanelScheduleManagerProject();
+      panelScheduleManagerState.projectPath = selected?.path || "";
+      await connectPanelScheduleManager();
+    });
+  }
+
   // Circuit Breaker AI event listeners
   const circuitBreakerBtn = document.getElementById("toolCircuitBreaker");
   if (circuitBreakerBtn) {
@@ -37969,19 +38923,33 @@ function initEventListeners() {
     updateLabel();
   });
 
-  ["settings_manageLayers_scanAllLayers", "manageLayers_modal_scanAllLayers"]
-    .map((id) => document.getElementById(id))
-    .filter(Boolean)
-    .forEach((checkbox) => {
-      checkbox.onchange = (e) => {
-        if (!userSettings.manageLayersOptions) {
-          userSettings.manageLayersOptions = { ...DEFAULT_MANAGE_LAYERS_OPTIONS };
-        }
-        userSettings.manageLayersOptions.scanAllLayers = e.target.checked;
-        syncManageLayersOptionsInputs();
-        debouncedSaveUserSettings();
-      };
-    });
+  [
+    [
+      "autoSelectProjectDisciplineDwgs",
+      [
+        "settings_manageLayers_autoSelectProjectDisciplineDwgs",
+        "manageLayers_modal_autoSelectProjectDisciplineDwgs",
+      ],
+    ],
+    [
+      "scanAllLayers",
+      ["settings_manageLayers_scanAllLayers", "manageLayers_modal_scanAllLayers"],
+    ],
+  ].forEach(([settingKey, checkboxIds]) => {
+    checkboxIds
+      .map((id) => document.getElementById(id))
+      .filter(Boolean)
+      .forEach((checkbox) => {
+        checkbox.onchange = (e) => {
+          if (!userSettings.manageLayersOptions) {
+            userSettings.manageLayersOptions = { ...DEFAULT_MANAGE_LAYERS_OPTIONS };
+          }
+          userSettings.manageLayersOptions[settingKey] = e.target.checked;
+          syncManageLayersOptionsInputs();
+          debouncedSaveUserSettings();
+        };
+      });
+  });
 
   const bindManageLayersPatternInput = (id, key) => {
     const input = document.getElementById(id);

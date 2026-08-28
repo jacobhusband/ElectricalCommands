@@ -4,6 +4,7 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.GraphicsSystem;
+using Acies.AutoCAD.Shared;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -23,43 +24,83 @@ namespace AutoCADCleanupTool
 
             SwitchToModelSpaceViewSafe(db, ed);
 
-            // --- MODIFIED: Prompt user for boundary instead of auto-detection ---
+            bool usedSavedBoundary =
+                SimplerCommands._lastFoundTitleBlockPoly != null &&
+                SimplerCommands._lastFoundTitleBlockPoly.Length >= 4;
 
-            // 1. Prompt for the first corner
-            var ppo = new PromptPointOptions("\nSelect the first corner of the title block boundary:");
-            var ppr = ed.GetPoint(ppo);
-            if (ppr.Status != PromptStatus.OK)
+            if (!usedSavedBoundary)
             {
-                ed.WriteMessage("\nCommand cancelled.");
-                return;
+                if (ProjectTitleBlockSettingsStore.TryLoad(
+                    doc,
+                    db,
+                    out ProjectTitleBlockSettings savedSettings,
+                    out _,
+                    out _,
+                    out _))
+                {
+                    SimplerCommands._lastFoundTitleBlockPoly = savedSettings.ToBoundaryPolygon();
+                    usedSavedBoundary = SimplerCommands._lastFoundTitleBlockPoly != null;
+                    if (usedSavedBoundary)
+                    {
+                        ed.WriteMessage("\nUsing the saved project titleblock boundary.");
+                    }
+                }
             }
-            Point3d corner1 = ppr.Value;
 
-            // 2. Prompt for the second corner with a rubber-band line
-            var pco = new PromptCornerOptions("\nSelect the opposite corner of the title block boundary:", corner1)
+            if (!usedSavedBoundary)
             {
-                UseDashedLine = true
-            };
-            var pcr = ed.GetCorner(pco);
-            if (pcr.Status != PromptStatus.OK)
-            {
-                ed.WriteMessage("\nCommand cancelled.");
-                return;
+                var ppo = new PromptPointOptions("\nSelect the first corner of the title block boundary: ");
+                var ppr = ed.GetPoint(ppo);
+                if (ppr.Status != PromptStatus.OK)
+                {
+                    ed.WriteMessage("\nCommand cancelled.");
+                    return;
+                }
+
+                Point3d corner1 = ppr.Value;
+                var pco = new PromptCornerOptions(
+                    "\nSelect the opposite corner of the title block boundary: ",
+                    corner1)
+                {
+                    UseDashedLine = true
+                };
+
+                var pcr = ed.GetCorner(pco);
+                if (pcr.Status != PromptStatus.OK)
+                {
+                    ed.WriteMessage("\nCommand cancelled.");
+                    return;
+                }
+
+                Point3d corner2 = pcr.Value;
+                double minX = Math.Min(corner1.X, corner2.X);
+                double minY = Math.Min(corner1.Y, corner2.Y);
+                double maxX = Math.Max(corner1.X, corner2.X);
+                double maxY = Math.Max(corner1.Y, corner2.Y);
+
+                SimplerCommands._lastFoundTitleBlockPoly = new[]
+                {
+                    new Point3d(minX, minY, 0),
+                    new Point3d(maxX, minY, 0),
+                    new Point3d(maxX, maxY, 0),
+                    new Point3d(minX, maxY, 0)
+                };
+
+                if (ProjectTitleBlockSettingsStore.TrySaveBoundary(
+                    doc,
+                    db,
+                    SimplerCommands._lastFoundTitleBlockPoly,
+                    out string projectRoot,
+                    out _,
+                    out string saveFailure))
+                {
+                    ed.WriteMessage($"\nSaved the selected titleblock boundary for project '{projectRoot}'.");
+                }
+                else
+                {
+                    ed.WriteMessage($"\n[Warning] The boundary was selected but could not be saved: {saveFailure}");
+                }
             }
-            Point3d corner2 = pcr.Value;
-
-            // NEW: Define the title block polygon from the user's points and store it for later use.
-            double minX = Math.Min(corner1.X, corner2.X);
-            double minY = Math.Min(corner1.Y, corner2.Y);
-            double maxX = Math.Max(corner1.X, corner2.X);
-            double maxY = Math.Max(corner1.Y, corner2.Y);
-
-            SimplerCommands._lastFoundTitleBlockPoly = new[] {
-                new Point3d(minX, minY, 0),
-                new Point3d(maxX, minY, 0),
-                new Point3d(maxX, maxY, 0),
-                new Point3d(minX, maxY, 0)
-            };
 
             HashSet<ObjectId> keepIds = null;
             try

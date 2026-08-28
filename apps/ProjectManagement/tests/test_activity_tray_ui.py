@@ -30,6 +30,7 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn(".activity-tray", text)
         self.assertIn(".activity-tray.is-collapsed .activity-tray-body", text)
         self.assertIn(".activity-card", text)
+        self.assertIn(".activity-card-project", text)
         self.assertIn(".activity-card-progress-bar", text)
         self.assertIn(".activity-card-action.accept", text)
         self.assertIn(".activity-card-action.rerun", text)
@@ -53,6 +54,7 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn("async function handleActivityTrayOpenCombinedPdf(activityId) {", text)
         self.assertIn("function handleActivityTrayAccept(activityId) {", text)
         self.assertIn("function renderActivityTray() {", text)
+        self.assertIn("function getActivityProjectName({", text)
         self.assertIn("ACTIVITY_RERUN_TOOL_IDS", text)
         self.assertIn("rerunDefaultPath", text)
         self.assertIn("rerunLaunchContext", text)
@@ -83,6 +85,14 @@ class ActivityTrayUiTests(unittest.TestCase):
             'if (result && String(result.status || "").trim().toLowerCase() !== "success") {',
             text,
         )
+
+    def test_project_name_is_rendered_from_tool_launch_context(self):
+        text = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('projectName: getActivityProjectName({', text)
+        self.assertIn('launchContext: nextRerunLaunchContext', text)
+        self.assertIn('className: "activity-card-project"', text)
+        self.assertIn('textContent: `Project: ${projectName}`', text)
 
     def test_workflow_activity_title_is_rendered(self):
         text = SCRIPT_JS_PATH.read_text(encoding="utf-8")

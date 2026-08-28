@@ -407,8 +407,8 @@ class TemplateToolFolderFlowTests(unittest.TestCase):
 
             with patch.object(main_module.webview, "windows", [FakeWindow()]), patch.object(
                 main_module.webview,
-                "FOLDER_DIALOG",
-                "folder",
+                "FileDialog",
+                types.SimpleNamespace(FOLDER="folder"),
             ):
                 result = self.api.select_template_output_folder(str(default_dir))
 
@@ -416,6 +416,47 @@ class TemplateToolFolderFlowTests(unittest.TestCase):
             self.assertEqual(str(default_dir), result["path"])
             self.assertEqual("folder", captured["dialog_type"])
             self.assertEqual(os.path.normpath(str(default_dir)), os.path.normpath(captured["kwargs"]["directory"]))
+
+    def test_select_template_output_folder_rejects_a_disposed_window(self):
+        calls = []
+
+        class FakeWindow:
+            native = types.SimpleNamespace(Disposing=False, IsDisposed=True)
+
+            def create_file_dialog(self, *args, **kwargs):
+                calls.append((args, kwargs))
+                return ("should-not-be-returned",)
+
+        with patch.object(main_module.webview, "windows", [FakeWindow()]), patch.object(
+            main_module.webview,
+            "FileDialog",
+            types.SimpleNamespace(FOLDER="folder"),
+        ):
+            result = self.api.select_template_output_folder()
+
+        self.assertEqual("error", result["status"])
+        self.assertIn("closing or unavailable", result["message"])
+        self.assertEqual([], calls)
+
+    def test_select_template_output_folder_rejects_new_dialogs_during_shutdown(self):
+        calls = []
+
+        class FakeWindow:
+            def create_file_dialog(self, *args, **kwargs):
+                calls.append((args, kwargs))
+                return ("should-not-be-returned",)
+
+        self.api.begin_shutdown()
+        with patch.object(main_module.webview, "windows", [FakeWindow()]), patch.object(
+            main_module.webview,
+            "FileDialog",
+            types.SimpleNamespace(FOLDER="folder"),
+        ):
+            result = self.api.select_template_output_folder()
+
+        self.assertEqual("error", result["status"])
+        self.assertIn("closing or unavailable", result["message"])
+        self.assertEqual([], calls)
 
     def test_select_files_uses_provided_default_directory(self):
         with tempfile.TemporaryDirectory(prefix="acies-select-files-") as temp_dir:

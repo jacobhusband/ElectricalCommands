@@ -23,6 +23,11 @@
     <Compile Include="..\T24Commands\CalculateAreas.cs" Link="CalculateAreas.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Update="Microsoft.Office.Interop.Excel" GeneratePathProperty="true" />
+    <PackageReference Update="MicrosoftOfficeCore" GeneratePathProperty="true" />
+  </ItemGroup>
+
   <!-- WPF XAML Pages -->
   <ItemGroup>
     <Page Include="AddNotePickerWindow.xaml" />
@@ -113,6 +118,16 @@
 
     <!-- Copy all Dependencies (NuGet DLLs like Newtonsoft.Json, FreeSpire.PDF, etc.) -->
     <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFolder="$(TargetSubFolder)" />
+
+    <!-- AutoCAD 2025+ uses .NET 8, where Office PIAs are not resolved from the .NET Framework GAC. -->
+    <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+      <PanelScheduleInterop Include="$(PkgMicrosoft_Office_Interop_Excel)\lib\netstandard2.0\Microsoft.Office.Interop.Excel.dll" />
+      <PanelScheduleInterop Include="$(PkgMicrosoftOfficeCore)\lib\net35\Office.dll" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(PanelScheduleInterop)"
+      DestinationFolder="$(TargetSubFolder)"
+      Condition="'$(TargetFramework)' == 'net8.0-windows'" />
   </Target>
 
 </Project>

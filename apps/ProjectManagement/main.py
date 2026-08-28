@@ -766,6 +766,7 @@ def build_default_user_settings():
             'refreshExcelOleLinks': True
         },
         'manageLayersOptions': {
+            'autoSelectProjectDisciplineDwgs': False,
             'scanAllLayers': True,
             'freezePatterns': [],
             'thawPatterns': []
@@ -915,6 +916,18 @@ def _sanitize_user_settings_payload(settings):
         merged_publish_options.update(source_publish_options)
         if source_publish_options != merged_publish_options:
             normalized["publishDwgOptions"] = merged_publish_options
+            changed = True
+
+    default_manage_layers_options = defaults.get("manageLayersOptions") or {}
+    source_manage_layers_options = normalized.get("manageLayersOptions")
+    if not isinstance(source_manage_layers_options, dict):
+        normalized["manageLayersOptions"] = deepcopy(default_manage_layers_options)
+        changed = True
+    else:
+        merged_manage_layers_options = deepcopy(default_manage_layers_options)
+        merged_manage_layers_options.update(source_manage_layers_options)
+        if source_manage_layers_options != merged_manage_layers_options:
+            normalized["manageLayersOptions"] = merged_manage_layers_options
             changed = True
 
     workflow_cad_defaults = _normalize_workflow_cad_defaults(
@@ -3236,10 +3249,21 @@ class Api:
         self._panel_schedule_thread = None
         self._panel_schedule_job_record = None
         self._panel_schedule_job_lock = threading.Lock()
+        self._panel_schedule_manager_service = (
+            panel_sync_engine.PanelScheduleSyncService()
+            if panel_sync_engine is not None
+            else None
+        )
         self._script_worker_lock = threading.Lock()
         self._script_workers = set()
         self._script_processes = set()
         self._script_shutdown_event = threading.Event()
+        # pywebview dispatches JavaScript API calls on independent threads. Keep
+        # native dialogs serialized and reject new ones as soon as the window
+        # starts closing so WinForms is never asked to parent a picker to a
+        # disposed Form.
+        self._dialog_lock = threading.RLock()
+        self._application_closing = threading.Event()
         self._symbol_counter_service = SymbolCounterService(
             get_app_data_path("symbol-counter-cache")
         )
@@ -7049,6 +7073,80 @@ Return ONLY the JSON object.
             logging.error(f"Error fetching panel schedules: {e}")
             return {'status': 'error', 'message': str(e), 'panels': []}
 
+    def _get_panel_schedule_manager_service(self):
+        service = getattr(self, '_panel_schedule_manager_service', None)
+        if service is None and panel_sync_engine is not None:
+            service = panel_sync_engine.PanelScheduleSyncService()
+            self._panel_schedule_manager_service = service
+        if service is None:
+            raise RuntimeError('Panel Schedule Manager is unavailable.')
+        return service
+
+    def get_panel_schedule_manager_binding(self, project_id):
+        """Returns the Excel workbook currently linked to a project."""
+        try:
+            binding = self._get_panel_schedule_manager_service().get_binding(
+                str(project_id or '').strip()
+            )
+            return {'status': 'success', 'binding': binding}
+        except Exception as e:
+            logging.error(f"Error loading panel schedule workbook binding: {e}")
+            return {'status': 'error', 'message': str(e), 'binding': None}
+
+    def start_panel_schedule_manager(self, project_id, workbook_path=None):
+        """Starts a synchronized panel-schedule edit session for one project."""
+        try:
+            return self._get_panel_schedule_manager_service().begin_session(
+                str(project_id or '').strip(),
+                str(workbook_path or '').strip() or None,
+            )
+        except Exception as e:
+            logging.error(f"Error starting Panel Schedule Manager: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def poll_panel_schedule_manager(self, session_id, is_dirty=False):
+        """Checks for saved Excel edits without holding the workbook open."""
+        try:
+            return self._get_panel_schedule_manager_service().poll_session(
+                str(session_id or '').strip(),
+                is_dirty=(is_dirty is True),
+            )
+        except Exception as e:
+            logging.error(f"Error polling Panel Schedule Manager: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def save_panel_schedule_manager(self, session_id, panels):
+        """Writes application edits to Excel after an optimistic conflict check."""
+        try:
+            return self._get_panel_schedule_manager_service().save_session(
+                str(session_id or '').strip(),
+                panels if isinstance(panels, list) else [],
+            )
+        except Exception as e:
+            logging.error(f"Error saving Panel Schedule Manager: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def reload_panel_schedule_manager(self, session_id):
+        """Discards local draft state and reloads the latest saved Excel values."""
+        try:
+            return self._get_panel_schedule_manager_service().reload_session(
+                str(session_id or '').strip()
+            )
+        except Exception as e:
+            logging.error(f"Error reloading Panel Schedule Manager: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def close_panel_schedule_manager(self, session_id):
+        """Releases an in-memory panel-schedule edit session."""
+        try:
+            self._get_panel_schedule_manager_service().close_session(
+                str(session_id or '').strip()
+            )
+            return {'status': 'success'}
+        except Exception as e:
+            logging.warning(f"Error closing Panel Schedule Manager: {e}")
+            return {'status': 'error', 'message': str(e)}
+
     def get_panel_schedule_detail(self, panel_id):
         """Retrieves full panel schedule details with circuits."""
         try:
@@ -7998,13 +8096,95 @@ Return ONLY the JSON object.
             directory = os.path.normpath(normalized) if normalized else ''
         return directory or get_default_documents_dir()
 
+    def begin_shutdown(self):
+        """Prevent new native UI work once the pywebview Form starts closing."""
+        closing_event = getattr(self, '_application_closing', None)
+        if closing_event is None:
+            closing_event = threading.Event()
+            self._application_closing = closing_event
+        closing_event.set()
+
+    @staticmethod
+    def _dialog_event_is_set(window, event_name):
+        events = getattr(window, 'events', None)
+        event = getattr(events, event_name, None) if events is not None else None
+        is_set = getattr(event, 'is_set', None)
+        if not callable(is_set):
+            return False
+        try:
+            return bool(is_set())
+        except Exception:
+            return True
+
+    def _is_dialog_window_available(self, window):
+        if window is None:
+            return False
+        closing_event = getattr(self, '_application_closing', None)
+        if closing_event is not None and closing_event.is_set():
+            return False
+        if self._dialog_event_is_set(window, 'closing'):
+            return False
+        if self._dialog_event_is_set(window, 'closed'):
+            return False
+
+        native_window = getattr(window, 'native', None)
+        if native_window is not None:
+            try:
+                if bool(getattr(native_window, 'Disposing', False)):
+                    return False
+                if bool(getattr(native_window, 'IsDisposed', False)):
+                    return False
+            except Exception:
+                return False
+        return True
+
+    def _get_dialog_window(self):
+        windows = list(getattr(webview, 'windows', ()) or ())
+        for candidate in reversed(windows):
+            if self._is_dialog_window_available(candidate):
+                return candidate
+        raise RuntimeError('The application window is closing or unavailable.')
+
+    @staticmethod
+    def _get_file_dialog_type(name):
+        file_dialog = getattr(webview, 'FileDialog', None)
+        dialog_type = getattr(file_dialog, name, None) if file_dialog is not None else None
+        if dialog_type is not None:
+            return dialog_type
+
+        # Compatibility for older pywebview versions used by some development
+        # environments. Current releases use the FileDialog enum above.
+        legacy_name = f'{name}_DIALOG'
+        dialog_type = getattr(webview, legacy_name, None)
+        if dialog_type is None:
+            raise RuntimeError(f'pywebview does not provide {name} dialogs.')
+        return dialog_type
+
+    def _create_file_dialog(self, dialog_type, **kwargs):
+        dialog_lock = getattr(self, '_dialog_lock', None)
+        if dialog_lock is None:
+            dialog_lock = threading.RLock()
+            self._dialog_lock = dialog_lock
+
+        with dialog_lock:
+            window = self._get_dialog_window()
+            restore = getattr(window, 'restore', None)
+            if callable(restore):
+                restore()
+            if not self._is_dialog_window_available(window):
+                raise RuntimeError('The application window is closing or unavailable.')
+
+            result = window.create_file_dialog(dialog_type, **kwargs)
+            if not self._is_dialog_window_available(window):
+                raise RuntimeError('The file dialog closed because the application is shutting down.')
+            return result
+
     def select_folder(self, default_dir=None):
         """Shows a folder selection dialog."""
         try:
-            window = webview.windows[0]
             directory = self._resolve_dialog_directory(default_dir)
-            folder_path = window.create_file_dialog(
-                webview.FOLDER_DIALOG,
+            folder_path = self._create_file_dialog(
+                self._get_file_dialog_type('FOLDER'),
                 directory=directory,
             )
             if not folder_path:
@@ -8013,8 +8193,9 @@ Return ONLY the JSON object.
             return {'status': 'success', 'path': folder_path[0] if folder_path else None}
         except TypeError:
             try:
-                window = webview.windows[0]
-                folder_path = window.create_file_dialog(webview.FOLDER_DIALOG)
+                folder_path = self._create_file_dialog(
+                    self._get_file_dialog_type('FOLDER')
+                )
                 if not folder_path:
                     return {'status': 'cancelled', 'path': None}
                 return {'status': 'success', 'path': folder_path[0] if folder_path else None}
@@ -8028,15 +8209,14 @@ Return ONLY the JSON object.
     def select_template_output_folder(self, default_dir=None):
         """Shows a folder dialog for template-tool output."""
         try:
-            window = webview.windows[0]
             directory = str(default_dir or '').strip() or get_default_documents_dir()
             if os.path.isfile(directory):
                 directory = os.path.dirname(directory)
             if not os.path.isdir(directory):
                 directory = get_default_documents_dir()
 
-            folder_path = window.create_file_dialog(
-                webview.FOLDER_DIALOG,
+            folder_path = self._create_file_dialog(
+                self._get_file_dialog_type('FOLDER'),
                 directory=directory,
             )
             if not folder_path:
@@ -16136,8 +16316,16 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             'run_manage_layers_script',
         }
 
-    def _resolve_project_discipline_publish_selection(self, settings, launch_context):
-        """Resolve every base-level DWG in the user's selected discipline folder."""
+    def _resolve_project_discipline_dwg_selection(
+        self,
+        settings,
+        launch_context,
+        *,
+        tool_id,
+        resolution_mode,
+        trace_event,
+    ):
+        """Resolve every base-level DWG in the active project discipline folder."""
         context = self._resolve_workroom_context(settings, launch_context)
         launch_payload = self._normalize_launch_context(launch_context)
         discipline_lookup = {
@@ -16195,11 +16383,11 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             'discipline': selected_discipline,
             'folder_path': discipline_folder,
             'count': len(dwg_files),
-            'resolution_mode': 'project_discipline_auto_publish',
+            'resolution_mode': resolution_mode,
         }
         self._trace_cad_auto_select(
-            'auto_publish_discipline_selected',
-            tool_id='toolPublishDwgs',
+            trace_event,
+            tool_id=tool_id,
             project_path=project_path,
             discipline=selected_discipline,
             folder_path=discipline_folder,
@@ -16215,6 +16403,26 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             'discipline': selected_discipline,
             'selection': selection,
         }
+
+    def _resolve_project_discipline_publish_selection(self, settings, launch_context):
+        return self._resolve_project_discipline_dwg_selection(
+            settings,
+            launch_context,
+            tool_id='toolPublishDwgs',
+            resolution_mode='project_discipline_auto_publish',
+            trace_event='auto_publish_discipline_selected',
+        )
+
+    def _resolve_project_discipline_manage_layers_selection(
+        self, settings, launch_context
+    ):
+        return self._resolve_project_discipline_dwg_selection(
+            settings,
+            launch_context,
+            tool_id='toolManageLayers',
+            resolution_mode='project_discipline_auto_manage_layers',
+            trace_event='auto_manage_layers_discipline_selected',
+        )
 
     def _resolve_workroom_auto_file_selection(self, settings, launch_context, tool_name):
         if not self._is_workroom_auto_select_tool_allowed(tool_name):
@@ -17036,7 +17244,8 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
         """Runs the ManageLayersDWGs.ps1 PowerShell script with progress updates.
 
         params_override (dict, optional): per-invocation overrides for manageLayersOptions
-        keys (e.g., scanAllLayers, freezePatterns, thawPatterns). Used by the workflow runner
+        keys (e.g., autoSelectProjectDisciplineDwgs, scanAllLayers, freezePatterns,
+        thawPatterns). Used by the workflow runner
         so a single workflow step can supply its own freeze/thaw patterns without mutating
         the user's global manageLayersOptions.
         """
@@ -17061,6 +17270,8 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
         manage_options = dict(settings.get('manageLayersOptions') or {})
         if isinstance(params_override, dict):
             manage_options.update(params_override)
+        auto_select_project_discipline_dwgs = manage_options.get(
+            'autoSelectProjectDisciplineDwgs', False) is True
         scan_all = manage_options.get('scanAllLayers', True)
         freeze_patterns = _normalize_layer_pattern_list(
             manage_options.get('freezePatterns'))
@@ -17070,12 +17281,68 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
         def _ps_bool(value):
             return "1" if value else "0"
 
-        auto_selection = self._resolve_workroom_auto_file_selection(
-            settings, launch_context, 'run_manage_layers_script')
+        explicit_dwg_files = self._get_launch_context_cad_file_paths(
+            launch_context)
+        workflow_preselected = launch_payload.get(
+            'workflowPreselectedDwgFiles') is True
+        automatic_manage_layers_attempted = bool(
+            auto_select_project_discipline_dwgs
+            and not explicit_dwg_files
+            and not workflow_preselected
+        )
+        automatic_manage_layers_resolution = None
+        auto_selection = None
+        manual_selection_message = "Select DWG files to update..."
+        if automatic_manage_layers_attempted:
+            automatic_manage_layers_resolution = (
+                self._resolve_project_discipline_manage_layers_selection(
+                    settings, launch_context)
+            )
+            if automatic_manage_layers_resolution.get('status') == 'success':
+                auto_selection = automatic_manage_layers_resolution.get('selection')
+            else:
+                fallback_reason = automatic_manage_layers_resolution.get('reason') or ''
+                fallback_folder = automatic_manage_layers_resolution.get('folder_path') or ''
+                selected_discipline = automatic_manage_layers_resolution.get(
+                    'discipline') or 'selected discipline'
+                if fallback_reason == 'discipline_folder_not_found':
+                    fallback_message = (
+                        f"Automatic Freeze / Thaw selection could not find the "
+                        f"{selected_discipline} folder at {fallback_folder}. "
+                        "Select the DWG files manually."
+                    )
+                elif fallback_reason == 'no_dwgs_in_discipline_folder':
+                    fallback_message = (
+                        f"Automatic Freeze / Thaw selection found no DWG files in the "
+                        f"{selected_discipline} folder at {fallback_folder}. "
+                        "Select the DWG files manually."
+                    )
+                else:
+                    fallback_message = (
+                        "Automatic Freeze / Thaw selection needs a project folder. "
+                        "Select the DWG files manually."
+                    )
+                manual_selection_message = fallback_message
+                self._trace_cad_auto_select(
+                    'auto_manage_layers_discipline_input_required',
+                    tool_id='toolManageLayers',
+                    reason=fallback_reason or 'missing_project_path',
+                    discipline=selected_discipline,
+                    project_path=automatic_manage_layers_resolution.get(
+                        'project_path') or '',
+                    folder_path=fallback_folder,
+                )
+        else:
+            auto_selection = self._resolve_workroom_auto_file_selection(
+                settings, launch_context, 'run_manage_layers_script')
         default_directory = self._resolve_launch_context_default_directory(
             launch_context
         )
-        if self._is_workroom_auto_select_enabled(settings, launch_context) and not auto_selection:
+        if (
+            not automatic_manage_layers_attempted
+            and self._is_workroom_auto_select_enabled(settings, launch_context)
+            and not auto_selection
+        ):
             fallback_context = self._resolve_workroom_context(
                 settings, launch_context)
             logging.info(
@@ -17101,7 +17368,7 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
         if not auto_selection:
             self._notify_tool_status(
                 'toolManageLayers',
-                "Select DWG files to update...",
+                manual_selection_message,
                 activity_id=activity_id,
             )
             picker_result = self._select_cad_files_in_app(
@@ -17816,9 +18083,36 @@ if __name__ == '__main__':
         resizable=True,
         min_size=(1024, 768)
     )
+    window.events.closing += api.begin_shutdown
     try:
         webview.start()
     finally:
+        api.begin_shutdown()
         # Stop worker-owned subprocesses before Python begins interpreter shutdown.
         api.stop_script_workers()
         api.stop_circuit_breaker_server()
+
+    # pywebview creates a non-daemon thread for each JavaScript API request. A
+    # network request or native dialog that is still unwinding after the Form
+    # closes would otherwise leave run.cmd waiting for Ctrl+C. Give those calls
+    # a brief graceful window, then finish the already-requested app shutdown.
+    shutdown_deadline = time.monotonic() + 1.0
+    current_thread = threading.current_thread()
+    pending_threads = [
+        thread
+        for thread in threading.enumerate()
+        if thread is not current_thread and not thread.daemon and thread.is_alive()
+    ]
+    for thread in pending_threads:
+        remaining = max(shutdown_deadline - time.monotonic(), 0.0)
+        if remaining <= 0:
+            break
+        thread.join(remaining)
+    pending_threads = [thread for thread in pending_threads if thread.is_alive()]
+    if pending_threads:
+        logging.warning(
+            'Forcing application shutdown with unfinished API thread(s): %s',
+            ', '.join(thread.name for thread in pending_threads),
+        )
+        logging.shutdown()
+        os._exit(0)

@@ -102,6 +102,20 @@ def init_db(db_path: Optional[str] = None) -> None:
             UNIQUE(project_id, panel_name)
         );
         """)
+
+        # One linked Excel panel-schedule workbook per task-list project. This
+        # table intentionally does not require a projects-table foreign key:
+        # older task-list projects may not yet have been mirrored into the
+        # unified projects table, but still need a durable workbook binding.
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS panel_workbook_bindings (
+            project_id TEXT PRIMARY KEY,
+            workbook_path TEXT NOT NULL,
+            last_synced_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
         
         # 4. Circuits Table
         cursor.execute("""
@@ -412,3 +426,55 @@ def delete_panel_schedule(panel_id: str, db_path: Optional[str] = None) -> bool:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM panel_schedules WHERE id = ?", (panel_id,))
         return cursor.rowcount > 0
+
+
+def set_panel_workbook_binding(
+    project_id: str,
+    workbook_path: str,
+    db_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Persist the Excel workbook linked to a project panel-schedule editor."""
+    init_db(db_path)
+    project_key = str(project_id or "").strip()
+    raw_path = str(workbook_path or "").strip()
+    if not project_key:
+        raise ValueError("project_id is required")
+    if not raw_path:
+        raise ValueError("workbook_path is required")
+    normalized_path = os.path.abspath(raw_path)
+    now = datetime.now(timezone.utc).isoformat()
+    with db_session(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO panel_workbook_bindings (
+                project_id, workbook_path, last_synced_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                workbook_path = excluded.workbook_path,
+                last_synced_at = excluded.last_synced_at,
+                updated_at = excluded.updated_at
+            """,
+            (project_key, normalized_path, now, now, now),
+        )
+    return get_panel_workbook_binding(project_key, db_path=db_path) or {}
+
+
+def get_panel_workbook_binding(
+    project_id: str,
+    db_path: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return the linked panel workbook for a project, if one is configured."""
+    init_db(db_path)
+    project_key = str(project_id or "").strip()
+    if not project_key:
+        return None
+    with db_session(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT project_id, workbook_path, last_synced_at, created_at, updated_at
+            FROM panel_workbook_bindings
+            WHERE project_id = ?
+            """,
+            (project_key,),
+        ).fetchone()
+        return dict(row) if row else None

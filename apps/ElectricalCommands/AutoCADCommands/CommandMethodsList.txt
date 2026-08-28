@@ -60,6 +60,8 @@ AutoCADCleanupTool.CleanCADCommands
 - FINALIZE / FinalizeDrawingCommand (AutoCADCommands\CleanCADCommands\FinalizeDrawingCommand.cs:16)
 - KEEPONLYTITLEBLOCKMS / KeepOnlyTitleBlockInModelSpace (AutoCADCommands\CleanCADCommands\KeepOnlyTitleBlockCommand.cs:16)
 - REMOVEREMAININGXREFS / RemoveRemainingXrefs (AutoCADCommands\CleanCADCommands\DetachSpecialXrefsCommand.cs:15)
+- SETTITLEBLOCK / SetProjectTitleBlockBoundary (AutoCADCommands\CleanCADCommands\ProjectTitleBlockSettingsCommand.cs:9)
+- STB / SetProjectTitleBlockBoundary (AutoCADCommands\CleanCADCommands\ProjectTitleBlockSettingsCommand.cs:10)
 - VP2PL / ViewportToPolyline_AllLayouts (AutoCADCommands\CleanCADCommands\ViewportToPolyline.cs:14)
 - ZOOMTOLASTTB / ZoomToLastTitleBlock (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:246)
 
@@ -79,6 +81,7 @@ ElectricalCommands.ControlScheduleCommands
 - CSCHEDUPDATE / UpdateControlSchedule (AutoCADCommands\ControlScheduleCommands\ControlSchedule.cs:90)
 
 ElectricalCommands.PlotCommands
+- PA / PublishAllLayouts (AutoCADCommands\PlotCommands\PublishAllCommand.cs:29)
 - P22 / Plot22x34 (AutoCADCommands\PlotCommands\PlotCommands.cs:76)
 - P24 / Plot24x36 (AutoCADCommands\PlotCommands\PlotCommands.cs:70)
 - P30 / Plot30x42 (AutoCADCommands\PlotCommands\PlotCommands.cs:64)

@@ -271,6 +271,24 @@ class PowerShellCadWrapperTests(unittest.TestCase):
         self.assertIn("Automate selected-discipline publish", html)
         self.assertIn("Electrical, Plumbing, or Mechanical", html)
 
+    def test_automatic_discipline_manage_layers_setting_is_bound_in_both_uis(self):
+        script = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+        html = INDEX_HTML_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("autoSelectProjectDisciplineDwgs: false,", script)
+        self.assertIn(
+            "userSettings.manageLayersOptions?.autoSelectProjectDisciplineDwgs === true",
+            script,
+        )
+        for control_id in (
+            "settings_manageLayers_autoSelectProjectDisciplineDwgs",
+            "manageLayers_modal_autoSelectProjectDisciplineDwgs",
+        ):
+            self.assertIn(control_id, script)
+            self.assertIn(f'id="{control_id}"', html)
+        self.assertIn("Automatically select all project DWGs for the selected discipline", html)
+        self.assertIn("Auto-select selected-discipline DWGs", html)
+
     def test_clean_xrefs_script_reports_output_folder_marker(self):
         text = CLEAN_XREF_SCRIPT_PATH.read_text(encoding="utf-8")
         self.assertIn('Write-Host "PROGRESS: Processing $i of $($sourceItems.Count):', text)
@@ -398,7 +416,7 @@ class PowerShellCadWrapperTests(unittest.TestCase):
         for expected in (
             'async function resolveCadFilesBeforeLaunch(launchContext = null, toolId = "") {',
             'userSettings.publishDwgOptions?.automateProjectDisciplinePublish === true',
-            '(automaticDisciplinePublish && hasLaunchContextProjectPath(context))',
+            '(automaticDisciplineSelection && hasLaunchContextProjectPath(context))',
             "window.pywebview.api.select_files({",
             'file_types: ["Drawing Files (*.dwg)", "All Files (*.*)"],',
             "default_directory: getLaunchContextProjectRoot(context) || undefined,",

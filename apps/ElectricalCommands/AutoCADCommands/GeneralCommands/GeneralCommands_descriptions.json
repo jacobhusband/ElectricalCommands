@@ -15,6 +15,8 @@
         "SS": "Alias for SETSCALE.",
         "SETPANELNAME": "Stores the panel name used by electrical drafting commands.",
         "SPN": "Alias for SETPANELNAME.",
+        "SETPANELSCHEDULE": "Links the current panel to an Excel panel-schedule workbook, configures circuit capacity, reserves the final six circuits as spares, and hides circuits above capacity.",
+        "SPS": "Alias for SETPANELSCHEDULE.",
         "HOMERUN": "Creates a scaled three-vertex Leader and panel-name MText using an interactive four-point workflow.",
         "HR": "Alias for HOMERUN.",
         "HRSETTINGS": "Opens a modeless palette for panel location, drawing scale, panel name, and home-run layer settings.",
@@ -23,7 +25,7 @@
         "R180": "Rotates selected objects 180 degrees around a specified base point.",
         "R270": "Rotates selected objects 270 degrees around a specified base point.",
         "R360": "Rotates selected objects 360 degrees around a specified base point.",
-        "R": "Inserts the scaled RECEPT dynamic block with a two-point base and orientation workflow, prompting for its panel circuit label.",
+        "R": "Inserts a scaled receptacle or automatically circuits selected RECEPT/Receptacles blocks, using dynamic visibility state for duplex and quad loads and updating the linked panel schedule.",
         "OPENLAYERS": "Freezes or thaws selected layers across selected DWGs that are open in the current AutoCAD session.",
         "OPENFREEZETHAW": "Alias for OPENLAYERS.",
         "OLAYERS": "Alias for OPENLAYERS."

@@ -3687,6 +3687,539 @@ dialog.wire-sizer-dialog {
   pointer-events: none;
 }
 
+/* Panel Schedule Manager */
+dialog.panel-schedule-manager-dialog {
+  width: min(1480px, 97vw);
+  height: calc(100vh - 16px);
+  max-height: calc(100vh - 16px);
+  padding: 0;
+  border-radius: 18px;
+  border: 1px solid var(--glass-border);
+  background: var(--modal-bg);
+  color: var(--text);
+  box-shadow: 0 25px 55px rgba(0, 0, 0, 0.45), var(--glow);
+  overflow: hidden;
+}
+
+.panel-schedule-manager-dialog::backdrop {
+  background: var(--backdrop-bg);
+  backdrop-filter: blur(4px);
+}
+
+.psm-shell {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.psm-header,
+.psm-connection-bar,
+.psm-footer {
+  flex: 0 0 auto;
+  border-color: var(--glass-border);
+  background: var(--header-bg);
+}
+
+.psm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.35rem;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.psm-title-wrap p {
+  margin: 0.2rem 0 0;
+}
+
+.psm-header-actions,
+.psm-footer-actions,
+.psm-conflict-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.psm-sync-status,
+.psm-validation-pill,
+.psm-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.psm-sync-status {
+  min-height: 26px;
+  padding: 0.25rem 0.7rem;
+}
+
+.psm-sync-status.is-synced {
+  border-color: rgba(16, 185, 129, 0.35);
+  color: var(--accent);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.psm-sync-status.is-dirty {
+  border-color: rgba(245, 158, 11, 0.42);
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.psm-sync-status.is-conflict {
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.psm-connection-bar {
+  display: grid;
+  grid-template-columns: minmax(190px, 260px) minmax(260px, 1fr) auto auto;
+  align-items: end;
+  gap: 0.75rem;
+  padding: 0.75rem 1.35rem;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.psm-project-field,
+.psm-workbook-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.psm-project-field select,
+.psm-header-grid input,
+.psm-header-grid select,
+.psm-circuit-table input {
+  width: 100%;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.psm-project-field select,
+.psm-header-grid input,
+.psm-header-grid select {
+  min-height: 36px;
+  padding: 0.45rem 0.65rem;
+}
+
+.psm-project-field select:focus,
+.psm-header-grid input:focus,
+.psm-header-grid select:focus,
+.psm-circuit-table input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.12);
+}
+
+.psm-workbook-path {
+  min-width: 0;
+  min-height: 36px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text-secondary);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.psm-conflict-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1.35rem;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.09);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.psm-conflict-banner[hidden] {
+  display: none;
+}
+
+.psm-conflict-banner strong {
+  display: block;
+  color: #ef4444;
+  margin-bottom: 0.2rem;
+}
+
+.psm-conflict-changes {
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+
+.psm-loading,
+.psm-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.psm-loading[hidden],
+.psm-empty[hidden] {
+  display: none;
+}
+
+.psm-empty {
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 2rem;
+  color: var(--text-secondary);
+}
+
+.psm-empty h3,
+.psm-empty p,
+.psm-editor-header h3,
+.psm-circuit-heading h4 {
+  margin: 0;
+}
+
+.psm-empty-icon {
+  font-size: 3rem;
+  color: var(--accent);
+}
+
+.psm-workspace {
+  flex: 1 1 0;
+  height: 0;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.psm-workspace[hidden] {
+  display: none;
+}
+
+.psm-panel-sidebar {
+  width: 245px;
+  min-width: 210px;
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--glass-border);
+  background: var(--bg-secondary);
+}
+
+.psm-sidebar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.psm-count-badge {
+  min-width: 24px;
+  min-height: 22px;
+  padding: 0.1rem 0.45rem;
+}
+
+.psm-panel-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.55rem;
+}
+
+.psm-panel-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.65rem 0.7rem;
+  margin-bottom: 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.psm-panel-list button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.psm-panel-list button.is-active {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--text);
+}
+
+.psm-panel-list button span:first-child {
+  font-weight: 650;
+}
+
+.psm-panel-list button span:last-child {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.psm-editor {
+  flex: 1 1 0;
+  height: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  contain: layout paint;
+  padding: 1rem 1.1rem 1.4rem;
+}
+
+.psm-editor-header,
+.psm-circuit-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.psm-validation-pill {
+  padding: 0.25rem 0.65rem;
+}
+
+.psm-header-grid {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.psm-header-grid label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.psm-feed-field {
+  grid-column: span 2;
+}
+
+.psm-circuit-section {
+  flex: 1 1 0;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-top: 0;
+  padding-top: 1rem;
+}
+
+.psm-circuit-heading {
+  flex: 0 0 auto;
+  margin-bottom: 0.55rem;
+}
+
+.psm-circuit-heading p {
+  margin: 0.2rem 0 0;
+}
+
+.psm-circuit-scroll-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.psm-scroll-btn {
+  min-height: 28px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.7rem;
+}
+
+.psm-table-wrap {
+  flex: 1 1 0;
+  height: 0;
+  max-height: 100%;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.psm-circuit-table {
+  width: 100%;
+  min-width: 1180px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.75rem;
+}
+
+.psm-circuit-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.55rem 0.45rem;
+  border-bottom: 1px solid var(--glass-border);
+  background: var(--bg-tertiary);
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+  text-align: left;
+}
+
+.psm-circuit-table thead tr:nth-child(2) th {
+  top: 32px;
+}
+
+.psm-circuit-table .psm-circuit-group-row th {
+  top: 0;
+  height: 32px;
+  padding: 0.4rem 0.45rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.psm-circuit-table .psm-circuit-group-row th:first-child {
+  background: color-mix(in srgb, var(--bg-tertiary) 88%, #10b981 12%);
+}
+
+.psm-circuit-table .psm-circuit-group-row th:last-child {
+  background: color-mix(in srgb, var(--bg-tertiary) 88%, #3b82f6 12%);
+}
+
+.psm-circuit-table .psm-phase-heading {
+  top: 0;
+  vertical-align: middle;
+  text-align: center;
+}
+
+.psm-circuit-table td {
+  padding: 0.3rem;
+  border-bottom: 1px solid var(--glass-border);
+  vertical-align: middle;
+}
+
+.psm-circuit-table tr:last-child td {
+  border-bottom: none;
+}
+
+.psm-circuit-table .psm-circuit-number,
+.psm-circuit-table .psm-circuit-phase {
+  text-align: center;
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.psm-circuit-table .psm-circuit-number {
+  min-width: 42px;
+}
+
+.psm-circuit-table .psm-circuit-phase,
+.psm-circuit-table .psm-phase-heading {
+  min-width: 50px;
+  border-right: 2px solid var(--glass-border);
+  border-left: 2px solid var(--glass-border);
+  background: var(--bg-secondary);
+}
+
+.psm-circuit-table input {
+  min-height: 30px;
+  padding: 0.3rem 0.4rem;
+}
+
+.psm-circuit-table .psm-cell-notes,
+.psm-circuit-table .psm-cell-load,
+.psm-circuit-table .psm-cell-poles,
+.psm-circuit-table .psm-cell-trip {
+  width: 52px;
+}
+
+.psm-circuit-table .psm-cell-kva {
+  width: 112px;
+  font-family: Consolas, "SFMono-Regular", monospace;
+}
+
+.psm-circuit-table .psm-cell-description {
+  min-width: 150px;
+}
+
+.psm-header-grid input:disabled,
+.psm-header-grid select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.psm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.35rem;
+  border-top: 1px solid var(--glass-border);
+}
+
+@media (max-width: 980px) {
+  .psm-connection-bar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .psm-header-grid {
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+
+  .psm-panel-sidebar {
+    width: 205px;
+  }
+}
+
 /* Circuit Breaker AI Dialog */
 dialog.circuit-breaker-dialog {
   width: min(1200px, 96vw);
@@ -7607,10 +8140,24 @@ dialog::backdrop {
   gap: 0.75rem;
 }
 
+.activity-card-title-group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
 .activity-card-title {
   font-size: 0.85rem;
   font-weight: 700;
   color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.activity-card-project {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 

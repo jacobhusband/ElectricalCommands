@@ -702,6 +702,22 @@
                             </div>
                             <div class="tool-card-status"></div>
                         </div>
+                        <div id="toolPanelScheduleManager" class="tool-card" role="button" tabindex="0">
+                            <div class="tool-card-content">
+                                <div class="tool-icon">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                                        <path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path>
+                                    </svg>
+                                </div>
+                                <div class="tool-card-header">Panel Schedules</div>
+                                <div class="tool-card-body">
+                                    Edit project panel schedules with two-way Excel sync and external-change protection.
+                                </div>
+                            </div>
+                            <div class="tool-card-status">Excel linked</div>
+                        </div>
                         <div id="toolCircuitBreaker" class="tool-card" role="button" tabindex="0">
                             <div class="tool-card-content">
                                 <div class="tool-icon">
@@ -1682,21 +1698,26 @@
                 <div class="col-12" style="margin-top: 0.6rem;">
                     <label class="label">Freeze / Thaw</label>
                     <div class="stack" style="gap: 0.35rem;">
+                        <label class="radio-label"><input type="checkbox"
+                                id="settings_manageLayers_autoSelectProjectDisciplineDwgs">
+                            Automatically select all project DWGs for the selected discipline</label>
                         <label class="radio-label"><input type="checkbox" id="settings_manageLayers_scanAllLayers"> Scan all
                             selected DWG layers</label>
                     </div>
-                    <div class="tiny muted" style="margin-top: 0.35rem;">If unchecked, only the first selected DWG is
-                        scanned for layers.</div>
+                    <div class="tiny muted" style="margin-top: 0.35rem;">Automatic selection uses every base-level DWG
+                        in the active Electrical, Mechanical, or Plumbing folder. If the folder or DWGs cannot be found,
+                        the tool asks for a manual selection. If layer scanning is unchecked, only the first selected DWG
+                        is scanned for layers.</div>
                 </div>
                 <div class="col-12" style="margin-top: 0.6rem;">
                     <label class="label">CAD File Auto-Select Routing</label>
                     <div class="stack" style="gap: 0.35rem;">
                         <label class="radio-label"><input type="checkbox" id="settings_workroomAutoSelectCadFiles">
-                            Auto-select DWGs from project discipline folders when compatible tools are launched</label>
+                            Auto-select DWGs when compatible tools are launched from a Workroom</label>
                     </div>
-                    <div class="tiny muted" style="margin-top: 0.35rem;">On: Publish and Freeze / Thaw auto-select base-level
-                        DWGs from the active discipline folder. XREF always opens the Arch
-                        folder for manual file selection.
+                    <div class="tiny muted" style="margin-top: 0.35rem;">On: Publish and Freeze / Thaw launched from a
+                        project Workroom auto-select base-level DWGs from the active discipline folder. XREF always opens
+                        the Arch folder for manual file selection.
                     </div>
                 </div>
             </div>
@@ -1912,6 +1933,22 @@
                     save automatically and apply next time the tool runs.</p>
             </div>
             <div class="tool-settings-list">
+                <div class="tool-setting">
+                    <div class="tool-setting-text">
+                        <div class="tool-setting-title">Auto-select selected-discipline DWGs</div>
+                        <div class="tool-setting-desc">On: when Freeze / Thaw is launched from a project, selects every
+                            base-level DWG in the folder for your active discipline—Electrical, Mechanical, or Plumbing.
+                            If the folder or DWGs cannot be found, the tool asks you to select them.</div>
+                    </div>
+                    <div class="tool-setting-control">
+                        <span class="toggle-label">Off</span>
+                        <label class="switch" aria-label="Auto-select selected-discipline DWGs">
+                            <input type="checkbox" id="manageLayers_modal_autoSelectProjectDisciplineDwgs">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label">On</span>
+                    </div>
+                </div>
                 <div class="tool-setting">
                     <div class="tool-setting-text">
                         <div class="tool-setting-title">Scan all selected DWGs for layers</div>
@@ -2568,6 +2605,149 @@
                 <div id="wireSizerEmptyState" class="wire-sizer-empty" hidden></div>
                 <iframe id="wireSizerFrame" class="wire-sizer-frame" title="Wire Sizer"></iframe>
             </div>
+        </div>
+    </dialog>
+
+    <dialog id="panelScheduleManagerDlg" class="panel-schedule-manager-dialog"
+        aria-labelledby="panelScheduleManagerTitle">
+        <div class="psm-shell">
+            <header class="psm-header">
+                <div class="psm-title-wrap">
+                    <div id="panelScheduleManagerTitle" class="title">Panel Schedules</div>
+                    <p class="tiny muted">Project panel data synchronized with the Excel workbook linked into AutoCAD.</p>
+                </div>
+                <div class="psm-header-actions">
+                    <span id="psmSyncStatus" class="psm-sync-status">Not connected</span>
+                    <button class="icon-btn" id="psmCloseBtn" type="button" aria-label="Close Panel Schedules"
+                        title="Close">X</button>
+                </div>
+            </header>
+
+            <section class="psm-connection-bar" aria-label="Project and workbook connection">
+                <label class="psm-project-field" for="psmProjectSelect">
+                    <span>Project</span>
+                    <select id="psmProjectSelect"></select>
+                </label>
+                <div class="psm-workbook-field">
+                    <span>Linked Excel file</span>
+                    <button id="psmWorkbookPath" class="psm-workbook-path" type="button"
+                        title="Open linked workbook">No workbook selected</button>
+                </div>
+                <button class="btn tiny" id="psmChooseWorkbookBtn" type="button">Choose Excel file</button>
+                <button class="btn tiny ghost" id="psmOpenWorkbookBtn" type="button" disabled>Open Excel</button>
+            </section>
+
+            <div id="psmConflictBanner" class="psm-conflict-banner" hidden>
+                <div>
+                    <strong>Excel changed while you were editing.</strong>
+                    <span id="psmConflictMessage"></span>
+                    <div id="psmConflictChanges" class="psm-conflict-changes"></div>
+                </div>
+                <div class="psm-conflict-actions">
+                    <button class="btn tiny" id="psmOpenConflictBtn" type="button">Open highlighted copy</button>
+                    <button class="btn tiny ghost" id="psmReloadConflictBtn" type="button">Reload Excel changes</button>
+                </div>
+            </div>
+
+            <div id="psmLoading" class="psm-loading" hidden>
+                <div class="spinner">Reading panel schedules</div>
+            </div>
+
+            <div id="psmEmpty" class="psm-empty">
+                <div class="psm-empty-icon" aria-hidden="true">▦</div>
+                <h3>Link this project's panel schedule workbook</h3>
+                <p>Select the existing <code>.xls</code> or <code>.xlsx</code> file used by the AutoCAD OLE objects.</p>
+                <button class="btn" id="psmEmptyChooseBtn" type="button">Choose Excel file</button>
+            </div>
+
+            <div id="psmWorkspace" class="psm-workspace" hidden>
+                <aside class="psm-panel-sidebar" aria-label="Panel worksheets">
+                    <div class="psm-sidebar-heading">
+                        <span>Panels</span>
+                        <span id="psmPanelCount" class="psm-count-badge">0</span>
+                    </div>
+                    <div id="psmPanelList" class="psm-panel-list"></div>
+                </aside>
+
+                <main class="psm-editor">
+                    <section class="psm-editor-header">
+                        <div>
+                            <h3 id="psmActivePanelTitle">Panel</h3>
+                            <div id="psmWorksheetName" class="tiny muted"></div>
+                        </div>
+                        <div id="psmPanelValidation" class="psm-validation-pill"></div>
+                    </section>
+
+                    <section class="psm-header-grid" aria-label="Panel header information">
+                        <label><span>Panel name</span><input data-psm-panel-field="panelName" type="text"></label>
+                        <label><span>Section</span><input data-psm-panel-field="sectionLabel" type="text"></label>
+                        <label><span>Voltage</span><input data-psm-panel-field="voltage" type="text"
+                                placeholder="120/208V"></label>
+                        <label><span>Bus rating (A)</span><input data-psm-panel-field="mainBusRatingAmps"
+                                type="number" min="0"></label>
+                        <label><span>Main type</span><select data-psm-panel-field="mainType">
+                                <option value="MCB">MCB</option><option value="MLO">MLO</option>
+                            </select></label>
+                        <label><span>Main breaker (A)</span><input data-psm-panel-field="mainBreakerAmps"
+                                type="number" min="0"></label>
+                        <label><span>Phase</span><select data-psm-panel-field="phase">
+                                <option value="1">1</option><option value="3">3</option>
+                            </select></label>
+                        <label><span>Wire</span><select data-psm-panel-field="wire">
+                                <option value="3">3</option><option value="4">4</option>
+                            </select></label>
+                        <label><span>Type</span><input data-psm-panel-field="panelType" type="text"></label>
+                        <label><span>Mounting</span><input data-psm-panel-field="mounting" type="text"></label>
+                        <label><span>AIC rating</span><input data-psm-panel-field="aicRatingText" type="text"></label>
+                        <label><span>Condition</span><input data-psm-panel-field="condition" type="text"></label>
+                        <label class="psm-feed-field"><span>Fed from</span><input data-psm-panel-field="feedFrom"
+                                type="text"></label>
+                    </section>
+
+                    <section class="psm-circuit-section">
+                        <div class="psm-circuit-heading">
+                            <div>
+                                <h4>Circuits</h4>
+                                <p class="tiny muted">Formula-driven kVA cells remain formulas unless you edit them.</p>
+                            </div>
+                            <div class="psm-circuit-scroll-actions" aria-label="Circuit navigation">
+                                <span id="psmCircuitCountText" class="tiny muted"></span>
+                                <button class="btn ghost psm-scroll-btn" id="psmCircuitPageDownBtn"
+                                    type="button">Page down</button>
+                                <button class="btn ghost psm-scroll-btn" id="psmCircuitBottomBtn"
+                                    type="button">Last circuit</button>
+                            </div>
+                        </div>
+                        <div class="psm-table-wrap" id="psmCircuitTableWrap" tabindex="0"
+                            aria-label="Panel circuit rows">
+                            <table class="psm-circuit-table">
+                                <thead>
+                                    <tr class="psm-circuit-group-row">
+                                        <th colspan="7">Odd circuits</th>
+                                        <th rowspan="2" class="psm-phase-heading">Phase</th>
+                                        <th colspan="7">Even circuits</th>
+                                    </tr>
+                                    <tr>
+                                        <th>CKT</th><th>Notes</th><th>Load</th><th>Poles</th><th>Trip</th>
+                                        <th>Description</th><th>kVA / Formula</th>
+                                        <th>kVA / Formula</th><th>Description</th><th>Trip</th><th>Poles</th>
+                                        <th>Load</th><th>Notes</th><th>CKT</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="psmCircuitRows"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </main>
+            </div>
+
+            <footer class="psm-footer">
+                <div id="psmFooterMessage" class="tiny muted">Choose a project workbook to begin.</div>
+                <div class="psm-footer-actions">
+                    <button class="btn ghost" id="psmReloadBtn" type="button" disabled>Reload from Excel</button>
+                    <button class="btn" id="psmSaveBtn" type="button" disabled>Save changes to Excel</button>
+                </div>
+            </footer>
         </div>
     </dialog>
 
