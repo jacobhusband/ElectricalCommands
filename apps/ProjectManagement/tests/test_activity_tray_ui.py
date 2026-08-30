@@ -31,6 +31,8 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn(".activity-tray.is-collapsed .activity-tray-body", text)
         self.assertIn(".activity-card", text)
         self.assertIn(".activity-card-project", text)
+        self.assertIn(".activity-card-timing", text)
+        self.assertIn(".activity-card-duration", text)
         self.assertIn(".activity-card-progress-bar", text)
         self.assertIn(".activity-card-action.accept", text)
         self.assertIn(".activity-card-action.rerun", text)
@@ -54,6 +56,9 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn("async function handleActivityTrayOpenCombinedPdf(activityId) {", text)
         self.assertIn("function handleActivityTrayAccept(activityId) {", text)
         self.assertIn("function renderActivityTray() {", text)
+        self.assertIn("function formatActivityDateTime(timestamp) {", text)
+        self.assertIn("function formatActivityDuration(startedAt, endedAt = Date.now()) {", text)
+        self.assertIn("function syncActivityTimingTimer() {", text)
         self.assertIn("function getActivityProjectName({", text)
         self.assertIn("ACTIVITY_RERUN_TOOL_IDS", text)
         self.assertIn("rerunDefaultPath", text)
@@ -63,6 +68,9 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn('textContent: "Open Combined PDF"', text)
         self.assertIn('textContent: "Rerun"', text)
         self.assertIn('textContent: "Accept"', text)
+        self.assertIn('textContent: `Started: ${formatActivityDateTime(startedAt)}`', text)
+        self.assertIn('textContent: `Ended: ${formatActivityDateTime(endedAt)}`', text)
+        self.assertIn('"data-activity-duration-id": item.id', text)
         self.assertIn('"data-activity-action": "copy-combined-pdf"', text)
         self.assertIn('"data-activity-action": "open-combined-pdf"', text)
         self.assertIn('"data-activity-action": "open"', text)
@@ -85,6 +93,16 @@ class ActivityTrayUiTests(unittest.TestCase):
             'if (result && String(result.status || "").trim().toLowerCase() !== "success") {',
             text,
         )
+
+    def test_activity_lifecycle_tracks_start_end_and_live_duration(self):
+        text = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("startedAt,", text)
+        self.assertIn("endedAt,", text)
+        self.assertIn("const endedAt = isTerminalActivityStatus(mergedStatus)", text)
+        self.assertIn('isTerminal ? "Duration" : "Elapsed"', text)
+        self.assertIn("() => updateActivityTimingDurations(),", text)
+        self.assertIn("window.clearInterval(activityTrayState.timingTimerId);", text)
 
     def test_project_name_is_rendered_from_tool_launch_context(self):
         text = SCRIPT_JS_PATH.read_text(encoding="utf-8")

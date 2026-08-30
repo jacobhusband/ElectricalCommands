@@ -112,6 +112,7 @@ namespace ElectricalCommands
         "CTAB",
         selectedLayoutName
       );
+      ed.SwitchToPaperSpace();
 
       PromptPointResult paperSpaceCornerResult = ed.GetPoint(
         new PromptPointOptions("\nSelect the top-right corner for the viewport in paperspace: ")
@@ -276,15 +277,21 @@ namespace ElectricalCommands
           );
           viewport.Width = viewportWidth;
           viewport.Height = viewportHeight;
-          viewport.Layer = "DEFPOINTS";
-          viewport.ViewTarget = new Point3d(modelSpaceCenter.X, modelSpaceCenter.Y, 0.0);
-          viewport.ViewDirection = Vector3d.ZAxis;
 
           paperSpace.AppendEntity(viewport);
           tr.AddNewlyCreatedDBObject(viewport, true);
 
-          viewport.On = true;
+          // AutoCAD resets most view properties when a new viewport is appended.
+          // Configure the model view only after the viewport belongs to the database.
+          viewport.Layer = "DEFPOINTS";
+          viewport.On = false;
+          viewport.ViewDirection = Vector3d.ZAxis;
+          viewport.ViewTarget = new Point3d(modelSpaceCenter.X, modelSpaceCenter.Y, 0.0);
+          viewport.ViewCenter = new Point2d(0.0, 0.0);
+          viewport.TwistAngle = 0.0;
+          viewport.ViewHeight = regionHeight;
           viewport.CustomScale = selectedScale.CustomScale;
+          viewport.On = true;
           viewport.Locked = true;
         }
 

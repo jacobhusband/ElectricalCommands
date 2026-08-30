@@ -16,6 +16,8 @@ namespace ElectricalCommands
     private const string PanelNameKey = "PANEL_NAME";
     private const string PanelScheduleKey = "PANEL_SCHEDULE";
     private const string HomerunLayerKey = "HOMERUN_LAYER";
+    private const string ReceptacleCircuitMaxKvaKey =
+      "RECEPTACLE_CIRCUIT_MAX_KVA";
     private const int RecordVersion = 1;
 
     internal sealed class PanelLocationSetting
@@ -216,6 +218,83 @@ namespace ElectricalCommands
         setting = null;
         return false;
       }
+    }
+
+    public static void WriteReceptacleCircuitMaxKva(
+      Database database,
+      double maximumKva)
+    {
+      if (!TryNormalizeReceptacleCircuitMaxKva(
+        maximumKva,
+        out double normalizedKva))
+      {
+        throw new ArgumentOutOfRangeException(
+          nameof(maximumKva),
+          $"Maximum receptacle circuit load must be a multiple of " +
+          $"{GeneralCommands.ReceptacleLoadUnitKva:0.00} kVA between " +
+          $"{GeneralCommands.ReceptacleLoadUnitKva:0.00} and " +
+          $"{GeneralCommands.MaximumReceptacleCircuitLoadKva:0.00} kVA.");
+      }
+
+      WriteRecord(
+        database,
+        ReceptacleCircuitMaxKvaKey,
+        new ResultBuffer(
+          new TypedValue((int)DxfCode.Int32, RecordVersion),
+          new TypedValue((int)DxfCode.Real, normalizedKva)
+        )
+      );
+    }
+
+    public static bool TryReadReceptacleCircuitMaxKva(
+      Database database,
+      out double maximumKva)
+    {
+      maximumKva = 0.0;
+      TypedValue[] values = ReadRecord(
+        database,
+        ReceptacleCircuitMaxKvaKey);
+      if (values == null || values.Length < 2 || !HasSupportedVersion(values))
+      {
+        return false;
+      }
+
+      try
+      {
+        return TryNormalizeReceptacleCircuitMaxKva(
+          Convert.ToDouble(values[1].Value),
+          out maximumKva);
+      }
+      catch
+      {
+        maximumKva = 0.0;
+        return false;
+      }
+    }
+
+    private static bool TryNormalizeReceptacleCircuitMaxKva(
+      double maximumKva,
+      out double normalizedKva)
+    {
+      normalizedKva = 0.0;
+      if (maximumKva <= 0.0 ||
+          double.IsNaN(maximumKva) ||
+          double.IsInfinity(maximumKva))
+      {
+        return false;
+      }
+
+      int loadUnits = (int)Math.Round(
+        maximumKva / GeneralCommands.ReceptacleLoadUnitKva);
+      if (loadUnits < 1 ||
+          loadUnits > GeneralCommands.MaximumReceptacleCircuitLoadUnits)
+      {
+        return false;
+      }
+
+      normalizedKva =
+        loadUnits * GeneralCommands.ReceptacleLoadUnitKva;
+      return Math.Abs(maximumKva - normalizedKva) < 0.001;
     }
 
     public static void WriteHomerunLayer(Database database, string layerName)

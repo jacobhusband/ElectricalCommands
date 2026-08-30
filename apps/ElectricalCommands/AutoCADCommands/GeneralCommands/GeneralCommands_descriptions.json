@@ -25,10 +25,14 @@
         "R180": "Rotates selected objects 180 degrees around a specified base point.",
         "R270": "Rotates selected objects 270 degrees around a specified base point.",
         "R360": "Rotates selected objects 360 degrees around a specified base point.",
-        "R": "Inserts a scaled receptacle or automatically circuits selected RECEPT/Receptacles blocks, using dynamic visibility state for duplex and quad loads and updating the linked panel schedule.",
+        "R": "Repeatedly places scaled RECEPT/Receptacles blocks and lets the user press S to choose from the block's available receptacle visibility states.",
+        "RC": "Inserts or circuits receptacles, including room groups and catalog-backed or custom dedicated equipment circuits, and updates the linked panel schedule.",
         "OPENLAYERS": "Freezes or thaws selected layers across selected DWGs that are open in the current AutoCAD session.",
         "OPENFREEZETHAW": "Alias for OPENLAYERS.",
-        "OLAYERS": "Alias for OPENLAYERS."
+        "OLAYERS": "Alias for OPENLAYERS.",
+        "KEYNOTETABLE": "Converts MText note columns or grouped DBText lines into an invisible-border table with sequential KEYED_NOTE symbols.",
+        "KNTABLE": "Alias for KEYNOTETABLE.",
+        "KNT": "Alias for KEYNOTETABLE."
     },
     "links": {
         "OBJMASK": "https://brainy-seahorse-3c5.notion.site/OBJMASK-2b13fdbb662c802fb082e4095528ec06",

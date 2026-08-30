@@ -304,6 +304,7 @@ const activityTrayState = {
   collapsed: false,
   hasAutoExpanded: false,
   initialized: false,
+  timingTimerId: null,
 };
 const activeToolActivityIds = new Map();
 const ACTIVITY_RERUN_TOOL_IDS = new Set([
@@ -8598,6 +8599,77 @@ function clampActivityProgress(value, fallback = 0) {
   return Math.max(0, Math.min(100, Math.round(numeric)));
 }
 
+function normalizeActivityTimestamp(value, fallback = 0) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    // Accept seconds as well as the millisecond timestamps used by the client.
+    return numeric < 1e12 ? numeric * 1000 : numeric;
+  }
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : Number(fallback) || 0;
+}
+
+function formatActivityDateTime(timestamp) {
+  const normalized = normalizeActivityTimestamp(timestamp);
+  if (!normalized) return "Unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(normalized));
+}
+
+function formatActivityDuration(startedAt, endedAt = Date.now()) {
+  const start = normalizeActivityTimestamp(startedAt);
+  const end = normalizeActivityTimestamp(endedAt, Date.now());
+  const totalSeconds = Math.max(0, Math.floor((end - start) / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const clock = [hours, minutes, seconds]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
+  return days ? `${days}d ${clock}` : clock;
+}
+
+function updateActivityTimingDurations(now = Date.now()) {
+  const { list } = getActivityTrayElements();
+  if (!list) return;
+  list.querySelectorAll("[data-activity-duration-id]").forEach((node) => {
+    const activityId = String(node.dataset.activityDurationId || "").trim();
+    const activity = getActivityById(activityId);
+    if (!activity) return;
+    const isTerminal = isTerminalActivityStatus(activity.status);
+    const endedAt = isTerminal
+      ? normalizeActivityTimestamp(activity.endedAt, now)
+      : now;
+    node.textContent = `${isTerminal ? "Duration" : "Elapsed"}: ${formatActivityDuration(
+      activity.startedAt,
+      endedAt
+    )}`;
+  });
+}
+
+function syncActivityTimingTimer() {
+  const hasRunningActivity = activityTrayState.items.some(
+    (item) => !isTerminalActivityStatus(item?.status)
+  );
+  if (hasRunningActivity && activityTrayState.timingTimerId == null) {
+    activityTrayState.timingTimerId = window.setInterval(
+      () => updateActivityTimingDurations(),
+      1000
+    );
+  } else if (!hasRunningActivity && activityTrayState.timingTimerId != null) {
+    window.clearInterval(activityTrayState.timingTimerId);
+    activityTrayState.timingTimerId = null;
+  }
+  updateActivityTimingDurations();
+}
+
 function getActivityTrayElements() {
   return {
     tray: document.getElementById("activityTray"),
@@ -8811,6 +8883,7 @@ function renderActivityTray() {
     if (clearAll) clearAll.hidden = true;
     toggleActivityTrayCollapsed(false, { force: true });
     activityTrayState.hasAutoExpanded = false;
+    syncActivityTimingTimer();
     return;
   }
 
@@ -8875,6 +8948,37 @@ function renderActivityTray() {
       className: "activity-card-message",
       textContent: item.message || "Working...",
     });
+    const isTerminal = isTerminalActivityStatus(status);
+    const startedAt = normalizeActivityTimestamp(item.startedAt, item.createdAt);
+    const endedAt = isTerminal
+      ? normalizeActivityTimestamp(item.endedAt, item.updatedAt)
+      : 0;
+    const timing = el("div", { className: "activity-card-timing" }, [
+      el("span", {
+        className: "activity-card-timing-item",
+        textContent: `Started: ${formatActivityDateTime(startedAt)}`,
+        title: `Started: ${formatActivityDateTime(startedAt)}`,
+      }),
+    ]);
+    if (isTerminal) {
+      timing.appendChild(
+        el("span", {
+          className: "activity-card-timing-item",
+          textContent: `Ended: ${formatActivityDateTime(endedAt)}`,
+          title: `Ended: ${formatActivityDateTime(endedAt)}`,
+        })
+      );
+    }
+    timing.appendChild(
+      el("span", {
+        className: "activity-card-timing-item activity-card-duration",
+        textContent: `${isTerminal ? "Duration" : "Elapsed"}: ${formatActivityDuration(
+          startedAt,
+          isTerminal ? endedAt : Date.now()
+        )}`,
+        "data-activity-duration-id": item.id,
+      })
+    );
     const progress = el("div", { className: "activity-card-progress" }, [
       el("div", {
         className: "activity-card-progress-bar",
@@ -8882,7 +8986,6 @@ function renderActivityTray() {
       }),
     ]);
     const actions = el("div", { className: "activity-card-actions" });
-    const isTerminal = isTerminalActivityStatus(status);
     if (isTerminal && item.combinedPdfPath) {
       actions.appendChild(
         el("button", {
@@ -8978,7 +9081,7 @@ function renderActivityTray() {
       );
     }
 
-    content.append(header, message, progress);
+    content.append(header, message, timing, progress);
     if (actions.childNodes.length) {
       content.appendChild(actions);
     }
@@ -8987,6 +9090,7 @@ function renderActivityTray() {
   });
 
   toggleActivityTrayCollapsed(activityTrayState.collapsed, { force: true });
+  syncActivityTimingTimer();
 }
 
 async function handleActivityTrayOpenFolder(activityId) {
@@ -9175,6 +9279,22 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
   const mergedOpenFolderPath = String(
     incoming.openFolderPath || existing?.openFolderPath || ""
   ).trim();
+  const mergedStatus = String(
+    incoming.status || existing?.status || ACTIVITY_STATUS.RUNNING
+  )
+    .trim()
+    .toLowerCase();
+  const createdAt = normalizeActivityTimestamp(
+    existing?.createdAt || incoming.createdAt,
+    now
+  );
+  const startedAt = normalizeActivityTimestamp(
+    incoming.startedAt || existing?.startedAt,
+    createdAt
+  );
+  const endedAt = isTerminalActivityStatus(mergedStatus)
+    ? normalizeActivityTimestamp(incoming.endedAt || existing?.endedAt, now)
+    : 0;
   const merged = {
     id: incoming.id,
     kind: existing?.kind || incoming.kind || "tool",
@@ -9189,9 +9309,7 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
     message: String(
       incoming.message == null ? existing?.message || "" : incoming.message
     ).trim(),
-    status: String(incoming.status || existing?.status || ACTIVITY_STATUS.RUNNING)
-      .trim()
-      .toLowerCase(),
+    status: mergedStatus,
     progress: clampActivityProgress(
       incoming.progress == null ? existing?.progress ?? 0 : incoming.progress,
       existing?.progress ?? 0
@@ -9223,7 +9341,9 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
     canvasPanelReview: Boolean(
       incoming.canvasPanelReview ?? existing?.canvasPanelReview ?? false
     ),
-    createdAt: Number(existing?.createdAt || now),
+    createdAt,
+    startedAt,
+    endedAt,
     updatedAt: now,
   };
 
@@ -9264,6 +9384,8 @@ function beginActivity({
   rerunLaunchContext = null,
   workflowTitle = "",
   canRerun,
+  startedAt = 0,
+  endedAt = 0,
 } = {}) {
   const resolvedId = String(activityId || createActivityId(toolId || kind)).trim();
   return upsertActivity(
@@ -9283,6 +9405,8 @@ function beginActivity({
       rerunLaunchContext,
       workflowTitle,
       canRerun,
+      startedAt,
+      endedAt,
     },
     { autoExpandReason: activityTrayState.items.length ? "update" : "first" }
   )?.id || resolvedId;
@@ -9533,6 +9657,8 @@ function updateActivityStatusFromPayload(payload = {}) {
       workflowTitle,
       canRerun: payload?.canRerun,
       kind: payload?.kind || (toolId === "toolWorkflow" ? "workflow" : "tool"),
+      startedAt: payload?.startedAt,
+      endedAt: payload?.endedAt,
     });
   }
 
@@ -9555,6 +9681,8 @@ function updateActivityStatusFromPayload(payload = {}) {
     canRerun: payload?.canRerun,
     panelCount: payload?.panelCount,
     completedCount: payload?.completedCount,
+    startedAt: payload?.startedAt,
+    endedAt: payload?.endedAt,
   };
 
   if (status === ACTIVITY_STATUS.ERROR) {
