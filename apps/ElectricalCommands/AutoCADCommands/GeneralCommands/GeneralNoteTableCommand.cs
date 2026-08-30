@@ -9,22 +9,23 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    private const double KeyNoteHexWidth = 0.2504;
-    private const double KeyNoteHexHeight = 0.216852;
-    private const double KeyNoteTableBaseMargin = 0.025;
-    private const double KeyNoteTableVerticalMargin = 0.125;
-    private const double KeyNoteTableColumnGap = 0.10;
-    private const double KeyNoteRotationTolerance = Math.PI / 180.0;
+    private const double GeneralNoteNumberWidth = 0.25;
+    private const double GeneralNoteTableBaseMargin = 0.025;
+    private const double GeneralNoteTableVerticalMargin = 0.125;
+    private const double GeneralNoteTableColumnGap = 0.10;
+    private const double GeneralNoteRotationTolerance = Math.PI / 180.0;
+    private const double GeneralNoteDefaultAttributeHeight = 0.09375;
 
-    [CommandMethod("KEYNOTETABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
-    [CommandMethod("KNTABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
-    [CommandMethod("KNT", CommandFlags.Modal | CommandFlags.UsePickSet)]
-    public static void CreateKeyNoteTable()
+    [CommandMethod("GENERALNOTETABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
+    [CommandMethod("GNTABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
+    [CommandMethod("GNT", CommandFlags.Modal | CommandFlags.UsePickSet)]
+    public static void CreateGeneralNoteTable()
     {
       Document document = Application.DocumentManager.MdiActiveDocument;
       if (document == null)
@@ -37,12 +38,12 @@ namespace ElectricalCommands
       PromptSelectionOptions selectionOptions = new PromptSelectionOptions
       {
         MessageForAdding =
-          "\nSelect MText note column(s), DBText lines, or an existing Key Note Table: ",
-        MessageForRemoval = "\nRemove objects: ",
+          "\nSelect MText note column(s), or the DBText lines that make up the notes: ",
+        MessageForRemoval = "\nRemove text objects: ",
         RejectObjectsFromNonCurrentSpace = true,
       };
       SelectionFilter selectionFilter = new SelectionFilter(
-        new[] { new TypedValue((int)DxfCode.Start, "TEXT,MTEXT,ACAD_TABLE") });
+        new[] { new TypedValue((int)DxfCode.Start, "TEXT,MTEXT") });
       PromptSelectionResult selectionResult = editor.GetSelection(
         selectionOptions,
         selectionFilter);
@@ -50,7 +51,7 @@ namespace ElectricalCommands
           selectionResult.Value == null ||
           selectionResult.Value.Count == 0)
       {
-        editor.WriteMessage("\nKEYNOTETABLE canceled.");
+        editor.WriteMessage("\nGENERALNOTETABLE canceled.");
         return;
       }
 
@@ -58,19 +59,12 @@ namespace ElectricalCommands
         .GetObjectIds()
         .Distinct()
         .ToArray();
-
-      ObjectId selectedTableId = FindSelectedTableId(database, sourceIds);
-      if (!selectedTableId.IsNull)
-      {
-        UpdateExistingKeyNoteTable(database, editor, selectedTableId);
-        return;
-      }
       bool useEveryDbTextLine = false;
       bool containsMText;
       bool containsDbText;
       try
       {
-        GetKeyNoteTableSelectionTypes(
+        GetGeneralNoteTableSelectionTypes(
           database,
           sourceIds,
           out containsMText,
@@ -78,7 +72,7 @@ namespace ElectricalCommands
       }
       catch (System.Exception ex)
       {
-        editor.WriteMessage($"\nKEYNOTETABLE selection error: {ex.Message}");
+        editor.WriteMessage($"\nGENERALNOTETABLE selection error: {ex.Message}");
         return;
       }
 
@@ -102,7 +96,7 @@ namespace ElectricalCommands
         if (groupingResult.Status != PromptStatus.OK &&
             groupingResult.Status != PromptStatus.None)
         {
-          editor.WriteMessage("\nKEYNOTETABLE canceled.");
+          editor.WriteMessage("\nGENERALNOTETABLE canceled.");
           return;
         }
         useEveryDbTextLine = groupingResult.Status == PromptStatus.OK &&
@@ -112,15 +106,15 @@ namespace ElectricalCommands
             StringComparison.OrdinalIgnoreCase);
       }
 
-      KeyNoteTablePlan plan;
+      GeneralNoteTablePlan plan;
       try
       {
         using (Transaction transaction =
           database.TransactionManager.StartOpenCloseTransaction())
         {
           plan = containsMText
-            ? BuildKeyNotePlanFromMText(database, transaction, sourceIds)
-            : BuildKeyNotePlanFromDbText(
+            ? BuildGeneralNotePlanFromMText(database, transaction, sourceIds)
+            : BuildGeneralNotePlanFromDbText(
               database,
               transaction,
               sourceIds,
@@ -130,13 +124,13 @@ namespace ElectricalCommands
       }
       catch (System.Exception ex)
       {
-        editor.WriteMessage($"\nKEYNOTETABLE could not read the notes: {ex.Message}");
+        editor.WriteMessage($"\nGENERALNOTETABLE could not read the notes: {ex.Message}");
         return;
       }
 
       if (plan == null || plan.Columns.Count == 0 || plan.NoteCount == 0)
       {
-        editor.WriteMessage("\nNo nonblank keyed-note text was found.");
+        editor.WriteMessage("\nNo nonblank general-note text was found.");
         return;
       }
 
@@ -159,7 +153,7 @@ namespace ElectricalCommands
       }
 
       PromptIntegerOptions numberOptions = new PromptIntegerOptions(
-        "\nEnter first keyed-note number <1>: ")
+        "\nEnter first general-note number <1>: ")
       {
         AllowNone = true,
         AllowNegative = false,
@@ -172,7 +166,7 @@ namespace ElectricalCommands
       if (numberResult.Status != PromptStatus.OK &&
           numberResult.Status != PromptStatus.None)
       {
-        editor.WriteMessage("\nKEYNOTETABLE canceled.");
+        editor.WriteMessage("\nGENERALNOTETABLE canceled.");
         return;
       }
       int firstNumber = numberResult.Status == PromptStatus.OK
@@ -189,7 +183,7 @@ namespace ElectricalCommands
       if (layoutResult.Status != PromptStatus.OK &&
           layoutResult.Status != PromptStatus.None)
       {
-        editor.WriteMessage("\nKEYNOTETABLE canceled.");
+        editor.WriteMessage("\nGENERALNOTETABLE canceled.");
         return;
       }
 
@@ -201,20 +195,20 @@ namespace ElectricalCommands
       Point3d insertionPoint;
       if (useBoundary)
       {
-        if (!TryPromptKeyNoteBoundary(
+        if (!TryPromptGeneralNoteBoundary(
           editor,
           plan,
-          out KeyNoteTablePlan boundaryPlan,
+          out GeneralNoteTablePlan boundaryPlan,
           out insertionPoint))
         {
-          editor.WriteMessage("\nKEYNOTETABLE canceled.");
+          editor.WriteMessage("\nGENERALNOTETABLE canceled.");
           return;
         }
         plan = boundaryPlan;
       }
       else
       {
-        Point3d sourcePosition = GetKeyNoteTableDefaultPosition(plan);
+        Point3d sourcePosition = GetGeneralNoteTableDefaultPosition(plan);
         PromptPointOptions pointOptions = new PromptPointOptions(
           "\nSpecify table upper-left corner <replace source in place>: ")
         {
@@ -224,7 +218,7 @@ namespace ElectricalCommands
         if (pointResult.Status != PromptStatus.OK &&
             pointResult.Status != PromptStatus.None)
         {
-          editor.WriteMessage("\nKEYNOTETABLE canceled.");
+          editor.WriteMessage("\nGENERALNOTETABLE canceled.");
           return;
         }
         insertionPoint = pointResult.Status == PromptStatus.OK
@@ -242,7 +236,7 @@ namespace ElectricalCommands
       if (sourceResult.Status != PromptStatus.OK &&
           sourceResult.Status != PromptStatus.None)
       {
-        editor.WriteMessage("\nKEYNOTETABLE canceled.");
+        editor.WriteMessage("\nGENERALNOTETABLE canceled.");
         return;
       }
       bool eraseSource = sourceResult.Status == PromptStatus.OK &&
@@ -253,16 +247,7 @@ namespace ElectricalCommands
 
       try
       {
-        EnsureKnLayer(database);
-        ObjectId textStyleId = EnsureKnTextStyle(database);
-        if (!EnsureKnBlockDefinition(database, textStyleId))
-        {
-          editor.WriteMessage(
-            $"\nUnable to prepare the canonical {KnBlockName} block.");
-          return;
-        }
-
-        ObjectId tableId = WriteKeyNoteTable(
+        ObjectId tableId = WriteGeneralNoteTable(
           database,
           plan,
           insertionPoint,
@@ -270,319 +255,27 @@ namespace ElectricalCommands
           sourceIds,
           eraseSource);
         editor.WriteMessage(
-          $"\nCreated keyed-note table {tableId.Handle} with {plan.NoteCount} " +
-          $"sequential symbol{(plan.NoteCount == 1 ? string.Empty : "s")}." +
+          $"\nCreated general-note table {tableId.Handle} with {plan.NoteCount} " +
+          $"sequential note{(plan.NoteCount == 1 ? string.Empty : "s")}." +
           (eraseSource ? " Source text erased." : " Source text retained."));
       }
       catch (System.Exception ex)
       {
-        editor.WriteMessage($"\nKEYNOTETABLE error: {ex.Message}");
+        editor.WriteMessage($"\nGENERALNOTETABLE error: {ex.Message}");
       }
     }
 
-    private static ObjectId FindSelectedTableId(
-      Database database,
-      IEnumerable<ObjectId> sourceIds)
-    {
-      using (Transaction transaction =
-        database.TransactionManager.StartOpenCloseTransaction())
-      {
-        foreach (ObjectId sourceId in sourceIds)
-        {
-          DBObject obj = transaction.GetObject(sourceId, OpenMode.ForRead, false);
-          if (obj is Table)
-          {
-            return sourceId;
-          }
-        }
-        transaction.Commit();
-      }
-      return ObjectId.Null;
-    }
-
-    private static void UpdateExistingKeyNoteTable(
-      Database database,
+    private static bool TryPromptGeneralNoteBoundary(
       Editor editor,
-      ObjectId tableId)
-    {
-      try
-      {
-        using (Transaction transaction = database.TransactionManager.StartTransaction())
-        {
-          Table table = transaction.GetObject(tableId, OpenMode.ForWrite) as Table;
-          if (table == null)
-          {
-            editor.WriteMessage("\nSelected object is not a table.");
-            return;
-          }
-
-          if (table.Rows.Count == 0 || table.Columns.Count == 0)
-          {
-            editor.WriteMessage("\nTable has no rows or columns to update.");
-            return;
-          }
-
-          // Prepare layer, text style, and block definition
-          EnsureKnLayer(database);
-          ObjectId textStyleId = EnsureKnTextStyle(database);
-          if (!EnsureKnBlockDefinition(database, textStyleId))
-          {
-            editor.WriteMessage($"\nUnable to prepare the canonical {KnBlockName} block.");
-            return;
-          }
-
-          BlockTable blockTable = (BlockTable)transaction.GetObject(
-            database.BlockTableId,
-            OpenMode.ForRead);
-          ObjectId defaultBlockId = blockTable.Has(KnBlockName) ? blockTable[KnBlockName] : ObjectId.Null;
-          ObjectId blockId = defaultBlockId;
-          double scale = 1.0;
-
-          // Scan the first column (column 0) for existing keyed-note numbers and block settings
-          var foundNumbers = new List<(int row, int number)>();
-          for (int row = 0; row < table.Rows.Count; row++)
-          {
-            if (TryGetCellNumber(table, transaction, row, 0, out int number, out ObjectId cellBlockId, out double cellScale))
-            {
-              foundNumbers.Add((row, number));
-              if (!cellBlockId.IsNull && cellBlockId.IsValid)
-              {
-                blockId = cellBlockId;
-                scale = cellScale;
-              }
-            }
-          }
-
-          if (blockId.IsNull)
-          {
-            editor.WriteMessage($"\nBlock {KnBlockName} is missing.");
-            return;
-          }
-
-          ObjectId attributeDefinitionId = FindKeyNoteAttributeDefinition(transaction, blockId);
-          if (attributeDefinitionId.IsNull)
-          {
-            editor.WriteMessage($"\nBlock {KnBlockName} has no editable keyed-note attribute.");
-            return;
-          }
-
-          // Determine the numbering pattern and starting row
-          int step = 1;
-          int lastFoundRow = -1;
-          int lastFoundNum = 0;
-          int firstDataRow = 0;
-
-          if (foundNumbers.Count >= 2)
-          {
-            var prev = foundNumbers[foundNumbers.Count - 2];
-            var last = foundNumbers[foundNumbers.Count - 1];
-            int rowDiff = last.row - prev.row;
-            int numDiff = last.number - prev.number;
-            if (rowDiff > 0 && numDiff > 0 && numDiff % rowDiff == 0)
-            {
-              step = numDiff / rowDiff;
-            }
-            else if (rowDiff > 0 && numDiff > 0)
-            {
-              step = Math.Max(1, numDiff / rowDiff);
-            }
-            lastFoundRow = last.row;
-            lastFoundNum = last.number;
-            firstDataRow = foundNumbers[0].row;
-          }
-          else if (foundNumbers.Count == 1)
-          {
-            lastFoundRow = foundNumbers[0].row;
-            lastFoundNum = foundNumbers[0].number;
-            firstDataRow = foundNumbers[0].row;
-          }
-          else
-          {
-            for (int r = 0; r < table.Rows.Count; r++)
-            {
-              if (!table.IsMergedCell(r, 0, out _))
-              {
-                firstDataRow = r;
-                break;
-              }
-            }
-            lastFoundRow = firstDataRow - 1;
-            lastFoundNum = 0;
-          }
-
-          int addedCount = 0;
-          int firstAdded = 0;
-          int lastAdded = 0;
-
-          for (int row = firstDataRow; row < table.Rows.Count; row++)
-          {
-            bool alreadyHasNumber = foundNumbers.Any(f => f.row == row);
-            if (!alreadyHasNumber)
-            {
-              if (table.IsMergedCell(row, 0, out CellRange range) && range.RightColumn > range.LeftColumn)
-              {
-                continue;
-              }
-
-              int currentNum;
-              if (row > lastFoundRow && lastFoundRow >= 0)
-              {
-                currentNum = lastFoundNum + (row - lastFoundRow) * step;
-              }
-              else if (foundNumbers.Count > 0)
-              {
-                currentNum = foundNumbers[0].number + (row - foundNumbers[0].row) * step;
-              }
-              else
-              {
-                currentNum = 1 + (row - firstDataRow) * step;
-              }
-
-              EnsureKeyNoteTableCellContent(table, row, 0);
-              table.SetBlockTableRecordId(row, 0, 0, blockId, false);
-              table.SetIsAutoScale(row, 0, 0, false);
-              table.SetScale(row, 0, 0, scale);
-              table.SetBlockAttributeValue(
-                row,
-                0,
-                0,
-                attributeDefinitionId,
-                currentNum.ToString(CultureInfo.InvariantCulture));
-              table.Cells[row, 0].Alignment = CellAlignment.TopCenter;
-
-              if (addedCount == 0)
-              {
-                firstAdded = currentNum;
-              }
-              lastAdded = currentNum;
-              addedCount++;
-            }
-          }
-
-          // Apply 1/8" vertical margins and hide grids across all cells
-          table.VerticalCellMargin = KeyNoteTableVerticalMargin;
-          for (int r = 0; r < table.Rows.Count; r++)
-          {
-            for (int c = 0; c < table.Columns.Count; c++)
-            {
-              HideKeyNoteCellGrid(table, r, c);
-              SetKeyNoteCellMargins(
-                table,
-                r,
-                c,
-                KeyNoteTableVerticalMargin,
-                KeyNoteTableVerticalMargin,
-                KeyNoteTableBaseMargin);
-            }
-          }
-
-          table.GenerateLayout();
-          CompressKeyNoteTableRows(table);
-          table.GenerateLayout();
-
-          transaction.Commit();
-
-          if (addedCount > 0)
-          {
-            editor.WriteMessage(
-              $"\nUpdated keyed-note table {tableId.Handle}: added keyed note symbol{(addedCount == 1 ? string.Empty : "s")} " +
-              $"{firstAdded}{(addedCount > 1 ? $" to {lastAdded}" : string.Empty)} to column 1.");
-          }
-          else
-          {
-            string noteRange = foundNumbers.Count > 0
-              ? $" (notes {foundNumbers.First().number}" + (foundNumbers.Count > 1 ? $" through {foundNumbers.Last().number}" : string.Empty) + ")"
-              : string.Empty;
-            editor.WriteMessage($"\nKeyed-note table {tableId.Handle} is already up to date{noteRange}.");
-          }
-        }
-      }
-      catch (System.Exception ex)
-      {
-        editor.WriteMessage($"\nKEYNOTETABLE update error: {ex.Message}");
-      }
-    }
-
-    private static bool TryGetCellNumber(
-      Table table,
-      Transaction transaction,
-      int row,
-      int column,
-      out int number,
-      out ObjectId blockId,
-      out double scale)
-    {
-      number = 0;
-      blockId = ObjectId.Null;
-      scale = 1.0;
-
-      try
-      {
-        int numContents = table.GetNumberOfContents(row, column);
-        for (int contentIndex = 0; contentIndex < numContents; contentIndex++)
-        {
-          ObjectId btrId = table.GetBlockTableRecordId(row, column, contentIndex);
-          if (!btrId.IsNull && btrId.IsValid)
-          {
-            blockId = btrId;
-            try
-            {
-              scale = table.GetScale(row, column, contentIndex);
-            }
-            catch
-            {
-              scale = 1.0;
-            }
-
-            BlockTableRecord btr = transaction.GetObject(btrId, OpenMode.ForRead, false) as BlockTableRecord;
-            if (btr != null)
-            {
-              foreach (ObjectId entId in btr)
-              {
-                AttributeDefinition attDef = transaction.GetObject(entId, OpenMode.ForRead, false) as AttributeDefinition;
-                if (attDef != null && !attDef.Constant)
-                {
-                  string val = table.GetBlockAttributeValue(row, column, contentIndex, entId);
-                  if (!string.IsNullOrWhiteSpace(val) && int.TryParse(val.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
-                  {
-                    number = parsed;
-                    return true;
-                  }
-                }
-              }
-            }
-          }
-
-          string text = table.GetTextString(row, column, contentIndex);
-          if (!string.IsNullOrWhiteSpace(text))
-          {
-            string digits = new string(text.Where(char.IsDigit).ToArray());
-            if (!string.IsNullOrWhiteSpace(digits) && int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
-            {
-              number = parsed;
-              return true;
-            }
-          }
-        }
-      }
-      catch
-      {
-      }
-
-      return false;
-    }
-
-    private static bool TryPromptKeyNoteBoundary(
-      Editor editor,
-      KeyNoteTablePlan sourcePlan,
-      out KeyNoteTablePlan boundaryPlan,
+      GeneralNoteTablePlan sourcePlan,
+      out GeneralNoteTablePlan boundaryPlan,
       out Point3d insertionPoint)
     {
       boundaryPlan = null;
       insertionPoint = Point3d.Origin;
 
       PromptPointResult topLeftResult = editor.GetPoint(
-        "\nClick the upper-left corner of the first keyed-note column: ");
+        "\nClick the upper-left corner of the first general-note column: ");
       if (topLeftResult.Status != PromptStatus.OK)
       {
         return false;
@@ -610,17 +303,17 @@ namespace ElectricalCommands
         return false;
       }
 
-      GetKeyNoteLocalCoordinates(
+      GetGeneralNoteLocalCoordinates(
         topLeftResult.Value,
         sourcePlan.Rotation,
         out double topLeftX,
         out double topLeftY);
-      GetKeyNoteLocalCoordinates(
+      GetGeneralNoteLocalCoordinates(
         bottomRightResult.Value,
         sourcePlan.Rotation,
         out double bottomRightX,
         out double bottomRightY);
-      GetKeyNoteLocalCoordinates(
+      GetGeneralNoteLocalCoordinates(
         directionResult.Value,
         sourcePlan.Rotation,
         out double directionX,
@@ -635,37 +328,38 @@ namespace ElectricalCommands
         return false;
       }
 
-      var singleColumn = new KeyNoteSourceColumn
+      var singleColumn = new GeneralNoteSourceColumn
       {
         SourceLeft = topLeftX,
         SourceTop = topLeftY,
         SourceWidth = width,
         DbVisualLineCount = sourcePlan.DbVisualLineCount,
       };
-      foreach (KeyNoteSourceColumn sourceColumn in sourcePlan.Columns)
+      foreach (GeneralNoteSourceColumn sourceColumn in sourcePlan.Columns)
       {
         singleColumn.Entries.AddRange(sourceColumn.Entries);
       }
 
-      double symbolWidth = GetKeyNoteSymbolColumnWidth(singleColumn);
+      double numberWidth = GetGeneralNoteNumberColumnWidth(singleColumn);
       double minimumTextWidth = singleColumn.Entries.Max(
         entry => entry.TextHeight * 2.0);
-      if (width <= symbolWidth + minimumTextWidth)
+      if (width <= numberWidth + minimumTextWidth)
       {
         editor.WriteMessage(
           $"\nThe selected column is too narrow. Specify a width greater than " +
-          $"{(symbolWidth + minimumTextWidth).ToString("0.###", CultureInfo.InvariantCulture)}.");
+          $"{(numberWidth + minimumTextWidth).ToString("0.###", CultureInfo.InvariantCulture)}.");
         return false;
       }
 
-      double scale = GetKeyNoteColumnScale(singleColumn);
+      double scale = GetGeneralNoteColumnScale(singleColumn);
+      double maxTextHeight = singleColumn.Entries.Max(entry => entry.TextHeight);
       double minimumRowHeight =
-        KeyNoteHexHeight * scale +
-        (KeyNoteTableVerticalMargin * 2.0) * scale;
+        maxTextHeight +
+        (GeneralNoteTableVerticalMargin * 2.0) * scale;
       if (height <= minimumRowHeight)
       {
         editor.WriteMessage(
-          $"\nThe selected height is too small to contain one keyed-note row. " +
+          $"\nThe selected height is too small to contain one general-note row. " +
           $"Specify a height greater than " +
           $"{minimumRowHeight.ToString("0.###", CultureInfo.InvariantCulture)}.");
         return false;
@@ -674,9 +368,9 @@ namespace ElectricalCommands
       TableBreakFlowDirection overflowDirection = directionX < bottomRightX
         ? TableBreakFlowDirection.Left
         : TableBreakFlowDirection.Right;
-      boundaryPlan = new KeyNoteTablePlan
+      boundaryPlan = new GeneralNoteTablePlan
       {
-        Columns = new List<KeyNoteSourceColumn> { singleColumn },
+        Columns = new List<GeneralNoteSourceColumn> { singleColumn },
         Rotation = sourcePlan.Rotation,
         Elevation = topLeftResult.Value.Z,
         Layer = sourcePlan.Layer,
@@ -685,7 +379,7 @@ namespace ElectricalCommands
         BreakEnabled = true,
         BreakHeight = height,
         BreakFlowDirection = overflowDirection,
-        BreakSpacing = KeyNoteTableColumnGap * scale,
+        BreakSpacing = GeneralNoteTableColumnGap * scale,
       };
       insertionPoint = topLeftResult.Value;
       editor.WriteMessage(
@@ -694,7 +388,7 @@ namespace ElectricalCommands
       return true;
     }
 
-    private static void GetKeyNoteLocalCoordinates(
+    private static void GetGeneralNoteLocalCoordinates(
       Point3d point,
       double rotation,
       out double x,
@@ -706,7 +400,7 @@ namespace ElectricalCommands
       y = -point.X * sine + point.Y * cosine;
     }
 
-    private static void GetKeyNoteTableSelectionTypes(
+    private static void GetGeneralNoteTableSelectionTypes(
       Database database,
       IEnumerable<ObjectId> sourceIds,
       out bool containsMText,
@@ -730,7 +424,7 @@ namespace ElectricalCommands
       }
     }
 
-    private static KeyNoteTablePlan BuildKeyNotePlanFromMText(
+    private static GeneralNoteTablePlan BuildGeneralNotePlanFromMText(
       Database database,
       Transaction transaction,
       IEnumerable<ObjectId> sourceIds)
@@ -741,28 +435,28 @@ namespace ElectricalCommands
         .ToList();
       if (sourceTexts.Count == 0)
       {
-        return new KeyNoteTablePlan();
+        return new GeneralNoteTablePlan();
       }
 
       double rotation = sourceTexts[0].Rotation;
-      ValidateKeyNoteRotations(
+      ValidateGeneralNoteRotations(
         sourceTexts.Select(text => text.Rotation),
         rotation);
-      var columns = new List<KeyNoteSourceColumn>();
+      var columns = new List<GeneralNoteSourceColumn>();
       foreach (MText source in sourceTexts)
       {
-        LocalBounds bounds = GetLocalBounds(source, rotation);
-        List<string> paragraphs = SplitMTextIntoKeyNotes(source);
+        GeneralLocalBounds bounds = GetGeneralNoteLocalBounds(source, rotation);
+        List<string> paragraphs = SplitMTextIntoGeneralNotes(source);
         if (paragraphs.Count == 0)
         {
           continue;
         }
 
-        double textHeight = PositiveOrDefault(source.TextHeight, database.Textsize);
+        double textHeight = PositiveOrDefaultGeneralNote(source.TextHeight, database.Textsize);
         double sourceWidth = source.Width > textHeight
           ? source.Width
-          : PositiveOrDefault(source.ActualWidth, bounds.Width);
-        var column = new KeyNoteSourceColumn
+          : PositiveOrDefaultGeneralNote(source.ActualWidth, bounds.Width);
+        var column = new GeneralNoteSourceColumn
         {
           SourceLeft = bounds.Left,
           SourceTop = bounds.Top,
@@ -770,9 +464,15 @@ namespace ElectricalCommands
         };
         foreach (string paragraph in paragraphs)
         {
-          column.Entries.Add(new KeyNoteEntry
+          string cleanedText = StripLeadingNoteNumber(paragraph);
+          if (string.IsNullOrWhiteSpace(cleanedText))
           {
-            PlainText = paragraph,
+            continue;
+          }
+
+          column.Entries.Add(new GeneralNoteEntry
+          {
+            PlainText = cleanedText,
             TextHeight = textHeight,
             TextStyleId = source.TextStyleId,
             ColorIndex = (short)source.ColorIndex,
@@ -782,7 +482,7 @@ namespace ElectricalCommands
       }
 
       columns = columns.OrderBy(column => column.SourceLeft).ToList();
-      return new KeyNoteTablePlan
+      return new GeneralNoteTablePlan
       {
         Columns = columns,
         Rotation = rotation,
@@ -791,7 +491,7 @@ namespace ElectricalCommands
       };
     }
 
-    private static KeyNoteTablePlan BuildKeyNotePlanFromDbText(
+    private static GeneralNoteTablePlan BuildGeneralNotePlanFromDbText(
       Database database,
       Transaction transaction,
       IEnumerable<ObjectId> sourceIds,
@@ -803,17 +503,17 @@ namespace ElectricalCommands
         .ToList();
       if (sourceTexts.Count == 0)
       {
-        return new KeyNoteTablePlan();
+        return new GeneralNoteTablePlan();
       }
 
       double rotation = sourceTexts[0].Rotation;
-      ValidateKeyNoteRotations(
+      ValidateGeneralNoteRotations(
         sourceTexts.Select(text => text.Rotation),
         rotation);
-      List<DbTextLine> lines = sourceTexts.Select(source =>
+      List<GeneralDbTextLine> lines = sourceTexts.Select(source =>
       {
-        LocalBounds bounds = GetLocalBounds(source, rotation);
-        return new DbTextLine
+        GeneralLocalBounds bounds = GetGeneralNoteLocalBounds(source, rotation);
+        return new GeneralDbTextLine
         {
           Text = source.TextString.Trim(),
           Left = bounds.Left,
@@ -821,38 +521,38 @@ namespace ElectricalCommands
           Top = bounds.Top,
           Bottom = bounds.Bottom,
           CenterY = (bounds.Top + bounds.Bottom) / 2.0,
-          TextHeight = PositiveOrDefault(source.Height, database.Textsize),
+          TextHeight = PositiveOrDefaultGeneralNote(source.Height, database.Textsize),
           TextStyleId = source.TextStyleId,
           ColorIndex = (short)source.ColorIndex,
         };
       }).ToList();
 
-      double medianHeight = Median(lines.Select(line => line.TextHeight));
+      double medianHeight = MedianGeneralNote(lines.Select(line => line.TextHeight));
       double columnTolerance = Math.Max(medianHeight * 8.0, 1e-4);
-      var clusters = new List<List<DbTextLine>>();
-      foreach (DbTextLine line in lines.OrderBy(line => line.Left))
+      var clusters = new List<List<GeneralDbTextLine>>();
+      foreach (GeneralDbTextLine line in lines.OrderBy(line => line.Left))
       {
-        List<DbTextLine> nearest = clusters
+        List<GeneralDbTextLine> nearest = clusters
           .Where(cluster =>
-            Math.Abs(Median(cluster.Select(item => item.Left)) - line.Left) <=
+            Math.Abs(MedianGeneralNote(cluster.Select(item => item.Left)) - line.Left) <=
             columnTolerance)
           .OrderBy(cluster =>
-            Math.Abs(Median(cluster.Select(item => item.Left)) - line.Left))
+            Math.Abs(MedianGeneralNote(cluster.Select(item => item.Left)) - line.Left))
           .FirstOrDefault();
         if (nearest == null)
         {
-          nearest = new List<DbTextLine>();
+          nearest = new List<GeneralDbTextLine>();
           clusters.Add(nearest);
         }
         nearest.Add(line);
       }
 
-      List<KeyNoteSourceColumn> columns = clusters
-        .Select(cluster => BuildKeyNoteColumnFromDbText(cluster, everyLine))
+      List<GeneralNoteSourceColumn> columns = clusters
+        .Select(cluster => BuildGeneralNoteColumnFromDbText(cluster, everyLine))
         .Where(column => column.Entries.Count > 0)
         .OrderBy(column => column.SourceLeft)
         .ToList();
-      return new KeyNoteTablePlan
+      return new GeneralNoteTablePlan
       {
         Columns = columns,
         Rotation = rotation,
@@ -862,22 +562,22 @@ namespace ElectricalCommands
       };
     }
 
-    private static KeyNoteSourceColumn BuildKeyNoteColumnFromDbText(
-      List<DbTextLine> sourceLines,
+    private static GeneralNoteSourceColumn BuildGeneralNoteColumnFromDbText(
+      List<GeneralDbTextLine> sourceLines,
       bool everyLine)
     {
-      double medianHeight = Median(sourceLines.Select(line => line.TextHeight));
+      double medianHeight = MedianGeneralNote(sourceLines.Select(line => line.TextHeight));
       double sameLineTolerance = Math.Max(medianHeight * 0.45, 1e-5);
-      var visualLines = new List<DbVisualLine>();
-      foreach (DbTextLine source in sourceLines.OrderByDescending(line => line.CenterY))
+      var visualLines = new List<GeneralDbVisualLine>();
+      foreach (GeneralDbTextLine source in sourceLines.OrderByDescending(line => line.CenterY))
       {
-        DbVisualLine visual = visualLines
+        GeneralDbVisualLine visual = visualLines
           .Where(line => Math.Abs(line.CenterY - source.CenterY) <= sameLineTolerance)
           .OrderBy(line => Math.Abs(line.CenterY - source.CenterY))
           .FirstOrDefault();
         if (visual == null)
         {
-          visual = new DbVisualLine();
+          visual = new GeneralDbVisualLine();
           visualLines.Add(visual);
         }
         visual.Parts.Add(source);
@@ -885,7 +585,7 @@ namespace ElectricalCommands
       }
       visualLines = visualLines.OrderByDescending(line => line.CenterY).ToList();
 
-      var column = new KeyNoteSourceColumn
+      var column = new GeneralNoteSourceColumn
       {
         SourceLeft = visualLines.Min(line => line.Left),
         SourceTop = visualLines.Max(line => line.Top),
@@ -896,9 +596,9 @@ namespace ElectricalCommands
       };
       if (everyLine || visualLines.Count == 1)
       {
-        foreach (DbVisualLine line in visualLines)
+        foreach (GeneralDbVisualLine line in visualLines)
         {
-          column.Entries.Add(CreateKeyNoteEntry(line, line.Text));
+          column.Entries.Add(CreateGeneralNoteEntry(line, line.Text));
         }
         return column;
       }
@@ -917,26 +617,26 @@ namespace ElectricalCommands
         .Take(Math.Max(1, (int)Math.Ceiling(gaps.Count * 0.65)))
         .ToList();
       double normalPitch = lowerGaps.Count > 0
-        ? Median(lowerGaps)
+        ? MedianGeneralNote(lowerGaps)
         : medianHeight * 1.5;
       double noteGapThreshold = Math.Max(
         normalPitch * 1.35,
         medianHeight * 1.65);
       double indentationThreshold = Math.Max(medianHeight * 1.25, 1e-5);
 
-      DbVisualLine first = visualLines[0];
+      GeneralDbVisualLine first = visualLines[0];
       StringBuilder noteText = new StringBuilder(first.Text);
-      DbVisualLine noteFirstLine = first;
+      GeneralDbVisualLine noteFirstLine = first;
       for (int index = 1; index < visualLines.Count; index++)
       {
-        DbVisualLine previous = visualLines[index - 1];
-        DbVisualLine current = visualLines[index];
+        GeneralDbVisualLine previous = visualLines[index - 1];
+        GeneralDbVisualLine current = visualLines[index];
         double pitch = previous.CenterY - current.CenterY;
         bool startsNewNote = pitch > noteGapThreshold ||
           current.Left < previous.Left - indentationThreshold;
         if (startsNewNote)
         {
-          column.Entries.Add(CreateKeyNoteEntry(noteFirstLine, noteText.ToString()));
+          column.Entries.Add(CreateGeneralNoteEntry(noteFirstLine, noteText.ToString()));
           noteFirstLine = current;
           noteText.Clear();
           noteText.Append(current.Text);
@@ -947,22 +647,34 @@ namespace ElectricalCommands
           noteText.Append(current.Text);
         }
       }
-      column.Entries.Add(CreateKeyNoteEntry(noteFirstLine, noteText.ToString()));
+      column.Entries.Add(CreateGeneralNoteEntry(noteFirstLine, noteText.ToString()));
       return column;
     }
 
-    private static KeyNoteEntry CreateKeyNoteEntry(DbVisualLine line, string text)
+    private static GeneralNoteEntry CreateGeneralNoteEntry(GeneralDbVisualLine line, string text)
     {
-      return new KeyNoteEntry
+      return new GeneralNoteEntry
       {
-        PlainText = text,
+        PlainText = StripLeadingNoteNumber(text),
         TextHeight = line.TextHeight,
         TextStyleId = line.TextStyleId,
         ColorIndex = line.ColorIndex,
       };
     }
 
-    private static List<string> SplitMTextIntoKeyNotes(MText source)
+    private static string StripLeadingNoteNumber(string text)
+    {
+      if (string.IsNullOrWhiteSpace(text))
+      {
+        return string.Empty;
+      }
+      return Regex.Replace(
+        text,
+        @"^\s*(?:\(?\d+\)?\s*[\.\:\)]|\d+\.)\s*(?:\-\s*)?",
+        string.Empty);
+    }
+
+    private static List<string> SplitMTextIntoGeneralNotes(MText source)
     {
       string visible = (source.Text ?? string.Empty)
         .Replace("\r\n", "\n")
@@ -974,7 +686,7 @@ namespace ElectricalCommands
         .Where(value => value.Length > 0)
         .ToList();
 
-      int rawParagraphCount = CountMTextParagraphBreaks(source.Contents) + 1;
+      int rawParagraphCount = CountGeneralMTextParagraphBreaks(source.Contents) + 1;
       if (rawParagraphCount <= 1)
       {
         return visibleParagraphs.Count == 0
@@ -986,19 +698,19 @@ namespace ElectricalCommands
         return visibleParagraphs;
       }
 
-      return SplitRawMTextParagraphs(source.Contents)
-        .Select(RemoveMTextFormatting)
+      return SplitRawGeneralMTextParagraphs(source.Contents)
+        .Select(RemoveGeneralMTextFormatting)
         .Select(value => value.Trim())
         .Where(value => value.Length > 0)
         .ToList();
     }
 
-    private static int CountMTextParagraphBreaks(string contents)
+    private static int CountGeneralMTextParagraphBreaks(string contents)
     {
-      return SplitRawMTextParagraphs(contents).Count - 1;
+      return SplitRawGeneralMTextParagraphs(contents).Count - 1;
     }
 
-    private static List<string> SplitRawMTextParagraphs(string contents)
+    private static List<string> SplitRawGeneralMTextParagraphs(string contents)
     {
       var paragraphs = new List<string>();
       var current = new StringBuilder();
@@ -1040,7 +752,7 @@ namespace ElectricalCommands
       return paragraphs;
     }
 
-    private static string RemoveMTextFormatting(string contents)
+    private static string RemoveGeneralMTextFormatting(string contents)
     {
       var result = new StringBuilder();
       string value = contents ?? string.Empty;
@@ -1110,9 +822,9 @@ namespace ElectricalCommands
       return result.ToString();
     }
 
-    private static ObjectId WriteKeyNoteTable(
+    private static ObjectId WriteGeneralNoteTable(
       Database database,
-      KeyNoteTablePlan plan,
+      GeneralNoteTablePlan plan,
       Point3d insertionPoint,
       int firstNumber,
       IEnumerable<ObjectId> sourceIds,
@@ -1120,39 +832,20 @@ namespace ElectricalCommands
     {
       using (Transaction transaction = database.TransactionManager.StartTransaction())
       {
-        BlockTable blockTable = (BlockTable)transaction.GetObject(
-          database.BlockTableId,
-          OpenMode.ForRead);
-        if (!blockTable.Has(KnBlockName))
-        {
-          throw new InvalidOperationException($"Block {KnBlockName} is missing.");
-        }
-        ObjectId blockId = blockTable[KnBlockName];
-        ObjectId attributeDefinitionId = FindKeyNoteAttributeDefinition(
-          transaction,
-          blockId);
-        if (attributeDefinitionId.IsNull)
-        {
-          throw new InvalidOperationException(
-            $"Block {KnBlockName} has no editable keyed-note attribute.");
-        }
-
-        Table table = BuildKeyNoteTable(
+        Table table = BuildGeneralNoteTable(
           database,
           plan,
           insertionPoint,
-          firstNumber,
-          blockId,
-          attributeDefinitionId);
+          firstNumber);
         BlockTableRecord space = (BlockTableRecord)transaction.GetObject(
           database.CurrentSpaceId,
           OpenMode.ForWrite);
         ObjectId tableId = space.AppendEntity(table);
         transaction.AddNewlyCreatedDBObject(table, true);
         table.GenerateLayout();
-        CompressKeyNoteTableRows(table);
+        CompressGeneralNoteTableRows(table);
         table.GenerateLayout();
-        ConfigureKeyNoteTableBreaks(table, plan);
+        ConfigureGeneralNoteTableBreaks(table, plan);
         table.GenerateLayout();
 
         if (eraseSource)
@@ -1171,9 +864,9 @@ namespace ElectricalCommands
       }
     }
 
-    private static void ConfigureKeyNoteTableBreaks(
+    private static void ConfigureGeneralNoteTableBreaks(
       Table table,
-      KeyNoteTablePlan plan)
+      GeneralNoteTablePlan plan)
     {
       if (!plan.BreakEnabled)
       {
@@ -1198,13 +891,11 @@ namespace ElectricalCommands
       }
     }
 
-    private static Table BuildKeyNoteTable(
+    private static Table BuildGeneralNoteTable(
       Database database,
-      KeyNoteTablePlan plan,
+      GeneralNoteTablePlan plan,
       Point3d insertionPoint,
-      int firstNumber,
-      ObjectId blockId,
-      ObjectId attributeDefinitionId)
+      int firstNumber)
     {
       int rowCount = plan.Columns.Max(column => column.Entries.Count);
       int columnCount = plan.Columns.Count * 2;
@@ -1223,8 +914,8 @@ namespace ElectricalCommands
         stage = "creating the table rows and columns";
         table.SetSize(rowCount, columnCount);
         stage = "removing table-style title and header merges";
-        UnmergeKeyNoteTableCells(table);
-        table.VerticalCellMargin = KeyNoteTableVerticalMargin;
+        UnmergeGeneralNoteTableCells(table);
+        table.VerticalCellMargin = GeneralNoteTableVerticalMargin;
         if (!string.IsNullOrWhiteSpace(plan.Layer))
         {
           stage = $"assigning table layer '{plan.Layer}'";
@@ -1232,21 +923,21 @@ namespace ElectricalCommands
         }
 
         stage = "sizing table columns";
-        double[] keyWidths = plan.Columns
-          .Select(GetKeyNoteSymbolColumnWidth)
+        double[] numberWidths = plan.Columns
+          .Select(GetGeneralNoteNumberColumnWidth)
           .ToArray();
         for (int columnIndex = 0; columnIndex < plan.Columns.Count; columnIndex++)
         {
-          KeyNoteSourceColumn column = plan.Columns[columnIndex];
-          int symbolColumn = columnIndex * 2;
-          int textColumn = symbolColumn + 1;
-          table.Columns[symbolColumn].Width = keyWidths[columnIndex];
-          double scale = GetKeyNoteColumnScale(column);
-          double margin = KeyNoteTableBaseMargin * scale;
+          GeneralNoteSourceColumn column = plan.Columns[columnIndex];
+          int numberColumn = columnIndex * 2;
+          int textColumn = numberColumn + 1;
+          table.Columns[numberColumn].Width = numberWidths[columnIndex];
+          double scale = GetGeneralNoteColumnScale(column);
+          double margin = GeneralNoteTableBaseMargin * scale;
           double contentWidth;
           if (plan.ForcedPairWidth > 1e-9)
           {
-            contentWidth = plan.ForcedPairWidth - keyWidths[columnIndex];
+            contentWidth = plan.ForcedPairWidth - numberWidths[columnIndex];
             if (contentWidth <= margin * 2.0)
             {
               throw new InvalidOperationException(
@@ -1262,12 +953,12 @@ namespace ElectricalCommands
             {
               double sourceDelta = plan.Columns[columnIndex + 1].SourceLeft -
                 column.SourceLeft;
-              double alignmentWidth = sourceDelta - keyWidths[columnIndex + 1];
+              double alignmentWidth = sourceDelta - numberWidths[columnIndex + 1];
               contentWidth = Math.Max(contentWidth, alignmentWidth);
             }
             else
             {
-              contentWidth += KeyNoteTableColumnGap * scale;
+              contentWidth += GeneralNoteTableColumnGap * scale;
             }
           }
           table.Columns[textColumn].Width = contentWidth;
@@ -1276,63 +967,60 @@ namespace ElectricalCommands
         int number = firstNumber;
         for (int sourceColumn = 0; sourceColumn < plan.Columns.Count; sourceColumn++)
         {
-          KeyNoteSourceColumn column = plan.Columns[sourceColumn];
-          int symbolColumn = sourceColumn * 2;
-          int textColumn = symbolColumn + 1;
+          GeneralNoteSourceColumn column = plan.Columns[sourceColumn];
+          int numberColumn = sourceColumn * 2;
+          int textColumn = numberColumn + 1;
           for (int row = 0; row < rowCount; row++)
           {
             stage = $"formatting row {row + 1}, column {sourceColumn + 1}";
-            HideKeyNoteCellGrid(table, row, symbolColumn);
-            HideKeyNoteCellGrid(table, row, textColumn);
-            EnsureKeyNoteTableCellContent(table, row, symbolColumn);
-            EnsureKeyNoteTableCellContent(table, row, textColumn);
-            SetKeyNoteCellMargins(
+            HideGeneralNoteCellGrid(table, row, numberColumn);
+            HideGeneralNoteCellGrid(table, row, textColumn);
+            EnsureGeneralNoteTableCellContent(table, row, numberColumn);
+            EnsureGeneralNoteTableCellContent(table, row, textColumn);
+            SetGeneralNoteCellMargins(
               table,
               row,
-              symbolColumn,
-              KeyNoteTableVerticalMargin,
-              KeyNoteTableVerticalMargin,
-              KeyNoteTableBaseMargin);
-            SetKeyNoteCellMargins(
+              numberColumn,
+              GeneralNoteTableVerticalMargin,
+              GeneralNoteTableVerticalMargin,
+              GeneralNoteTableBaseMargin);
+            SetGeneralNoteCellMargins(
               table,
               row,
               textColumn,
-              KeyNoteTableVerticalMargin,
-              KeyNoteTableVerticalMargin,
-              KeyNoteTableBaseMargin);
+              GeneralNoteTableVerticalMargin,
+              GeneralNoteTableVerticalMargin,
+              GeneralNoteTableBaseMargin);
             if (row >= column.Entries.Count)
             {
-              table.SetTextString(row, symbolColumn, 0, string.Empty);
+              table.SetTextString(row, numberColumn, 0, string.Empty);
               table.SetTextString(row, textColumn, 0, string.Empty);
               continue;
             }
 
-            KeyNoteEntry entry = column.Entries[row];
-            double scale = GetKeyNoteEntryScale(entry);
+            GeneralNoteEntry entry = column.Entries[row];
 
-            stage = $"placing keyed-note symbol {number}";
-            table.SetBlockTableRecordId(
+            stage = $"writing general-note number {number}";
+            table.SetTextString(
               row,
-              symbolColumn,
+              numberColumn,
               0,
-              blockId,
-              false);
-            table.SetIsAutoScale(row, symbolColumn, 0, false);
-            table.SetScale(row, symbolColumn, 0, scale);
-            table.SetBlockAttributeValue(
+              $"{number.ToString(CultureInfo.InvariantCulture)}.");
+            table.SetTextHeight(row, numberColumn, 0, entry.TextHeight);
+            table.SetTextStyleId(row, numberColumn, 0, entry.TextStyleId);
+            table.Cells[row, numberColumn].Alignment = CellAlignment.TopLeft;
+            table.SetContentColor(
               row,
-              symbolColumn,
+              numberColumn,
               0,
-              attributeDefinitionId,
-              number.ToString(CultureInfo.InvariantCulture));
-            table.Cells[row, symbolColumn].Alignment = CellAlignment.TopCenter;
+              ResolveGeneralNoteTableColor(entry.ColorIndex));
 
-            stage = $"writing note text for symbol {number}";
+            stage = $"writing note text for note {number}";
             table.SetTextString(
               row,
               textColumn,
               0,
-              ConvertPlainTextToMTextContents(entry.PlainText));
+              ConvertPlainTextToMTextContents(StripLeadingNoteNumber(entry.PlainText)));
             table.SetTextHeight(row, textColumn, 0, entry.TextHeight);
             table.SetTextStyleId(row, textColumn, 0, entry.TextStyleId);
             table.Cells[row, textColumn].Alignment = CellAlignment.TopLeft;
@@ -1340,7 +1028,7 @@ namespace ElectricalCommands
               row,
               textColumn,
               0,
-              ResolveKeyNoteTableColor(entry.ColorIndex));
+              ResolveGeneralNoteTableColor(entry.ColorIndex));
             number++;
           }
         }
@@ -1348,7 +1036,7 @@ namespace ElectricalCommands
         stage = "generating the initial table layout";
         table.GenerateLayout();
         stage = "sizing table rows";
-        CompressKeyNoteTableRows(table);
+        CompressGeneralNoteTableRows(table);
         stage = "generating the final table layout";
         table.GenerateLayout();
         return table;
@@ -1362,7 +1050,7 @@ namespace ElectricalCommands
       }
     }
 
-    private static void CompressKeyNoteTableRows(Table table)
+    private static void CompressGeneralNoteTableRows(Table table)
     {
       for (int row = 0; row < table.Rows.Count; row++)
       {
@@ -1376,13 +1064,13 @@ namespace ElectricalCommands
         }
         catch
         {
-          // The database-resident pass in WriteKeyNoteTable retries rows whose
+          // The database-resident pass in WriteGeneralNoteTable retries rows whose
           // table style cannot calculate MinimumHeight during construction.
         }
       }
     }
 
-    private static void UnmergeKeyNoteTableCells(Table table)
+    private static void UnmergeGeneralNoteTableCells(Table table)
     {
       for (int row = 0; row < table.Rows.Count; row++)
       {
@@ -1397,7 +1085,7 @@ namespace ElectricalCommands
       }
     }
 
-    private static void EnsureKeyNoteTableCellContent(
+    private static void EnsureGeneralNoteTableCellContent(
       Table table,
       int row,
       int column)
@@ -1416,7 +1104,7 @@ namespace ElectricalCommands
       }
     }
 
-    private static Color ResolveKeyNoteTableColor(short colorIndex)
+    private static Color ResolveGeneralNoteTableColor(short colorIndex)
     {
       if (colorIndex == 0)
       {
@@ -1429,7 +1117,7 @@ namespace ElectricalCommands
       return Color.FromColorIndex(ColorMethod.ByAci, colorIndex);
     }
 
-    private static void HideKeyNoteCellGrid(Table table, int row, int column)
+    private static void HideGeneralNoteCellGrid(Table table, int row, int column)
     {
       try
       {
@@ -1473,7 +1161,7 @@ namespace ElectricalCommands
       }
     }
 
-    private static void SetKeyNoteCellMargins(
+    private static void SetGeneralNoteCellMargins(
       Table table,
       int row,
       int column,
@@ -1501,43 +1189,10 @@ namespace ElectricalCommands
       table.SetMargin(row, column, CellMargins.Right, horizontalMargin);
     }
 
-    private static ObjectId FindKeyNoteAttributeDefinition(
-      Transaction transaction,
-      ObjectId blockId)
+    private static Point3d GetGeneralNoteTableDefaultPosition(GeneralNoteTablePlan plan)
     {
-      BlockTableRecord block = transaction.GetObject(
-        blockId,
-        OpenMode.ForRead) as BlockTableRecord;
-      ObjectId fallback = ObjectId.Null;
-      foreach (ObjectId entityId in block)
-      {
-        AttributeDefinition definition = transaction.GetObject(
-          entityId,
-          OpenMode.ForRead,
-          false) as AttributeDefinition;
-        if (definition == null || definition.Constant)
-        {
-          continue;
-        }
-        if (fallback.IsNull)
-        {
-          fallback = entityId;
-        }
-        if (string.Equals(
-          definition.Tag,
-          KnAttributeTag,
-          StringComparison.OrdinalIgnoreCase))
-        {
-          return entityId;
-        }
-      }
-      return fallback;
-    }
-
-    private static Point3d GetKeyNoteTableDefaultPosition(KeyNoteTablePlan plan)
-    {
-      KeyNoteSourceColumn first = plan.Columns[0];
-      double left = first.SourceLeft - GetKeyNoteSymbolColumnWidth(first);
+      GeneralNoteSourceColumn first = plan.Columns[0];
+      double left = first.SourceLeft - GetGeneralNoteNumberColumnWidth(first);
       double top = plan.Columns.Max(column => column.SourceTop);
       double cosine = Math.Cos(plan.Rotation);
       double sine = Math.Sin(plan.Rotation);
@@ -1547,37 +1202,37 @@ namespace ElectricalCommands
         plan.Elevation);
     }
 
-    private static double GetKeyNoteSymbolColumnWidth(KeyNoteSourceColumn column)
+    private static double GetGeneralNoteNumberColumnWidth(GeneralNoteSourceColumn column)
     {
-      double scale = GetKeyNoteColumnScale(column);
-      return (KeyNoteHexWidth + KeyNoteTableBaseMargin * 2.0) * scale;
+      double scale = GetGeneralNoteColumnScale(column);
+      return (GeneralNoteNumberWidth + GeneralNoteTableBaseMargin * 2.0) * scale;
     }
 
-    private static double GetKeyNoteColumnScale(KeyNoteSourceColumn column)
+    private static double GetGeneralNoteColumnScale(GeneralNoteSourceColumn column)
     {
       return column.Entries.Count == 0
         ? 1.0
-        : column.Entries.Max(GetKeyNoteEntryScale);
+        : column.Entries.Max(GetGeneralNoteEntryScale);
     }
 
-    private static double GetKeyNoteEntryScale(KeyNoteEntry entry)
+    private static double GetGeneralNoteEntryScale(GeneralNoteEntry entry)
     {
-      return Math.Max(entry.TextHeight / KnAttributeHeight, 1e-6);
+      return Math.Max(entry.TextHeight / GeneralNoteDefaultAttributeHeight, 1e-6);
     }
 
-    private static void ValidateKeyNoteRotations(
+    private static void ValidateGeneralNoteRotations(
       IEnumerable<double> rotations,
       double reference)
     {
       if (rotations.Any(rotation =>
-        AngularDifference(rotation, reference) > KeyNoteRotationTolerance))
+        AngularDifferenceGeneralNote(rotation, reference) > GeneralNoteRotationTolerance))
       {
         throw new InvalidOperationException(
           "Selected text objects must share the same rotation (within one degree).");
       }
     }
 
-    private static double AngularDifference(double first, double second)
+    private static double AngularDifferenceGeneralNote(double first, double second)
     {
       double difference = Math.Abs(first - second) % (Math.PI * 2.0);
       return difference > Math.PI
@@ -1585,7 +1240,7 @@ namespace ElectricalCommands
         : difference;
     }
 
-    private static LocalBounds GetLocalBounds(Entity entity, double rotation)
+    private static GeneralLocalBounds GetGeneralNoteLocalBounds(Entity entity, double rotation)
     {
       Extents3d extents = entity.GeometricExtents;
       Point3d[] corners =
@@ -1603,7 +1258,7 @@ namespace ElectricalCommands
       double[] localY = corners
         .Select(point => -point.X * sine + point.Y * cosine)
         .ToArray();
-      return new LocalBounds
+      return new GeneralLocalBounds
       {
         Left = localX.Min(),
         Right = localX.Max(),
@@ -1612,16 +1267,16 @@ namespace ElectricalCommands
       };
     }
 
-    private static double PositiveOrDefault(double value, double fallback)
+    private static double PositiveOrDefaultGeneralNote(double value, double fallback)
     {
       if (value > 1e-9)
       {
         return value;
       }
-      return fallback > 1e-9 ? fallback : KnAttributeHeight;
+      return fallback > 1e-9 ? fallback : GeneralNoteDefaultAttributeHeight;
     }
 
-    private static double Median(IEnumerable<double> values)
+    private static double MedianGeneralNote(IEnumerable<double> values)
     {
       double[] ordered = values
         .Where(value => !double.IsNaN(value) && !double.IsInfinity(value))
@@ -1637,10 +1292,10 @@ namespace ElectricalCommands
         : ordered[middle];
     }
 
-    private sealed class KeyNoteTablePlan
+    private sealed class GeneralNoteTablePlan
     {
-      internal List<KeyNoteSourceColumn> Columns { get; set; } =
-        new List<KeyNoteSourceColumn>();
+      internal List<GeneralNoteSourceColumn> Columns { get; set; } =
+        new List<GeneralNoteSourceColumn>();
       internal double Rotation { get; set; }
       internal double Elevation { get; set; }
       internal string Layer { get; set; } = string.Empty;
@@ -1654,16 +1309,16 @@ namespace ElectricalCommands
       internal int NoteCount => Columns.Sum(column => column.Entries.Count);
     }
 
-    private sealed class KeyNoteSourceColumn
+    private sealed class GeneralNoteSourceColumn
     {
-      internal List<KeyNoteEntry> Entries { get; } = new List<KeyNoteEntry>();
+      internal List<GeneralNoteEntry> Entries { get; } = new List<GeneralNoteEntry>();
       internal double SourceLeft { get; set; }
       internal double SourceTop { get; set; }
       internal double SourceWidth { get; set; }
       internal int DbVisualLineCount { get; set; }
     }
 
-    private sealed class KeyNoteEntry
+    private sealed class GeneralNoteEntry
     {
       internal string PlainText { get; set; } = string.Empty;
       internal double TextHeight { get; set; }
@@ -1671,7 +1326,7 @@ namespace ElectricalCommands
       internal short ColorIndex { get; set; } = 256;
     }
 
-    private sealed class DbTextLine
+    private sealed class GeneralDbTextLine
     {
       internal string Text { get; set; } = string.Empty;
       internal double Left { get; set; }
@@ -1684,9 +1339,9 @@ namespace ElectricalCommands
       internal short ColorIndex { get; set; } = 256;
     }
 
-    private sealed class DbVisualLine
+    private sealed class GeneralDbVisualLine
     {
-      internal List<DbTextLine> Parts { get; } = new List<DbTextLine>();
+      internal List<GeneralDbTextLine> Parts { get; } = new List<GeneralDbTextLine>();
       internal string Text { get; private set; } = string.Empty;
       internal double Left { get; private set; }
       internal double Right { get; private set; }
@@ -1698,19 +1353,19 @@ namespace ElectricalCommands
 
       internal void Refresh()
       {
-        List<DbTextLine> ordered = Parts.OrderBy(part => part.Left).ToList();
+        List<GeneralDbTextLine> ordered = Parts.OrderBy(part => part.Left).ToList();
         Text = string.Join(" ", ordered.Select(part => part.Text));
         Left = ordered.Min(part => part.Left);
         Right = ordered.Max(part => part.Right);
         Top = ordered.Max(part => part.Top);
-        CenterY = Median(ordered.Select(part => part.CenterY));
+        CenterY = MedianGeneralNote(ordered.Select(part => part.CenterY));
         TextHeight = ordered.Max(part => part.TextHeight);
         TextStyleId = ordered[0].TextStyleId;
         ColorIndex = ordered[0].ColorIndex;
       }
     }
 
-    private sealed class LocalBounds
+    private sealed class GeneralLocalBounds
     {
       internal double Left { get; set; }
       internal double Right { get; set; }

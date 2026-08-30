@@ -60,6 +60,11 @@ namespace ElectricalCommands
       equipment = null;
       int bestMatchLength = -1;
 
+      if (string.IsNullOrWhiteSpace(requested))
+      {
+        return false;
+      }
+
       foreach (DedicatedEquipmentLoad candidate in catalog.Items)
       {
         foreach (string name in GetNames(candidate))
@@ -87,6 +92,15 @@ namespace ElectricalCommands
           {
             equipment = candidate;
             bestMatchLength = normalizedName.Length;
+          }
+          else if (requested.Length >= 4 &&
+                   normalizedName.IndexOf(
+                     requested,
+                     StringComparison.OrdinalIgnoreCase) >= 0 &&
+                   requested.Length > bestMatchLength)
+          {
+            equipment = candidate;
+            bestMatchLength = requested.Length;
           }
         }
       }
@@ -129,6 +143,7 @@ namespace ElectricalCommands
     private static DedicatedEquipmentCatalogFile LoadOrCreate(
       string catalogPath)
     {
+      DedicatedEquipmentCatalogFile defaults = CreateDefaultCatalog();
       bool catalogExists = File.Exists(catalogPath);
       if (catalogExists)
       {
@@ -140,6 +155,35 @@ namespace ElectricalCommands
               json);
           if (existing?.Items != null && existing.Items.Count > 0)
           {
+            bool updated = false;
+            foreach (DedicatedEquipmentLoad defaultItem in defaults.Items)
+            {
+              string defaultKey = Normalize(defaultItem.Description);
+              if (!existing.Items.Any(item =>
+                string.Equals(
+                  Normalize(item.Description),
+                  defaultKey,
+                  StringComparison.OrdinalIgnoreCase)))
+              {
+                existing.Items.Add(defaultItem);
+                updated = true;
+              }
+            }
+
+            if (updated)
+            {
+              existing.Items = existing.Items
+                .OrderBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+              try
+              {
+                Save(catalogPath, existing);
+              }
+              catch
+              {
+              }
+            }
+
             return existing;
           }
         }
@@ -150,7 +194,6 @@ namespace ElectricalCommands
         }
       }
 
-      DedicatedEquipmentCatalogFile defaults = CreateDefaultCatalog();
       if (catalogExists)
       {
         return defaults;
@@ -258,6 +301,23 @@ namespace ElectricalCommands
             "FOOD WASTE DISPOSER",
             "DISPOSAL"),
           Create("ICE MAKER", 0.50, "ICEMAKER"),
+          Create(
+            "KITCHEN COUNTERTOP OUTLET",
+            0.18,
+            "COUNTER",
+            "COUNTERTOP",
+            "COUNTER TOP",
+            "KITCHEN COUNTER",
+            "KITCHEN COUNTERTOP",
+            "KITCHEN COUNTER TOP",
+            "KITCHEN COUNTERTOP RECEPTACLE",
+            "KITCHEN COUNTER RECEPTACLE",
+            "COUNTERTOP RECEPTACLE",
+            "COUNTER RECEPTACLE",
+            "COUNTERTOP OUTLET",
+            "COUNTER OUTLET",
+            "KITCHEN OUTLET",
+            "KITCHEN RECEPTACLE"),
           Create("MICROWAVE", 1.50, "MICROWAVE OVEN"),
           Create("RANGE HOOD", 0.50, "HOOD"),
           Create("REFRIGERATOR", 0.50, "FRIDGE", "REFRIG"),

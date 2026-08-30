@@ -73,7 +73,7 @@ namespace ElectricalCommands
       equipment = null;
       PromptStringOptions descriptionOptions = new PromptStringOptions(
         "\nEnter dedicated equipment description " +
-        "(for example FRIDGE, MICROWAVE, or WASHER): ")
+        "(for example FRIDGE, MICROWAVE, COUNTER, or WASHER): ")
       {
         AllowSpaces = true,
       };

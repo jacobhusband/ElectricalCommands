@@ -30,9 +30,12 @@
         "OPENLAYERS": "Freezes or thaws selected layers across selected DWGs that are open in the current AutoCAD session.",
         "OPENFREEZETHAW": "Alias for OPENLAYERS.",
         "OLAYERS": "Alias for OPENLAYERS.",
-        "KEYNOTETABLE": "Converts MText note columns or grouped DBText lines into an invisible-border table with sequential KEYED_NOTE symbols.",
+        "KEYNOTETABLE": "Converts MText note columns or grouped DBText lines into an invisible-border table with sequential KEYED_NOTE symbols and three-point boundary-controlled overflow.",
         "KNTABLE": "Alias for KEYNOTETABLE.",
-        "KNT": "Alias for KEYNOTETABLE."
+        "KNT": "Alias for KEYNOTETABLE.",
+        "GENERALNOTETABLE": "Converts MText general note columns or grouped DBText lines into an invisible-border numbered table with three-point boundary-controlled overflow.",
+        "GNTABLE": "Alias for GENERALNOTETABLE.",
+        "GNT": "Alias for GENERALNOTETABLE."
     },
     "links": {
         "OBJMASK": "https://brainy-seahorse-3c5.notion.site/OBJMASK-2b13fdbb662c802fb082e4095528ec06",
