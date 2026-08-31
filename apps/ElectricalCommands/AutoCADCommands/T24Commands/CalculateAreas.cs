@@ -4,8 +4,7 @@ using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
+using AcApplication = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace ElectricalCommands
 {
@@ -19,29 +18,82 @@ namespace ElectricalCommands
 
       try
       {
-        SelectionSet sset;
-        PromptSelectionResult selRes = ed.SelectImplied();
-        if (selRes.Status == PromptStatus.OK)
+        SelectionSet selectionSet;
+        PromptSelectionResult selectionResult = ed.SelectImplied();
+        if (selectionResult.Status == PromptStatus.OK &&
+            selectionResult.Value != null)
         {
-          // Use the PickFirst selection
-          sset = selRes.Value;
+          selectionSet = selectionResult.Value;
         }
         else
         {
-          // If no PickFirst selection, prompt for selection
-          PromptSelectionOptions opts = new PromptSelectionOptions();
-          opts.MessageForAdding = "Select polylines or rectangles: ";
-          opts.AllowDuplicates = false;
-          opts.RejectObjectsOnLockedLayers = true;
-          TypedValue[] filterList = new TypedValue[]
+          PromptSelectionOptions options = new PromptSelectionOptions
           {
-                new TypedValue((int)DxfCode.Start, "LWPOLYLINE")
+            MessageForAdding = "\nSelect closed room polylines: ",
+            AllowDuplicates = false,
+            RejectObjectsOnLockedLayers = true,
           };
-          SelectionFilter filter = new SelectionFilter(filterList);
-          selRes = ed.GetSelection(opts, filter);
-          if (selRes.Status != PromptStatus.OK)
+          SelectionFilter filter = new SelectionFilter(
+            new[]
+            {
+              new TypedValue((int)DxfCode.Start, "LWPOLYLINE"),
+            });
+          selectionResult = ed.GetSelection(options, filter);
+          if (selectionResult.Status != PromptStatus.OK ||
+              selectionResult.Value == null)
+          {
             return;
-          sset = selRes.Value;
+          }
+          selectionSet = selectionResult.Value;
+        }
+
+        List<AreaLabelRoomItem> roomItems = BuildAreaLabelRoomItems(
+          db,
+          ed,
+          selectionSet);
+        if (roomItems.Count == 0)
+        {
+          ed.WriteMessage(
+            "\nAREALABEL requires at least one closed polyline with three " +
+            "or more vertices.");
+          return;
+        }
+
+        // Remove PickFirst grips so the naming window can show one clear,
+        // individually highlighted boundary at a time.
+        ed.SetImpliedSelection(new ObjectId[0]);
+        ObjectId highlightedBoundaryId = ObjectId.Null;
+        RoomNamingWindow namingWindow = new RoomNamingWindow(roomItems);
+        namingWindow.SelectedBoundaryChanged += selectedId =>
+        {
+          if (selectedId == highlightedBoundaryId)
+          {
+            return;
+          }
+          SetAreaLabelBoundaryHighlight(
+            db,
+            highlightedBoundaryId,
+            false);
+          highlightedBoundaryId = selectedId;
+          SetAreaLabelBoundaryHighlight(db, highlightedBoundaryId, true);
+        };
+
+        bool? accepted;
+        try
+        {
+          accepted = AcApplication.ShowModalWindow(namingWindow);
+        }
+        finally
+        {
+          SetAreaLabelBoundaryHighlight(
+            db,
+            highlightedBoundaryId,
+            false);
+        }
+        if (accepted != true)
+        {
+          ed.WriteMessage("\nAREALABEL room naming canceled.");
+          return;
         }
 
         PromptPointResult basePointResult = ed.GetPoint(
@@ -55,291 +107,212 @@ namespace ElectricalCommands
 
         Point3d basePoint = basePointResult.Value.TransformBy(
           ed.CurrentUserCoordinateSystem);
-        List<ElectricalDrawingSettingsStore.RoomBoundarySetting>
-          savedRooms =
-            new List<ElectricalDrawingSettingsStore.RoomBoundarySetting>();
-        int unnamedRoomCount = 0;
+        List<ElectricalDrawingSettingsStore.RoomBoundarySetting> savedRooms =
+          new List<ElectricalDrawingSettingsStore.RoomBoundarySetting>();
 
-        using (Transaction tr = doc.TransactionManager.StartTransaction())
+        using (Transaction transaction =
+          doc.TransactionManager.StartTransaction())
         {
-          List<AreaLabelTextCandidate> roomTextCandidates =
-            ReadAreaLabelTextCandidates(db, tr);
-          int processedCount = 0;
-          foreach (ObjectId objId in sset.GetObjectIds())
+          BlockTableRecord currentSpace = (BlockTableRecord)
+            transaction.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
+          foreach (AreaLabelRoomItem roomItem in roomItems)
           {
-            var obj = tr.GetObject(objId, OpenMode.ForWrite) as Entity;
-            if (obj == null)
+            Polyline polyline = transaction.GetObject(
+              roomItem.ObjectId,
+              OpenMode.ForRead,
+              false) as Polyline;
+            if (polyline == null ||
+                !polyline.Closed ||
+                polyline.NumberOfVertices < 3)
             {
-              ed.WriteMessage("\nSelected object is not a valid entity.");
-              continue;
+              throw new InvalidOperationException(
+                $"Room boundary {roomItem.SourceHandle} is no longer a " +
+                "valid closed polyline.");
             }
 
-            Autodesk.AutoCAD.DatabaseServices.Polyline polyline =
-                obj as Autodesk.AutoCAD.DatabaseServices.Polyline;
-            if (polyline != null)
+            Point3d labelLocation = ResolveAreaLabelLocation(polyline);
+            DBText text = new DBText
             {
-              double area = polyline.Area;
-              area /= 144; // Converting from square inches to square feet
-              ed.WriteMessage(
-                  $"\nThe area of the selected polyline is: {area:F2} sq ft"
-              );
+              Height = 9,
+              TextString = $"{Math.Ceiling(roomItem.SquareFeet)} sq ft",
+              Rotation = 0,
+              HorizontalMode = TextHorizontalMode.TextCenter,
+              VerticalMode = TextVerticalMode.TextVerticalMid,
+              Layer = "0",
+              Position = labelLocation,
+              AlignmentPoint = labelLocation,
+            };
+            currentSpace.AppendEntity(text);
+            transaction.AddNewlyCreatedDBObject(text, true);
 
-              // Get the bounding box of the polyline
-              Extents3d bounds = (Extents3d)polyline.Bounds;
-              // Calculate the center of the bounding box
-              Point3d center = new Point3d(
-                  (bounds.MinPoint.X + bounds.MaxPoint.X) / 2,
-                  (bounds.MinPoint.Y + bounds.MaxPoint.Y) / 2,
-                  0
-              );
-
-              // Check if the center of the bounding box lies within the polyline. If not, use the first vertex.
-              if (!IsPointInside(polyline, center))
+            savedRooms.Add(
+              new ElectricalDrawingSettingsStore.RoomBoundarySetting
               {
-                center = polyline.GetPoint3dAt(0);
-              }
-
-              if (polyline.Closed && polyline.NumberOfVertices >= 3)
-              {
-                string roomName = ResolveAreaLabelRoomName(
+                Name = roomItem.RoomName,
+                SourceHandle = polyline.Handle.ToString(),
+                SquareFeet = roomItem.SquareFeet,
+                RelativeLocation = new Point2d(
+                  labelLocation.X - basePoint.X,
+                  labelLocation.Y - basePoint.Y),
+                RelativeBoundary = BuildRelativeRoomBoundary(
                   polyline,
-                  center,
-                  roomTextCandidates);
-                if (roomName.Length == 0)
-                {
-                  unnamedRoomCount++;
-                }
-
-                savedRooms.Add(
-                  new ElectricalDrawingSettingsStore.RoomBoundarySetting
-                  {
-                    Name = roomName,
-                    SourceHandle = polyline.Handle.ToString(),
-                    RelativeBoundary = BuildRelativeRoomBoundary(
-                      polyline,
-                      basePoint),
-                  });
-              }
-              else
-              {
-                ed.WriteMessage(
-                  $"\nPolyline {polyline.Handle} is not closed and was not " +
-                  "saved as a room boundary.");
-              }
-
-              DBText text = new DBText
-              {
-                Height = 9,
-                TextString = $"{Math.Ceiling(area)} sq ft",
-                Rotation = 0,
-                HorizontalMode = TextHorizontalMode.TextCenter,
-                VerticalMode = TextVerticalMode.TextVerticalMid,
-                Layer = "0"
-              };
-              text.Position = center;
-              text.AlignmentPoint = center;
-
-              var currentSpace = (BlockTableRecord)
-                  tr.GetObject(doc.Database.CurrentSpaceId, OpenMode.ForWrite);
-              currentSpace.AppendEntity(text);
-              tr.AddNewlyCreatedDBObject(text, true);
-
-              processedCount++;
-            }
-            else
-            {
-              ed.WriteMessage("\nSelected object is not a polyline.");
-              continue;
-            }
+                  basePoint),
+              });
           }
-          tr.Commit();
-          ed.WriteMessage(
-            $"\nAREALABEL processed {processedCount} polyline(s).");
+          transaction.Commit();
         }
 
-        if (savedRooms.Count > 0)
-        {
-          ElectricalDrawingSettingsStore.WriteRoomBoundaries(
-            db,
-            basePoint,
-            savedRooms);
-          ed.WriteMessage(
-            $"\nSaved {savedRooms.Count} room boundary(ies) relative to " +
-            $"base point {FormatAreaLabelPoint(basePoint)} for RC." +
-            (unnamedRoomCount > 0
-              ? $" {unnamedRoomCount} boundary(ies) did not contain " +
-                "recognizable room-name text and must be corrected before " +
-                "RC can use receptacles in those rooms."
-              : string.Empty));
-        }
-        else
-        {
-          ed.WriteMessage(
-            "\nNo closed room boundaries were available to save for RC.");
-        }
-
-        // Clear the PickFirst selection set
+        ElectricalDrawingSettingsStore.WriteRoomBoundaries(
+          db,
+          basePoint,
+          savedRooms);
+        ed.WriteMessage(
+          $"\nAREALABEL created {savedRooms.Count} area label(s) and saved " +
+          "their room names, square footage, relative locations, and " +
+          $"boundaries from base point {FormatAreaLabelPoint(basePoint)} " +
+          "for RC.");
         ed.SetImpliedSelection(new ObjectId[0]);
       }
       catch (System.Exception ex)
       {
-        ed.WriteMessage($"\nError: {ex.Message}");
+        ed.WriteMessage($"\nAREALABEL failed: {ex.Message}");
+      }
+    }
+
+    private static List<AreaLabelRoomItem> BuildAreaLabelRoomItems(
+      Database database,
+      Editor editor,
+      SelectionSet selectionSet)
+    {
+      List<AreaLabelRoomItem> rooms = new List<AreaLabelRoomItem>();
+      using (Transaction transaction =
+        database.TransactionManager.StartOpenCloseTransaction())
+      {
+        foreach (ObjectId objectId in selectionSet.GetObjectIds())
+        {
+          Polyline polyline = transaction.GetObject(
+            objectId,
+            OpenMode.ForRead,
+            false) as Polyline;
+          if (polyline == null)
+          {
+            editor.WriteMessage(
+              $"\nIgnored selected object {objectId.Handle}; it is not a " +
+              "lightweight polyline.");
+            continue;
+          }
+          if (!polyline.Closed || polyline.NumberOfVertices < 3)
+          {
+            editor.WriteMessage(
+              $"\nIgnored polyline {polyline.Handle}; room boundaries must " +
+              "be closed and contain at least three vertices.");
+            continue;
+          }
+
+          double squareFeet = polyline.Area / 144.0;
+          int roomNumber = rooms.Count + 1;
+          string defaultName = $"Polyline {roomNumber}";
+          rooms.Add(new AreaLabelRoomItem
+          {
+            ObjectId = objectId,
+            SourceLabel = defaultName,
+            SourceHandle = polyline.Handle.ToString(),
+            DefaultRoomName = defaultName,
+            RoomName = defaultName,
+            SquareFeet = squareFeet,
+          });
+        }
+      }
+      return rooms;
+    }
+
+    private static Point3d ResolveAreaLabelLocation(Polyline polyline)
+    {
+      Extents3d bounds = polyline.GeometricExtents;
+      Point3d center = new Point3d(
+        (bounds.MinPoint.X + bounds.MaxPoint.X) / 2.0,
+        (bounds.MinPoint.Y + bounds.MaxPoint.Y) / 2.0,
+        (bounds.MinPoint.Z + bounds.MaxPoint.Z) / 2.0);
+      return IsPointInside(polyline, center)
+        ? center
+        : polyline.GetPoint3dAt(0);
+    }
+
+    private static void SetAreaLabelBoundaryHighlight(
+      Database database,
+      ObjectId objectId,
+      bool highlighted)
+    {
+      if (objectId.IsNull || !objectId.IsValid || objectId.IsErased)
+      {
+        return;
+      }
+
+      try
+      {
+        using (Transaction transaction =
+          database.TransactionManager.StartOpenCloseTransaction())
+        {
+          Entity entity = transaction.GetObject(
+            objectId,
+            OpenMode.ForRead,
+            false) as Entity;
+          if (entity != null)
+          {
+            if (highlighted)
+            {
+              entity.Highlight();
+            }
+            else
+            {
+              entity.Unhighlight();
+            }
+          }
+        }
+        AcApplication.UpdateScreen();
+      }
+      catch
+      {
+        // A stale highlight must not interrupt room naming.
       }
     }
 
     public static bool IsPointInside(Polyline polyline, Point3d point)
     {
       int numIntersections = 0;
-      for (int i = 0; i < polyline.NumberOfVertices; i++)
+      for (int index = 0; index < polyline.NumberOfVertices; index++)
       {
-        Point3d point1 = polyline.GetPoint3dAt(i);
-        Point3d point2 = polyline.GetPoint3dAt((i + 1) % polyline.NumberOfVertices); // Get next point, or first point if we're at the end
+        Point3d first = polyline.GetPoint3dAt(index);
+        Point3d second = polyline.GetPoint3dAt(
+          (index + 1) % polyline.NumberOfVertices);
 
-        // Check if point is on an horizontal segment
-        if (
-            point1.Y == point2.Y
-            && point1.Y == point.Y
-            && point.X > Math.Min(point1.X, point2.X)
-            && point.X < Math.Max(point1.X, point2.X)
-        )
+        if (first.Y == second.Y &&
+            first.Y == point.Y &&
+            point.X > Math.Min(first.X, second.X) &&
+            point.X < Math.Max(first.X, second.X))
         {
           return true;
         }
 
-        if (
-            point.Y > Math.Min(point1.Y, point2.Y)
-            && point.Y <= Math.Max(point1.Y, point2.Y)
-            && point.X <= Math.Max(point1.X, point2.X)
-            && point1.Y != point2.Y
-        )
+        if (point.Y > Math.Min(first.Y, second.Y) &&
+            point.Y <= Math.Max(first.Y, second.Y) &&
+            point.X <= Math.Max(first.X, second.X) &&
+            first.Y != second.Y)
         {
-          double xinters =
-              (point.Y - point1.Y) * (point2.X - point1.X) / (point2.Y - point1.Y)
-              + point1.X;
-
-          // Check if point is on the polygon boundary (other than horizontal)
-          if (Math.Abs(point.X - xinters) < Double.Epsilon)
+          double intersectionX =
+            (point.Y - first.Y) * (second.X - first.X) /
+            (second.Y - first.Y) + first.X;
+          if (Math.Abs(point.X - intersectionX) < double.Epsilon)
           {
             return true;
           }
-
-          // Count intersections
-          if (point.X < xinters)
+          if (point.X < intersectionX)
           {
             numIntersections++;
           }
         }
       }
-      // If the number of intersections is odd, the point is inside.
       return numIntersections % 2 != 0;
-    }
-
-    private static List<AreaLabelTextCandidate> ReadAreaLabelTextCandidates(
-      Database database,
-      Transaction transaction)
-    {
-      List<AreaLabelTextCandidate> candidates =
-        new List<AreaLabelTextCandidate>();
-      BlockTableRecord currentSpace = transaction.GetObject(
-        database.CurrentSpaceId,
-        OpenMode.ForRead) as BlockTableRecord;
-      if (currentSpace == null)
-      {
-        return candidates;
-      }
-
-      foreach (ObjectId objectId in currentSpace)
-      {
-        Entity entity = transaction.GetObject(
-          objectId,
-          OpenMode.ForRead,
-          false) as Entity;
-        string text = string.Empty;
-        Point3d position = Point3d.Origin;
-        if (entity is DBText dbText)
-        {
-          text = dbText.TextString;
-          position = dbText.Position;
-        }
-        else if (entity is MText mText)
-        {
-          text = mText.Text;
-          position = mText.Location;
-        }
-
-        text = NormalizeAreaLabelRoomText(text);
-        if (text.Length == 0 || IsAreaMeasurementText(text))
-        {
-          continue;
-        }
-
-        candidates.Add(new AreaLabelTextCandidate
-        {
-          Text = text,
-          Position = position,
-        });
-      }
-      return candidates;
-    }
-
-    private static string ResolveAreaLabelRoomName(
-      Polyline polyline,
-      Point3d center,
-      List<AreaLabelTextCandidate> candidates)
-    {
-      List<AreaLabelTextCandidate> inside = candidates
-        .Where(candidate => IsPointInside(polyline, candidate.Position))
-        .OrderBy(candidate => candidate.Position.DistanceTo(center))
-        .ToList();
-      if (inside.Count == 0)
-      {
-        return string.Empty;
-      }
-
-      AreaLabelTextCandidate descriptiveText = inside.FirstOrDefault(
-        candidate =>
-          Regex.IsMatch(candidate.Text, "[A-Z]", RegexOptions.IgnoreCase) &&
-          !IsLikelyRoomNumber(candidate.Text));
-      if (descriptiveText == null)
-      {
-        return inside[0].Text;
-      }
-
-      string roomName = descriptiveText.Text;
-      if (!Regex.IsMatch(roomName, @"\d"))
-      {
-        AreaLabelTextCandidate numberText = inside.FirstOrDefault(
-          candidate => IsLikelyRoomNumber(candidate.Text));
-        if (numberText != null)
-        {
-          roomName += " " + numberText.Text;
-        }
-      }
-      return NormalizeAreaLabelRoomText(roomName);
-    }
-
-    private static bool IsLikelyRoomNumber(string text)
-    {
-      return Regex.IsMatch(
-        text ?? string.Empty,
-        @"^[A-Z]?\d{1,5}[A-Z]?$",
-        RegexOptions.IgnoreCase);
-    }
-
-    private static bool IsAreaMeasurementText(string text)
-    {
-      return Regex.IsMatch(
-        text ?? string.Empty,
-        @"^\s*[\d,.]+\s*(?:SQ\.?\s*FT\.?|SF|SQUARE\s+FEET)\s*$",
-        RegexOptions.IgnoreCase);
-    }
-
-    private static string NormalizeAreaLabelRoomText(string text)
-    {
-      return Regex.Replace(
-        text ?? string.Empty,
-        @"\s+",
-        " ").Trim().ToUpperInvariant();
     }
 
     private static List<Point2d> BuildRelativeRoomBoundary(
@@ -377,12 +350,6 @@ namespace ElectricalCommands
     private static string FormatAreaLabelPoint(Point3d point)
     {
       return $"({point.X:0.###}, {point.Y:0.###}, {point.Z:0.###})";
-    }
-
-    private sealed class AreaLabelTextCandidate
-    {
-      internal string Text { get; set; } = string.Empty;
-      internal Point3d Position { get; set; }
     }
   }
 }

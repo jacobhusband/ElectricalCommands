@@ -4,7 +4,7 @@
         "VPFROMREG": "Creates a viewport from a selected modelspace region using selectable paperspace layouts plus preset or custom architectural scales.",
         "LAYRED": "Sets selected layer, region entities, or XREF-related layers to red based on the chosen mode.",
         "LAYGREEN": "Sets all layers belonging to a selected XREF and its nested XREFs to green.",
-        "AREALABEL": "Calculates and labels selected closed-polyline areas, then saves room names and boundaries relative to a selected base point for RC.",
+        "AREALABEL": "Reviews selected closed polylines in a room-naming window with drawing highlights, creates square-foot labels, and saves room names, areas, locations, and boundaries relative to a selected base point for RC.",
         "CHECKLIST": "Opens the project checklist window to guide drafting/design actions, with shared progress state saved to the drawing's project folder.",
         "CHECKLISTS": "Alias for CHECKLIST.",
         "PROJECTCHECKLIST": "Opens the project checklist window with shared completion state for the drawing's folder.",

@@ -21,6 +21,7 @@ namespace ElectricalCommands
     private const string ReceptacleCircuitMaxKvaKey =
       "RECEPTACLE_CIRCUIT_MAX_KVA";
     private const int RecordVersion = 1;
+    private const int RoomBoundaryRecordVersion = 2;
 
     internal sealed class PanelLocationSetting
     {
@@ -46,6 +47,8 @@ namespace ElectricalCommands
     {
       public string Name { get; set; } = string.Empty;
       public string SourceHandle { get; set; } = string.Empty;
+      public double SquareFeet { get; set; }
+      public Point2d RelativeLocation { get; set; }
       public List<Point2d> RelativeBoundary { get; set; } =
         new List<Point2d>();
     }
@@ -351,7 +354,7 @@ namespace ElectricalCommands
 
       List<TypedValue> values = new List<TypedValue>
       {
-        new TypedValue((int)DxfCode.Int32, RecordVersion),
+        new TypedValue((int)DxfCode.Int32, RoomBoundaryRecordVersion),
         new TypedValue((int)DxfCode.Real, basePoint.X),
         new TypedValue((int)DxfCode.Real, basePoint.Y),
         new TypedValue((int)DxfCode.Real, basePoint.Z),
@@ -361,11 +364,20 @@ namespace ElectricalCommands
       foreach (RoomBoundarySetting room in rooms)
       {
         if (room == null ||
+            string.IsNullOrWhiteSpace(room.Name) ||
             room.RelativeBoundary == null ||
-            room.RelativeBoundary.Count < 3)
+            room.RelativeBoundary.Count < 3 ||
+            room.SquareFeet < 0.0 ||
+            double.IsNaN(room.SquareFeet) ||
+            double.IsInfinity(room.SquareFeet) ||
+            double.IsNaN(room.RelativeLocation.X) ||
+            double.IsInfinity(room.RelativeLocation.X) ||
+            double.IsNaN(room.RelativeLocation.Y) ||
+            double.IsInfinity(room.RelativeLocation.Y))
         {
           throw new ArgumentException(
-            "Every saved room must contain at least three boundary points.",
+            "Every saved room must contain a name, valid square footage " +
+            "and location, and at least three boundary points.",
             nameof(rooms));
         }
 
@@ -375,6 +387,13 @@ namespace ElectricalCommands
         values.Add(new TypedValue(
           (int)DxfCode.Text,
           room.SourceHandle ?? string.Empty));
+        values.Add(new TypedValue((int)DxfCode.Real, room.SquareFeet));
+        values.Add(new TypedValue(
+          (int)DxfCode.Real,
+          room.RelativeLocation.X));
+        values.Add(new TypedValue(
+          (int)DxfCode.Real,
+          room.RelativeLocation.Y));
         values.Add(new TypedValue(
           (int)DxfCode.Int32,
           room.RelativeBoundary.Count));
@@ -397,13 +416,20 @@ namespace ElectricalCommands
     {
       setting = null;
       TypedValue[] values = ReadRecord(database, RoomBoundariesKey);
-      if (values == null || values.Length < 5 || !HasSupportedVersion(values))
+      if (values == null || values.Length < 5)
       {
         return false;
       }
 
       try
       {
+        int roomRecordVersion = Convert.ToInt32(values[0].Value);
+        if (roomRecordVersion < 1 ||
+            roomRecordVersion > RoomBoundaryRecordVersion)
+        {
+          return false;
+        }
+
         int valueIndex = 1;
         Point3d basePoint = new Point3d(
           Convert.ToDouble(values[valueIndex++].Value),
@@ -432,6 +458,27 @@ namespace ElectricalCommands
             SourceHandle =
               Convert.ToString(values[valueIndex++].Value) ?? string.Empty,
           };
+          if (roomRecordVersion >= 2)
+          {
+            if (valueIndex + 3 >= values.Length)
+            {
+              return false;
+            }
+            room.SquareFeet = Convert.ToDouble(values[valueIndex++].Value);
+            room.RelativeLocation = new Point2d(
+              Convert.ToDouble(values[valueIndex++].Value),
+              Convert.ToDouble(values[valueIndex++].Value));
+            if (room.SquareFeet < 0.0 ||
+                double.IsNaN(room.SquareFeet) ||
+                double.IsInfinity(room.SquareFeet) ||
+                double.IsNaN(room.RelativeLocation.X) ||
+                double.IsInfinity(room.RelativeLocation.X) ||
+                double.IsNaN(room.RelativeLocation.Y) ||
+                double.IsInfinity(room.RelativeLocation.Y))
+            {
+              return false;
+            }
+          }
           int pointCount = Convert.ToInt32(values[valueIndex++].Value);
           if (pointCount < 3 || valueIndex + pointCount * 2 > values.Length)
           {
@@ -443,6 +490,13 @@ namespace ElectricalCommands
             room.RelativeBoundary.Add(new Point2d(
               Convert.ToDouble(values[valueIndex++].Value),
               Convert.ToDouble(values[valueIndex++].Value)));
+          }
+          if (roomRecordVersion == 1)
+          {
+            room.SquareFeet =
+              CalculateRoomBoundaryArea(room.RelativeBoundary) / 144.0;
+            room.RelativeLocation =
+              CalculateRoomBoundaryAverage(room.RelativeBoundary);
           }
           result.Rooms.Add(room);
         }
@@ -460,6 +514,31 @@ namespace ElectricalCommands
         setting = null;
         return false;
       }
+    }
+
+    private static double CalculateRoomBoundaryArea(List<Point2d> boundary)
+    {
+      double doubledArea = 0.0;
+      for (int index = 0; index < boundary.Count; index++)
+      {
+        Point2d current = boundary[index];
+        Point2d next = boundary[(index + 1) % boundary.Count];
+        doubledArea += current.X * next.Y - next.X * current.Y;
+      }
+      return Math.Abs(doubledArea) / 2.0;
+    }
+
+    private static Point2d CalculateRoomBoundaryAverage(
+      List<Point2d> boundary)
+    {
+      double x = 0.0;
+      double y = 0.0;
+      foreach (Point2d point in boundary)
+      {
+        x += point.X;
+        y += point.Y;
+      }
+      return new Point2d(x / boundary.Count, y / boundary.Count);
     }
 
     private static bool HasSupportedVersion(TypedValue[] values)
