@@ -323,6 +323,46 @@ class WorkflowRunnerTests(unittest.TestCase):
             "Steps after the failing step must not run.",
         )
 
+    def test_cancelled_step_stops_workflow_without_running_later_steps(self):
+        cancelled_registry = dict(self.fake_registry)
+
+        def _cancelled_step(api, launch_context, activity_id, params):
+            self.calls.append({"toolId": "stepCancelled"})
+            return {"status": "cancelled", "message": "Cancelled by user."}
+
+        cancelled_registry["stepCancelled"] = {
+            "displayName": "Cancelled Step",
+            "invoke": _cancelled_step,
+            "params": [],
+        }
+        settings = self._workflow([
+            {"toolId": "stepA", "params": {}},
+            {"toolId": "stepCancelled", "params": {}},
+            {"toolId": "stepC", "params": {}},
+        ])
+        with patch.object(main_module, "WORKFLOW_TOOL_REGISTRY", cancelled_registry), \
+                patch.object(self.api, "get_user_settings", return_value=settings), \
+                patch.object(self.api, "_notify_activity_status") as notify:
+            result = self.api.run_workflow("wf_test", activity_id="workflow_activity")
+
+        self.assertEqual("cancelled", result["status"])
+        self.assertEqual(2, result["cancelledStep"])
+        self.assertEqual(["stepA", "stepCancelled"], [call["toolId"] for call in self.calls])
+        self.assertEqual("cancelled", notify.call_args.args[0]["status"])
+
+    def test_cancel_activity_terminates_matching_workflow_step_process(self):
+        self.api._ensure_script_worker_state()
+        process = object()
+        self.api._script_processes_by_activity["workflow_activity-step2"] = process
+
+        with patch.object(self.api, "_terminate_script_process") as terminate:
+            result = self.api.cancel_activity("workflow_activity")
+
+        self.assertEqual("success", result["status"])
+        self.assertEqual(1, result["cancelledProcessCount"])
+        terminate.assert_called_once_with(process)
+        self.assertTrue(self.api._is_activity_cancel_requested("workflow_activity-step2"))
+
     def test_stops_on_first_step_exception(self):
         settings = self._workflow([
             {"toolId": "stepA", "params": {}},

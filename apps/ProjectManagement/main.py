@@ -600,7 +600,7 @@ WORKFLOW_TOOL_REGISTRY = {
         'displayName': 'Archive',
         'description': 'Archive configured discipline folders and Xrefs into a timestamped Archive folder.',
         'invoke': (lambda api, ctx, aid, params:
-                   api.backup_project_drawings(None, ctx)),
+                   api.backup_project_drawings(None, ctx, aid)),
         'params': [],
         'requiredInputs': [
             {'key': 'projectFolder', 'type': 'folder', 'label': 'Project folder',
@@ -3290,6 +3290,8 @@ class Api:
         self._script_worker_lock = threading.Lock()
         self._script_workers = set()
         self._script_processes = set()
+        self._script_processes_by_activity = {}
+        self._script_cancel_requests = set()
         self._script_shutdown_event = threading.Event()
         # pywebview dispatches JavaScript API calls on independent threads. Keep
         # native dialogs serialized and reject new ones as soon as the window
@@ -3776,8 +3778,65 @@ class Api:
             self._script_workers = set()
         if not hasattr(self, '_script_processes') or self._script_processes is None:
             self._script_processes = set()
+        if (
+            not hasattr(self, '_script_processes_by_activity')
+            or self._script_processes_by_activity is None
+        ):
+            self._script_processes_by_activity = {}
+        if not hasattr(self, '_script_cancel_requests') or self._script_cancel_requests is None:
+            self._script_cancel_requests = set()
         if not hasattr(self, '_script_shutdown_event') or self._script_shutdown_event is None:
             self._script_shutdown_event = threading.Event()
+
+    @staticmethod
+    def _activity_ids_match(requested_activity_id, running_activity_id):
+        """Match a direct activity or one of a workflow's step activities."""
+        requested = str(requested_activity_id or '').strip()
+        running = str(running_activity_id or '').strip()
+        if not requested or not running:
+            return False
+        return running == requested or running.startswith(f'{requested}-step')
+
+    def _is_activity_cancel_requested(self, activity_id):
+        normalized_activity_id = str(activity_id or '').strip()
+        if not normalized_activity_id:
+            return False
+        self._ensure_script_worker_state()
+        with self._script_worker_lock:
+            return any(
+                self._activity_ids_match(requested_id, normalized_activity_id)
+                for requested_id in self._script_cancel_requests
+            )
+
+    def cancel_activity(self, activity_id):
+        """Cancel a running CAD activity and its child process tree.
+
+        The request is recorded before looking up a process so cancellation also
+        works during the short window between starting a worker and spawning its
+        PowerShell process. Cancelling a workflow parent also cancels its active
+        ``-stepN`` child.
+        """
+        normalized_activity_id = str(activity_id or '').strip()
+        if not normalized_activity_id:
+            return {'status': 'error', 'message': 'Activity id is required.'}
+
+        self._ensure_script_worker_state()
+        with self._script_worker_lock:
+            self._script_cancel_requests.add(normalized_activity_id)
+            processes = [
+                process
+                for running_id, process in self._script_processes_by_activity.items()
+                if self._activity_ids_match(normalized_activity_id, running_id)
+            ]
+
+        for process in processes:
+            self._terminate_script_process(process)
+
+        return {
+            'status': 'success',
+            'activityId': normalized_activity_id,
+            'cancelledProcessCount': len(processes),
+        }
 
     def _terminate_script_process(self, process):
         """Stops one script process and any child CAD processes it launched."""
@@ -3856,14 +3915,22 @@ class Api:
             }
 
         result_holder = {'status': 'started'}
+        normalized_activity_id = str(activity_id or '').strip()
 
         def script_runner():
             process = None
             try:
-                if self._script_shutdown_event.is_set():
+                if (
+                    self._script_shutdown_event.is_set()
+                    or self._is_activity_cancel_requested(normalized_activity_id)
+                ):
                     result_holder.update({
                         'status': 'cancelled',
-                        'message': 'CAD tool stopped because the application closed.',
+                        'message': (
+                            'CAD tool stopped because the application closed.'
+                            if self._script_shutdown_event.is_set()
+                            else 'Activity cancelled by user.'
+                        ),
                     })
                     return
                 logging.info("CAD worker starting script for %r", tool_id)
@@ -3910,7 +3977,12 @@ class Api:
 
                 with self._script_worker_lock:
                     self._script_processes.add(process)
-                if self._script_shutdown_event.is_set():
+                    if normalized_activity_id:
+                        self._script_processes_by_activity[normalized_activity_id] = process
+                if (
+                    self._script_shutdown_event.is_set()
+                    or self._is_activity_cancel_requested(normalized_activity_id)
+                ):
                     self._terminate_script_process(process)
                 logging.info(
                     "CAD worker process started for %r (pid=%s)",
@@ -3937,7 +4009,10 @@ class Api:
                         if message.startswith("ERROR:"):
                             last_progress_error = message[len(
                                 "ERROR:"):].strip() or message
-                        if not self._script_shutdown_event.is_set():
+                        if (
+                            not self._script_shutdown_event.is_set()
+                            and not self._is_activity_cancel_requested(normalized_activity_id)
+                        ):
                             self._notify_tool_status(
                                 tool_id,
                                 message,
@@ -3957,10 +4032,17 @@ class Api:
                     return_code=return_code,
                 )
 
-                if self._script_shutdown_event.is_set():
+                if (
+                    self._script_shutdown_event.is_set()
+                    or self._is_activity_cancel_requested(normalized_activity_id)
+                ):
                     result_holder.update({
                         'status': 'cancelled',
-                        'message': 'CAD tool stopped because the application closed.',
+                        'message': (
+                            'CAD tool stopped because the application closed.'
+                            if self._script_shutdown_event.is_set()
+                            else 'Activity cancelled by user.'
+                        ),
                         'returnCode': return_code,
                     })
                 elif return_code == 0:
@@ -3993,7 +4075,10 @@ class Api:
 
             except Exception as e:
                 logging.exception("Failed to execute script for %s", tool_id)
-                if not self._script_shutdown_event.is_set():
+                if (
+                    not self._script_shutdown_event.is_set()
+                    and not self._is_activity_cancel_requested(normalized_activity_id)
+                ):
                     self._notify_tool_status(
                         tool_id,
                         f"ERROR: {str(e)}",
@@ -4012,6 +4097,11 @@ class Api:
                             pass
                     with self._script_worker_lock:
                         self._script_processes.discard(process)
+                        if (
+                            normalized_activity_id
+                            and self._script_processes_by_activity.get(normalized_activity_id) is process
+                        ):
+                            self._script_processes_by_activity.pop(normalized_activity_id, None)
                 with self._script_worker_lock:
                     self._script_workers.discard(threading.current_thread())
 
@@ -12695,7 +12785,7 @@ RULES
             logging.error(f"Error applying Local Project Manager sync: {e}")
             return {'status': 'error', 'message': str(e)}
 
-    def _copy_folder_contents(self, source_folder, destination_folder):
+    def _copy_folder_contents(self, source_folder, destination_folder, cancel_check=None):
         """Recursively copy a folder with per-file failure tracking."""
         source_display_root = os.path.normpath(source_folder)
         destination_display_root = os.path.normpath(destination_folder)
@@ -12708,6 +12798,12 @@ RULES
         os.makedirs(destination_copy_root, exist_ok=True)
 
         for current_root, child_dirs, child_files in os.walk(source_copy_root):
+            if callable(cancel_check) and cancel_check():
+                return {
+                    'copiedFileCount': copied_file_count,
+                    'failedFiles': failed_files,
+                    'cancelled': True,
+                }
             relative_root = os.path.relpath(current_root, source_copy_root)
             if relative_root in ('.', os.curdir):
                 relative_root = ''
@@ -12733,6 +12829,12 @@ RULES
                 continue
 
             for child_dir in child_dirs:
+                if callable(cancel_check) and cancel_check():
+                    return {
+                        'copiedFileCount': copied_file_count,
+                        'failedFiles': failed_files,
+                        'cancelled': True,
+                    }
                 source_dir = os.path.join(source_display, child_dir)
                 destination_dir = os.path.join(destination_display, child_dir)
                 try:
@@ -12745,6 +12847,12 @@ RULES
                     })
 
             for child_file in child_files:
+                if callable(cancel_check) and cancel_check():
+                    return {
+                        'copiedFileCount': copied_file_count,
+                        'failedFiles': failed_files,
+                        'cancelled': True,
+                    }
                 source_path = os.path.join(current_root, child_file)
                 destination_path = os.path.join(destination_root, child_file)
                 source_display_path = os.path.join(source_display, child_file)
@@ -12952,7 +13060,12 @@ RULES
             except FileExistsError:
                 candidate_index += 1
 
-    def backup_project_drawings(self, project_root_path=None, launch_context=None):
+    def backup_project_drawings(
+        self,
+        project_root_path=None,
+        launch_context=None,
+        activity_id=None,
+    ):
         """Copy configured discipline folders and Xrefs into Archive\\<timestamp>."""
         try:
             settings = self.get_user_settings()
@@ -12988,12 +13101,43 @@ RULES
             missing_source_folders = []
             copied_file_count = 0
             failed_files = []
+            normalized_activity_id = str(activity_id or '').strip()
+
+            def _cancel_requested():
+                return bool(
+                    normalized_activity_id
+                    and self._is_activity_cancel_requested(normalized_activity_id)
+                )
 
             for folder_name in required_folders:
+                if _cancel_requested():
+                    shutil.rmtree(
+                        self._to_windows_extended_path(archive_path),
+                        ignore_errors=True,
+                    )
+                    return {
+                        'status': 'cancelled',
+                        'message': 'Drawing backup cancelled by user.',
+                        'activityId': normalized_activity_id,
+                    }
                 source_folder = os.path.join(normalized_project_root, folder_name)
                 destination_folder = os.path.join(archive_path, folder_name)
                 if os.path.isdir(self._to_windows_extended_path(source_folder)):
-                    copy_result = self._copy_folder_contents(source_folder, destination_folder)
+                    copy_result = self._copy_folder_contents(
+                        source_folder,
+                        destination_folder,
+                        cancel_check=_cancel_requested,
+                    )
+                    if copy_result.get('cancelled'):
+                        shutil.rmtree(
+                            self._to_windows_extended_path(archive_path),
+                            ignore_errors=True,
+                        )
+                        return {
+                            'status': 'cancelled',
+                            'message': 'Drawing backup cancelled by user.',
+                            'activityId': normalized_activity_id,
+                        }
                     copied_folders.append(folder_name)
                     copied_file_count += int(copy_result.get('copiedFileCount', 0) or 0)
                     failed_files.extend(copy_result.get('failedFiles', []))
@@ -17416,13 +17560,19 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             'toolPublishDwgs',
             **run_kwargs,
         )
-        if workflow_blocking and isinstance(script_result, dict) and script_result.get('status') == 'error':
-            return {
-                'status': 'error',
-                'message': script_result.get('message') or 'Publish DWGs failed.',
-                'activityId': str(activity_id or '').strip(),
-                'scriptResult': script_result,
-            }
+        if workflow_blocking and isinstance(script_result, dict):
+            script_status = str(script_result.get('status') or '').strip().lower()
+            if script_status in ('error', 'cancelled'):
+                return {
+                    'status': script_status,
+                    'message': script_result.get('message') or (
+                        'Publish DWGs was cancelled.'
+                        if script_status == 'cancelled'
+                        else 'Publish DWGs failed.'
+                    ),
+                    'activityId': str(activity_id or '').strip(),
+                    'scriptResult': script_result,
+                }
         return {'status': 'success', 'activityId': str(activity_id or '').strip()}
 
     def run_manage_layers_script(self, launch_context=None, activity_id=None, params_override=None):
@@ -17632,13 +17782,19 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             'toolManageLayers',
             **run_kwargs,
         )
-        if workflow_blocking and isinstance(script_result, dict) and script_result.get('status') == 'error':
-            return {
-                'status': 'error',
-                'message': script_result.get('message') or 'Freeze/Thaw Layers failed.',
-                'activityId': str(activity_id or '').strip(),
-                'scriptResult': script_result,
-            }
+        if workflow_blocking and isinstance(script_result, dict):
+            script_status = str(script_result.get('status') or '').strip().lower()
+            if script_status in ('error', 'cancelled'):
+                return {
+                    'status': script_status,
+                    'message': script_result.get('message') or (
+                        'Freeze/Thaw Layers was cancelled.'
+                        if script_status == 'cancelled'
+                        else 'Freeze/Thaw Layers failed.'
+                    ),
+                    'activityId': str(activity_id or '').strip(),
+                    'scriptResult': script_result,
+                }
         return {'status': 'success', 'activityId': str(activity_id or '').strip()}
 
     def run_clean_xrefs_script(self, launch_context=None, activity_id=None, params_override=None):
@@ -17788,13 +17944,19 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
                 'toolCleanXrefs',
                 **run_kwargs,
             )
-            if workflow_blocking and isinstance(script_result, dict) and script_result.get('status') == 'error':
-                return {
-                    'status': 'error',
-                    'message': script_result.get('message') or 'Prepare CAD for XREF failed.',
-                    'activityId': str(activity_id or '').strip(),
-                    'scriptResult': script_result,
-                }
+            if workflow_blocking and isinstance(script_result, dict):
+                script_status = str(script_result.get('status') or '').strip().lower()
+                if script_status in ('error', 'cancelled'):
+                    return {
+                        'status': script_status,
+                        'message': script_result.get('message') or (
+                            'Prepare CAD for XREF was cancelled.'
+                            if script_status == 'cancelled'
+                            else 'Prepare CAD for XREF failed.'
+                        ),
+                        'activityId': str(activity_id or '').strip(),
+                        'scriptResult': script_result,
+                    }
             return {'status': 'success', 'activityId': str(activity_id or '').strip()}
         except Exception as e:
             logging.error(f"run_clean_xrefs_script failed: {e}")
@@ -18041,6 +18203,17 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             _post_parent(f'Starting workflow: {name}', progress=3)
 
             for index, step in enumerate(steps, start=1):
+                if (
+                    parent_activity_id
+                    and self._is_activity_cancel_requested(parent_activity_id)
+                ):
+                    message = 'Workflow cancelled by user.'
+                    _post_parent(message, status='cancelled')
+                    return {
+                        'status': 'cancelled',
+                        'activityId': parent_activity_id,
+                        'message': message,
+                    }
                 if not isinstance(step, dict):
                     msg = f'Step {index} is malformed.'
                     _post_parent(f'ERROR: {msg}', status='error')
@@ -18090,7 +18263,23 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
                         'message': msg,
                     }
 
-                if isinstance(result, dict) and result.get('status') == 'error':
+                result_status = (
+                    str(result.get('status') or '').strip().lower()
+                    if isinstance(result, dict)
+                    else ''
+                )
+                if result_status == 'cancelled':
+                    msg = str(result.get('message') or 'Workflow cancelled by user.').strip()
+                    _post_parent(msg, status='cancelled')
+                    return {
+                        'status': 'cancelled',
+                        'cancelledStep': index,
+                        'tool': tool_id,
+                        'message': msg,
+                        'activityId': parent_activity_id,
+                        'stepResult': result,
+                    }
+                if result_status == 'error':
                     msg = str(result.get('message') or 'Step reported an error.').strip()
                     _post_parent(
                         f'ERROR: workflow halted at step {index} ({display}): {msg}',

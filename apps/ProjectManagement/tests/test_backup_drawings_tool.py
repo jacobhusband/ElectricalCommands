@@ -354,6 +354,33 @@ class BackupDrawingsBackendTests(unittest.TestCase):
             self.assertEqual(os.path.normpath(str(archive_path)), os.path.normpath(result["archivePath"]))
             self.assertTrue((archive_path / "Electrical" / "power.dwg").exists())
 
+    def test_backup_project_drawings_cancellation_removes_incomplete_archive(self):
+        with tempfile.TemporaryDirectory(prefix="acies-backup-drawings-cancel-") as temp_dir:
+            project_root = Path(temp_dir) / "260243 BofA - Eastport Plaza"
+            self._write_file(project_root / "Electrical" / "one.dwg", "one")
+            self._write_file(project_root / "Electrical" / "two.dwg", "two")
+            activity_id = "archive_activity"
+            original_copy2 = shutil.copy2
+
+            def cancel_after_first_copy(src, dst, *args, **kwargs):
+                result = original_copy2(src, dst, *args, **kwargs)
+                self.api.cancel_activity(activity_id)
+                return result
+
+            with patch.object(self.api, "get_user_settings", return_value=self._settings()), patch.object(
+                self.api,
+                "_build_backup_drawings_timestamp",
+                return_value="20260319_150812",
+            ), patch.object(main_module.shutil, "copy2", side_effect=cancel_after_first_copy):
+                result = self.api.backup_project_drawings(
+                    str(project_root),
+                    activity_id=activity_id,
+                )
+
+            archive_path = project_root / "Archive" / "20260319_150812"
+            self.assertEqual("cancelled", result["status"])
+            self.assertFalse(archive_path.exists())
+
 
 class CopyProjectLocallyBackendTests(unittest.TestCase):
     def setUp(self):

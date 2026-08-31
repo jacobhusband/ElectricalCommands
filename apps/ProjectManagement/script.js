@@ -294,10 +294,12 @@ let workroomToolStatusState = {
   phase: "idle",
 };
 const ACTIVITY_STATUS = Object.freeze({
+  QUEUED: "queued",
   RUNNING: "running",
   SUCCESS: "success",
   WARNING: "warning",
   ERROR: "error",
+  CANCELLED: "cancelled",
 });
 const activityTrayState = {
   items: [],
@@ -305,6 +307,8 @@ const activityTrayState = {
   hasAutoExpanded: false,
   initialized: false,
   timingTimerId: null,
+  nextQueueSequence: 1,
+  launchingQueuedActivityId: "",
 };
 const activeToolActivityIds = new Map();
 const ACTIVITY_RERUN_TOOL_IDS = new Set([
@@ -316,6 +320,13 @@ const ACTIVITY_RERUN_TOOL_IDS = new Set([
   "toolCreatePlanCheckTemplate",
   "toolCircuitBreaker",
   "toolBackupDrawings",
+]);
+const ACTIVITY_CANCELLABLE_TOOL_IDS = new Set([
+  "toolPublishDwgs",
+  "toolManageLayers",
+  "toolCleanXrefs",
+  "toolBackupDrawings",
+  "toolWorkflow",
 ]);
 
 // ===================== CHECKLISTS SYSTEM =====================
@@ -8588,9 +8599,20 @@ function createActivityId(prefix = "activity") {
 }
 
 function isTerminalActivityStatus(status) {
-  return [ACTIVITY_STATUS.SUCCESS, ACTIVITY_STATUS.WARNING, ACTIVITY_STATUS.ERROR].includes(
-    String(status || "").trim().toLowerCase()
-  );
+  return [
+    ACTIVITY_STATUS.SUCCESS,
+    ACTIVITY_STATUS.WARNING,
+    ACTIVITY_STATUS.ERROR,
+    ACTIVITY_STATUS.CANCELLED,
+  ].includes(String(status || "").trim().toLowerCase());
+}
+
+function isRunningActivityStatus(status) {
+  return String(status || "").trim().toLowerCase() === ACTIVITY_STATUS.RUNNING;
+}
+
+function isQueuedActivityStatus(status) {
+  return String(status || "").trim().toLowerCase() === ACTIVITY_STATUS.QUEUED;
 }
 
 function clampActivityProgress(value, fallback = 0) {
@@ -8644,6 +8666,11 @@ function updateActivityTimingDurations(now = Date.now()) {
     const activity = getActivityById(activityId);
     if (!activity) return;
     const isTerminal = isTerminalActivityStatus(activity.status);
+    const isQueued = isQueuedActivityStatus(activity.status);
+    if (isQueued) {
+      node.textContent = "Waiting for earlier activities";
+      return;
+    }
     const endedAt = isTerminal
       ? normalizeActivityTimestamp(activity.endedAt, now)
       : now;
@@ -8655,8 +8682,8 @@ function updateActivityTimingDurations(now = Date.now()) {
 }
 
 function syncActivityTimingTimer() {
-  const hasRunningActivity = activityTrayState.items.some(
-    (item) => !isTerminalActivityStatus(item?.status)
+  const hasRunningActivity = activityTrayState.items.some((item) =>
+    isRunningActivityStatus(item?.status)
   );
   if (hasRunningActivity && activityTrayState.timingTimerId == null) {
     activityTrayState.timingTimerId = window.setInterval(
@@ -8808,6 +8835,99 @@ function canRerunActivity(activity) {
   return isRerunnableToolId(activity.toolId);
 }
 
+function canQueueActivity(activity) {
+  return canRerunActivity(activity) && Boolean(getActivityRerunLaunchContext(activity));
+}
+
+function canCancelActivity(activity) {
+  if (!activity || isTerminalActivityStatus(activity.status)) return false;
+  if (isQueuedActivityStatus(activity.status)) {
+    return activity.id !== activityTrayState.launchingQueuedActivityId;
+  }
+  return (
+    isRunningActivityStatus(activity.status) &&
+    ACTIVITY_CANCELLABLE_TOOL_IDS.has(String(activity.toolId || "").trim()) &&
+    activity.canCancel !== false
+  );
+}
+
+function getQueuedActivities() {
+  return activityTrayState.items
+    .filter((item) => isQueuedActivityStatus(item?.status))
+    .sort(
+      (left, right) =>
+        Number(left?.queueSequence || 0) - Number(right?.queueSequence || 0)
+    );
+}
+
+function scheduleNextQueuedActivity() {
+  window.setTimeout(() => {
+    void launchNextQueuedActivity();
+  }, 0);
+}
+
+async function launchNextQueuedActivity() {
+  if (activityTrayState.launchingQueuedActivityId) return false;
+  if (activityTrayState.items.some((item) => isRunningActivityStatus(item?.status))) {
+    return false;
+  }
+  const nextActivity = getQueuedActivities()[0];
+  if (!nextActivity) return false;
+
+  const toolId = String(nextActivity.toolId || "").trim();
+  activityTrayState.launchingQueuedActivityId = nextActivity.id;
+  updateActivity(nextActivity.id, {
+    status: ACTIVITY_STATUS.QUEUED,
+    message: "Starting queued activity...",
+    progress: 3,
+    cancelRequested: false,
+  });
+
+  const didLaunch = launchSharedToolCard(
+    toolId,
+    getActivityRerunLaunchContext(nextActivity)
+  );
+  if (!didLaunch) {
+    activityTrayState.launchingQueuedActivityId = "";
+    completeActivity(nextActivity.id, {
+      status: ACTIVITY_STATUS.WARNING,
+      message: `${nextActivity.label || "Tool"} is unavailable and was skipped.`,
+    });
+    return false;
+  }
+  return true;
+}
+
+function enqueueActivityRerun(activityId) {
+  const sourceActivity = getActivityById(activityId);
+  if (!canQueueActivity(sourceActivity)) {
+    toast("This activity cannot be queued.");
+    return false;
+  }
+  const queuedId = createActivityId(sourceActivity.toolId || "queued-tool");
+  const queueSequence = activityTrayState.nextQueueSequence++;
+  upsertActivity(
+    {
+      ...sourceActivity,
+      id: queuedId,
+      status: ACTIVITY_STATUS.QUEUED,
+      message: "Queued — waiting for earlier activities.",
+      progress: 0,
+      queueSequence,
+      createdAt: Date.now(),
+      startedAt: 0,
+      endedAt: 0,
+      cancelRequested: false,
+      openFolderPath: "",
+      combinedPdfPath: "",
+    },
+    { autoExpandReason: "update" }
+  );
+  toast(`${sourceActivity.label || "Tool"} added to the queue.`);
+  scheduleNextQueuedActivity();
+  return true;
+}
+
 function getActivityById(activityId) {
   return activityTrayState.items.find((item) => item.id === activityId) || null;
 }
@@ -8836,9 +8956,17 @@ function releaseToolActivity(toolId, activityId = "") {
 
 function sortActivityItems(items = []) {
   return [...items].sort((left, right) => {
-    const leftTerminal = isTerminalActivityStatus(left?.status);
-    const rightTerminal = isTerminalActivityStatus(right?.status);
-    if (leftTerminal !== rightTerminal) return leftTerminal ? 1 : -1;
+    const rank = (item) => {
+      if (isRunningActivityStatus(item?.status)) return 0;
+      if (isQueuedActivityStatus(item?.status)) return 1;
+      return 2;
+    };
+    const leftRank = rank(left);
+    const rightRank = rank(right);
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    if (leftRank === 1) {
+      return Number(left?.queueSequence || 0) - Number(right?.queueSequence || 0);
+    }
     return Number(right?.updatedAt || 0) - Number(left?.updatedAt || 0);
   });
 }
@@ -8872,9 +9000,10 @@ function renderActivityTray() {
   if (!tray || !counts || !empty || !list) return;
 
   const items = sortActivityItems(activityTrayState.items);
-  const activeCount = items.filter((item) => !isTerminalActivityStatus(item.status)).length;
-  const completedCount = items.length - activeCount;
-  counts.textContent = `${activeCount} active, ${completedCount} completed`;
+  const activeCount = items.filter((item) => isRunningActivityStatus(item.status)).length;
+  const queuedCount = items.filter((item) => isQueuedActivityStatus(item.status)).length;
+  const completedCount = items.length - activeCount - queuedCount;
+  counts.textContent = `${activeCount} active, ${queuedCount} queued, ${completedCount} completed`;
 
   if (!items.length) {
     tray.hidden = true;
@@ -8889,7 +9018,7 @@ function renderActivityTray() {
 
   tray.hidden = false;
   empty.hidden = true;
-  if (clearAll) clearAll.hidden = false;
+  if (clearAll) clearAll.hidden = completedCount === 0;
   list.replaceChildren();
 
   items.forEach((item, displayIndex) => {
@@ -8901,11 +9030,13 @@ function renderActivityTray() {
         ? `Workflow: ${workflowTitle}`
         : item.label || "Activity";
     const iconText =
-      status === ACTIVITY_STATUS.SUCCESS
+      status === ACTIVITY_STATUS.QUEUED
+        ? "#"
+        : status === ACTIVITY_STATUS.SUCCESS
         ? "✓"
         : status === ACTIVITY_STATUS.WARNING
           ? "!"
-          : status === ACTIVITY_STATUS.ERROR
+          : [ACTIVITY_STATUS.ERROR, ACTIVITY_STATUS.CANCELLED].includes(status)
             ? "×"
             : "•";
 
@@ -8937,11 +9068,16 @@ function renderActivityTray() {
         })
       );
     }
+    const queuedPosition = isQueuedActivityStatus(status)
+      ? getQueuedActivities().findIndex((queued) => queued.id === item.id) + 1
+      : 0;
     header.append(
       titleGroup,
       el("div", {
         className: "activity-card-percent",
-        textContent: `${clampActivityProgress(item.progress, 0)}%`,
+        textContent: queuedPosition
+          ? `Queued #${queuedPosition}`
+          : `${clampActivityProgress(item.progress, 0)}%`,
       })
     );
     const message = el("div", {
@@ -8949,6 +9085,7 @@ function renderActivityTray() {
       textContent: item.message || "Working...",
     });
     const isTerminal = isTerminalActivityStatus(status);
+    const isQueued = isQueuedActivityStatus(status);
     const startedAt = normalizeActivityTimestamp(item.startedAt, item.createdAt);
     const endedAt = isTerminal
       ? normalizeActivityTimestamp(item.endedAt, item.updatedAt)
@@ -8956,8 +9093,8 @@ function renderActivityTray() {
     const timing = el("div", { className: "activity-card-timing" }, [
       el("span", {
         className: "activity-card-timing-item",
-        textContent: `Started: ${formatActivityDateTime(startedAt)}`,
-        title: `Started: ${formatActivityDateTime(startedAt)}`,
+        textContent: `${isQueued ? "Queued" : "Started"}: ${formatActivityDateTime(startedAt)}`,
+        title: `${isQueued ? "Queued" : "Started"}: ${formatActivityDateTime(startedAt)}`,
       }),
     ]);
     if (isTerminal) {
@@ -8972,10 +9109,12 @@ function renderActivityTray() {
     timing.appendChild(
       el("span", {
         className: "activity-card-timing-item activity-card-duration",
-        textContent: `${isTerminal ? "Duration" : "Elapsed"}: ${formatActivityDuration(
-          startedAt,
-          isTerminal ? endedAt : Date.now()
-        )}`,
+        textContent: isQueued
+          ? "Waiting for earlier activities"
+          : `${isTerminal ? "Duration" : "Elapsed"}: ${formatActivityDuration(
+              startedAt,
+              isTerminal ? endedAt : Date.now()
+            )}`,
         "data-activity-duration-id": item.id,
       })
     );
@@ -8986,6 +9125,39 @@ function renderActivityTray() {
       }),
     ]);
     const actions = el("div", { className: "activity-card-actions" });
+    if (canCancelActivity(item)) {
+      actions.appendChild(
+        el("button", {
+          className: "activity-card-action cancel",
+          type: "button",
+          textContent: item.cancelRequested ? "Cancelling..." : isQueued ? "Remove" : "Cancel",
+          disabled: Boolean(item.cancelRequested),
+          "data-activity-action": "cancel",
+          "data-activity-id": item.id,
+          onclick: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void handleActivityTrayCancel(item.id);
+          },
+        })
+      );
+    }
+    if (canQueueActivity(item)) {
+      actions.appendChild(
+        el("button", {
+          className: "activity-card-action queue",
+          type: "button",
+          textContent: "Queue Again",
+          "data-activity-action": "queue",
+          "data-activity-id": item.id,
+          onclick: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            enqueueActivityRerun(item.id);
+          },
+        })
+      );
+    }
     if (isTerminal && item.combinedPdfPath) {
       actions.appendChild(
         el("button", {
@@ -9172,6 +9344,49 @@ async function handleActivityTrayOpenCombinedPdf(activityId) {
   }
 }
 
+async function handleActivityTrayCancel(activityId) {
+  const activity = getActivityById(activityId);
+  if (!canCancelActivity(activity)) {
+    toast("This activity cannot be cancelled.");
+    return false;
+  }
+  if (isQueuedActivityStatus(activity.status)) {
+    completeActivity(activityId, {
+      status: ACTIVITY_STATUS.CANCELLED,
+      message: "Removed from queue.",
+    });
+    return true;
+  }
+  if (!window.pywebview?.api?.cancel_activity) {
+    toast("Cancellation is unavailable.");
+    return false;
+  }
+
+  updateActivity(activityId, {
+    cancelRequested: true,
+    message: "Cancelling activity...",
+  });
+  try {
+    const result = await window.pywebview.api.cancel_activity(activityId);
+    if (String(result?.status || "").trim().toLowerCase() !== "success") {
+      throw new Error(result?.message || "Could not cancel the activity.");
+    }
+    completeActivity(activityId, {
+      status: ACTIVITY_STATUS.CANCELLED,
+      message: "Cancelled by user.",
+      cancelRequested: false,
+    });
+    return true;
+  } catch (error) {
+    updateActivity(activityId, {
+      cancelRequested: false,
+      message: error?.message || "Could not cancel the activity.",
+    });
+    toast(error?.message || "Could not cancel the activity.");
+    return false;
+  }
+}
+
 async function handleActivityTrayRerun(activityId) {
   const activity = getActivityById(activityId);
   if (!canRerunActivity(activity)) {
@@ -9199,13 +9414,20 @@ function handleActivityTrayAccept(activityId) {
 }
 
 function clearAllActivityNotifications() {
-  activityTrayState.items.forEach((item) => {
-    if (item?.toolId) {
-      releaseToolActivity(item.toolId, item.id);
-      setToolCardRunning(item.toolId, false);
-    }
-  });
-  activityTrayState.items = [];
+  activityTrayState.items
+    .filter((item) => isTerminalActivityStatus(item?.status))
+    .forEach((item) => {
+      if (item?.toolId) {
+        const activeId = activeToolActivityIds.get(item.toolId);
+        releaseToolActivity(item.toolId, item.id);
+        if (!activeId || activeId === item.id) {
+          setToolCardRunning(item.toolId, false);
+        }
+      }
+    });
+  activityTrayState.items = activityTrayState.items.filter(
+    (item) => !isTerminalActivityStatus(item?.status)
+  );
   renderActivityTray();
 }
 
@@ -9330,6 +9552,17 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
       incoming.canRerun == null
         ? existing?.canRerun ?? isRerunnableToolId(mergedToolId)
         : Boolean(incoming.canRerun),
+    canCancel:
+      incoming.canCancel == null
+        ? existing?.canCancel ?? ACTIVITY_CANCELLABLE_TOOL_IDS.has(mergedToolId)
+        : Boolean(incoming.canCancel),
+    cancelRequested: Boolean(
+      incoming.cancelRequested ?? existing?.cancelRequested ?? false
+    ),
+    queueSequence: Math.max(
+      Number(incoming.queueSequence ?? existing?.queueSequence ?? 0) || 0,
+      0
+    ),
     panelCount: Math.max(
       Number(incoming.panelCount ?? existing?.panelCount ?? 0) || 0,
       0
@@ -9356,11 +9589,14 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
     activityTrayState.items.push(merged);
   }
 
-  if (merged.toolId) {
+  if (merged.toolId && isRunningActivityStatus(merged.status)) {
     bindToolActivity(merged.toolId, merged.id);
-    setToolCardRunning(merged.toolId, !isTerminalActivityStatus(merged.status));
-    if (isTerminalActivityStatus(merged.status)) {
-      releaseToolActivity(merged.toolId, merged.id);
+    setToolCardRunning(merged.toolId, true);
+  } else if (merged.toolId && isTerminalActivityStatus(merged.status)) {
+    const activeId = activeToolActivityIds.get(merged.toolId);
+    releaseToolActivity(merged.toolId, merged.id);
+    if (!activeId || activeId === merged.id) {
+      setToolCardRunning(merged.toolId, false);
     }
   }
 
@@ -9384,10 +9620,24 @@ function beginActivity({
   rerunLaunchContext = null,
   workflowTitle = "",
   canRerun,
+  canCancel,
   startedAt = 0,
   endedAt = 0,
 } = {}) {
-  const resolvedId = String(activityId || createActivityId(toolId || kind)).trim();
+  const queuedLaunch = getActivityById(activityTrayState.launchingQueuedActivityId);
+  const reuseQueuedActivity = Boolean(
+    !activityId &&
+      queuedLaunch &&
+      (isQueuedActivityStatus(queuedLaunch.status) ||
+        isRunningActivityStatus(queuedLaunch.status)) &&
+      String(queuedLaunch.toolId || "").trim() === String(toolId || "").trim()
+  );
+  const resolvedId = String(
+    activityId || (reuseQueuedActivity ? queuedLaunch.id : createActivityId(toolId || kind))
+  ).trim();
+  if (reuseQueuedActivity) {
+    activityTrayState.launchingQueuedActivityId = "";
+  }
   return upsertActivity(
     {
       id: resolvedId,
@@ -9405,7 +9655,10 @@ function beginActivity({
       rerunLaunchContext,
       workflowTitle,
       canRerun,
-      startedAt,
+      canCancel,
+      queueSequence: reuseQueuedActivity ? queuedLaunch.queueSequence : 0,
+      createdAt: reuseQueuedActivity ? queuedLaunch.createdAt : 0,
+      startedAt: startedAt || (reuseQueuedActivity ? queuedLaunch.startedAt : 0),
       endedAt,
     },
     { autoExpandReason: activityTrayState.items.length ? "update" : "first" }
@@ -9436,7 +9689,7 @@ function completeActivity(activityId, patch = {}) {
   const existing = getActivityById(activityId);
   if (!existing) return null;
   const nextStatus = String(patch.status || ACTIVITY_STATUS.SUCCESS).trim().toLowerCase();
-  return upsertActivity(
+  const completed = upsertActivity(
     {
       ...existing,
       ...patch,
@@ -9448,6 +9701,8 @@ function completeActivity(activityId, patch = {}) {
       autoExpandReason: nextStatus === ACTIVITY_STATUS.ERROR ? "error" : "update",
     }
   );
+  scheduleNextQueuedActivity();
+  return completed;
 }
 
 function failActivity(activityId, patch = {}) {
@@ -9462,8 +9717,11 @@ function acceptActivity(activityId) {
   const existing = getActivityById(activityId);
   if (!existing) return;
   if (existing.toolId) {
+    const activeId = activeToolActivityIds.get(existing.toolId);
     releaseToolActivity(existing.toolId, activityId);
-    setToolCardRunning(existing.toolId, false);
+    if (!activeId || activeId === activityId) {
+      setToolCardRunning(existing.toolId, false);
+    }
   }
   activityTrayState.items = activityTrayState.items.filter((item) => item.id !== activityId);
   renderActivityTray();
@@ -9486,9 +9744,14 @@ function getActivityIdForTool(toolId, { create = false, label = "" } = {}) {
 function normalizeActivityStatusFromPayload(payload = {}, message = "", fallback = ACTIVITY_STATUS.RUNNING) {
   const rawStatus = String(payload?.status || "").trim().toLowerCase();
   if (
-    [ACTIVITY_STATUS.RUNNING, ACTIVITY_STATUS.SUCCESS, ACTIVITY_STATUS.WARNING, ACTIVITY_STATUS.ERROR].includes(
-      rawStatus
-    )
+    [
+      ACTIVITY_STATUS.QUEUED,
+      ACTIVITY_STATUS.RUNNING,
+      ACTIVITY_STATUS.SUCCESS,
+      ACTIVITY_STATUS.WARNING,
+      ACTIVITY_STATUS.ERROR,
+      ACTIVITY_STATUS.CANCELLED,
+    ].includes(rawStatus)
   ) {
     return rawStatus;
   }
@@ -9689,7 +9952,11 @@ function updateActivityStatusFromPayload(payload = {}) {
     failActivity(activityId, commonPatch);
     return activityId;
   }
-  if (status === ACTIVITY_STATUS.SUCCESS || status === ACTIVITY_STATUS.WARNING) {
+  if (
+    status === ACTIVITY_STATUS.SUCCESS ||
+    status === ACTIVITY_STATUS.WARNING ||
+    status === ACTIVITY_STATUS.CANCELLED
+  ) {
     completeActivity(activityId, {
       ...commonPatch,
       status,
@@ -11680,6 +11947,14 @@ async function processEmailIntakePaste() {
     if (timeoutId) {
       clearTimeout(timeoutId);
       timeoutId = null;
+    }
+    if (action === "cancel") {
+      await handleActivityTrayCancel(activityId);
+      return;
+    }
+    if (action === "queue") {
+      enqueueActivityRerun(activityId);
+      return;
     }
     if (slowNoticeId) {
       clearTimeout(slowNoticeId);
@@ -37307,6 +37582,11 @@ async function runWorkflow(workflowId) {
       failActivity(activityId, {
         message: result.message || "Workflow failed.",
       });
+    } else if (result?.status === "cancelled") {
+      completeActivity(activityId, {
+        status: ACTIVITY_STATUS.CANCELLED,
+        message: result.message || "Workflow cancelled by user.",
+      });
     }
   } catch (err) {
     failActivity(activityId, {
@@ -38257,6 +38537,7 @@ function initEventListeners() {
         toolId: "toolBackupDrawings",
         message: "Resolving project folder...",
         progress: 8,
+        canCancel: false,
       });
       const launchContext = resolveCadLaunchContextForTool();
       updateActivity(activityId, {
@@ -38271,6 +38552,7 @@ function initEventListeners() {
           updateActivity(activityId, {
             message: "Select project folder...",
             progress: 10,
+            canCancel: false,
           });
           const selection = await window.pywebview.api.select_folder(
             getLaunchContextProjectRoot(launchContext) || null
@@ -38291,8 +38573,13 @@ function initEventListeners() {
           updateActivity(activityId, {
             message: "Resolving project folder...",
             progress: 18,
+            canCancel: true,
           });
-          result = await window.pywebview.api.backup_project_drawings(null, launchContext);
+          result = await window.pywebview.api.backup_project_drawings(
+            null,
+            launchContext,
+            activityId
+          );
 
           const resultCode = String(result?.code || "").trim().toLowerCase();
           const resultMessage = String(result?.message || "").trim().toLowerCase();
@@ -38306,6 +38593,7 @@ function initEventListeners() {
             updateActivity(activityId, {
               message: "Could not auto-resolve project folder. Select it manually...",
               progress: 10,
+              canCancel: false,
             });
             selectedProjectPath = await selectProjectFolder();
             if (!selectedProjectPath) {
@@ -38323,15 +38611,25 @@ function initEventListeners() {
           updateActivity(activityId, {
             message: "Creating archive backup...",
             progress: 42,
+            canCancel: true,
           });
           result = await window.pywebview.api.backup_project_drawings(
             selectedProjectPath,
-            launchContext
+            launchContext,
+            activityId
           );
         }
 
         if (!result && !selectedProjectPath) {
           acceptActivity(activityId);
+          return;
+        }
+
+        if (result?.status === "cancelled") {
+          completeActivity(activityId, {
+            status: ACTIVITY_STATUS.CANCELLED,
+            message: result?.message || "Drawing backup cancelled by user.",
+          });
           return;
         }
 

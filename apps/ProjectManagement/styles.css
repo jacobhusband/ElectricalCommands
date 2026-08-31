@@ -8148,6 +8148,11 @@ dialog::backdrop {
   box-shadow: 0 0 12px rgba(16, 185, 129, 0.12);
 }
 
+.activity-card[data-status="queued"] {
+  border-color: rgba(59, 130, 246, 0.35);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.1);
+}
+
 .activity-card[data-status="success"] {
   border-color: rgba(16, 185, 129, 0.3);
 }
@@ -8158,6 +8163,11 @@ dialog::backdrop {
 
 .activity-card[data-status="error"] {
   border-color: rgba(244, 63, 94, 0.35);
+}
+
+.activity-card[data-status="cancelled"] {
+  border-color: rgba(148, 163, 184, 0.32);
+  opacity: 0.86;
 }
 
 .activity-card-icon {
@@ -8177,6 +8187,11 @@ dialog::backdrop {
   background: var(--accent-dim);
 }
 
+.activity-card-icon.queued {
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.16);
+}
+
 .activity-card-icon.success {
   color: var(--accent);
   background: rgba(16, 185, 129, 0.16);
@@ -8190,6 +8205,11 @@ dialog::backdrop {
 .activity-card-icon.error {
   color: var(--danger);
   background: rgba(244, 63, 94, 0.16);
+}
+
+.activity-card-icon.cancelled {
+  color: var(--muted);
+  background: rgba(148, 163, 184, 0.14);
 }
 
 .activity-card-content {
@@ -8286,6 +8306,11 @@ dialog::backdrop {
   background: var(--danger);
 }
 
+.activity-card[data-status="queued"] .activity-card-progress-bar,
+.activity-card[data-status="cancelled"] .activity-card-progress-bar {
+  background: var(--muted);
+}
+
 .activity-card-actions {
   display: flex;
   flex-wrap: wrap;
@@ -8320,6 +8345,21 @@ dialog::backdrop {
 .activity-card-action.rerun {
   border-color: rgba(16, 185, 129, 0.32);
   color: var(--accent);
+}
+
+.activity-card-action.queue {
+  border-color: rgba(59, 130, 246, 0.38);
+  color: #60a5fa;
+}
+
+.activity-card-action.cancel {
+  border-color: rgba(244, 63, 94, 0.38);
+  color: var(--danger);
+}
+
+.activity-card-action:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .activity-card-action.accept:hover,

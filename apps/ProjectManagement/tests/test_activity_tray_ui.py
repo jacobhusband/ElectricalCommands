@@ -22,7 +22,7 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn('class="activity-tray-header"', text)
         self.assertIn("Activity", text)
         self.assertIn("No activity yet.", text)
-        self.assertIn("Clear All", text)
+        self.assertIn("Clear Completed", text)
 
     def test_activity_tray_styles_exist(self):
         text = STYLES_CSS_PATH.read_text(encoding="utf-8")
@@ -36,6 +36,10 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn(".activity-card-progress-bar", text)
         self.assertIn(".activity-card-action.accept", text)
         self.assertIn(".activity-card-action.rerun", text)
+        self.assertIn(".activity-card-action.queue", text)
+        self.assertIn(".activity-card-action.cancel", text)
+        self.assertIn('.activity-card[data-status="queued"]', text)
+        self.assertIn('.activity-card[data-status="cancelled"]', text)
         self.assertIn(".activity-tray-clear", text)
 
     def test_activity_tray_script_helpers_exist(self):
@@ -51,6 +55,9 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn("function clearAllActivityNotifications() {", text)
         self.assertIn("function handleActivityTrayClearAll() {", text)
         self.assertIn("function handleActivityTrayRerun(activityId) {", text)
+        self.assertIn("async function handleActivityTrayCancel(activityId) {", text)
+        self.assertIn("function enqueueActivityRerun(activityId) {", text)
+        self.assertIn("async function launchNextQueuedActivity() {", text)
         self.assertIn("async function handleActivityTrayOpenFolder(activityId) {", text)
         self.assertIn("async function handleActivityTrayCopyCombinedPdf(activityId) {", text)
         self.assertIn("async function handleActivityTrayOpenCombinedPdf(activityId) {", text)
@@ -67,15 +74,20 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn('textContent: "Copy Combined PDF"', text)
         self.assertIn('textContent: "Open Combined PDF"', text)
         self.assertIn('textContent: "Rerun"', text)
+        self.assertIn('textContent: "Queue Again"', text)
         self.assertIn('textContent: "Accept"', text)
-        self.assertIn('textContent: `Started: ${formatActivityDateTime(startedAt)}`', text)
+        self.assertIn('`${isQueued ? "Queued" : "Started"}: ${formatActivityDateTime(startedAt)}`', text)
         self.assertIn('textContent: `Ended: ${formatActivityDateTime(endedAt)}`', text)
         self.assertIn('"data-activity-duration-id": item.id', text)
         self.assertIn('"data-activity-action": "copy-combined-pdf"', text)
         self.assertIn('"data-activity-action": "open-combined-pdf"', text)
         self.assertIn('"data-activity-action": "open"', text)
         self.assertIn('"data-activity-action": "rerun"', text)
+        self.assertIn('"data-activity-action": "queue"', text)
+        self.assertIn('"data-activity-action": "cancel"', text)
         self.assertIn('await handleActivityTrayRerun(activityId);', text)
+        self.assertIn('await handleActivityTrayCancel(activityId);', text)
+        self.assertIn("window.pywebview.api.cancel_activity(activityId)", text)
         self.assertIn('rawMessage.startsWith("INPUT_FOLDER:")', text)
         self.assertIn(
             'const result = await window.pywebview.api.open_path(activity.openFolderPath);',
