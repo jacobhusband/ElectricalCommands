@@ -8892,7 +8892,7 @@ function renderActivityTray() {
   if (clearAll) clearAll.hidden = false;
   list.replaceChildren();
 
-  items.forEach((item) => {
+  items.forEach((item, displayIndex) => {
     const status = String(item.status || ACTIVITY_STATUS.RUNNING).trim().toLowerCase();
     const workflowTitle = String(item.workflowTitle || "").trim();
     const projectName = String(item.projectName || "").trim();
@@ -29424,8 +29424,7 @@ const PLUGIN_DOC_OVERRIDES = {
     order: [
       "TEXTCOUNT",
       "TEXTSELECT",
-      "TEXTSUM",
-      "TEXTSUMEXPORT",
+      "SUMTEXT",
       "TEXTREPLACE",
       "TEXTINCREMENT",
       "TEXTADD",
@@ -29435,10 +29434,8 @@ const PLUGIN_DOC_OVERRIDES = {
         "Counts selected TEXT, MTEXT, and ATTRIB values, groups identical strings, reports totals, and exports a timestamped text report.",
       TEXTSELECT:
         "Filters a mixed selection so only TEXT and MTEXT objects remain selected.",
-      TEXTSUM:
-        "Sums numeric values parsed from selected TEXT and MTEXT objects.",
-      TEXTSUMEXPORT:
-        "Finds room-type text near square-footage text and exports grouped totals to T24Output.json.",
+      SUMTEXT:
+        "Totals selected room square-footage text, labels the total above the selection, and exports grouped totals to T24Output.json.",
       TEXTREPLACE:
         "Replaces the content of selected TEXT and MTEXT objects with a new user-specified value.",
       TEXTINCREMENT:
@@ -29455,13 +29452,9 @@ const PLUGIN_DOC_OVERRIDES = {
         "TEXTSELECT",
         "5ed6ba4a1b2f4c2090673c79785b77aa"
       ),
-      TEXTSUM: buildPluginDocUrl(
-        "TEXTSUM",
+      SUMTEXT: buildPluginDocUrl(
+        "SUMTEXT",
         "2b13fdbb662c807aa0d6e00948b128d6"
-      ),
-      TEXTSUMEXPORT: buildPluginDocUrl(
-        "TEXTSUMEXPORT",
-        "2b13fdbb662c8098967edf32021a5f6c"
       ),
       TEXTREPLACE: buildPluginDocUrl(
         "TEXTREPLACE",
@@ -30796,10 +30789,28 @@ function createCircuitBreakerPanel() {
     inputMode: "field_photos",
     breakerPaths: [],
     directoryPaths: [],
+    panelLabelPaths: [],
+    mainBreakerPaths: [],
     breakerFiles: [],
     directoryFiles: [],
+    panelLabelFiles: [],
+    mainBreakerFiles: [],
+    breakerPathCoverage: [],
+    breakerFileCoverage: [],
   };
 }
+
+const CIRCUIT_BREAKER_PHOTO_FIELDS = Object.freeze({
+  breaker: {
+    paths: "breakerPaths",
+    files: "breakerFiles",
+    pathCoverage: "breakerPathCoverage",
+    fileCoverage: "breakerFileCoverage",
+  },
+  directory: { paths: "directoryPaths", files: "directoryFiles" },
+  panelLabel: { paths: "panelLabelPaths", files: "panelLabelFiles" },
+  mainBreaker: { paths: "mainBreakerPaths", files: "mainBreakerFiles" },
+});
 
 function normalizeCircuitBreakerPaths(paths) {
   if (!Array.isArray(paths)) {
@@ -30820,7 +30831,9 @@ function normalizeCircuitBreakerFiles(files) {
 }
 
 function normalizeCircuitBreakerPhotoKind(kind) {
-  return kind === "breaker" || kind === "directory" ? kind : "";
+  return Object.prototype.hasOwnProperty.call(CIRCUIT_BREAKER_PHOTO_FIELDS, kind)
+    ? kind
+    : "";
 }
 
 function setCircuitBreakerPasteTarget(kind) {
@@ -30830,21 +30843,28 @@ function setCircuitBreakerPasteTarget(kind) {
 }
 
 function getCircuitBreakerDropTargetKind(target) {
-  const zone = target?.closest?.("#cbBreakerDrop, #cbDirectoryDrop");
+  const zone = target?.closest?.(
+    "#cbBreakerDrop, #cbDirectoryDrop, #cbPanelLabelDrop, #cbMainBreakerDrop"
+  );
   if (!zone) return "";
-  return zone.id === "cbBreakerDrop" ? "breaker" : "directory";
+  const kindById = {
+    cbBreakerDrop: "breaker",
+    cbDirectoryDrop: "directory",
+    cbPanelLabelDrop: "panelLabel",
+    cbMainBreakerDrop: "mainBreaker",
+  };
+  return kindById[zone.id] || "";
 }
 
 function resolveCircuitBreakerPasteTargetKind(eventTarget = null) {
   const panel = getActiveCircuitBreakerPanel();
   if (!panel) return "";
+  const eventKind = getCircuitBreakerDropTargetKind(eventTarget);
+  if (eventKind) return eventKind;
   if (panel.inputMode === "existing_directory") {
     return "directory";
   }
-  return (
-    getCircuitBreakerDropTargetKind(eventTarget) ||
-    normalizeCircuitBreakerPhotoKind(circuitBreakerState.pasteTargetKind)
-  );
+  return normalizeCircuitBreakerPhotoKind(circuitBreakerState.pasteTargetKind);
 }
 
 function getCircuitBreakerClipboardImageFiles(clipboardData) {
@@ -31103,19 +31123,40 @@ function removeCircuitBreakerPhoto(panelId, kind, index, source = "auto") {
   if (circuitBreakerState.running) return;
   const panel = circuitBreakerState.panels.find((p) => p.id === panelId);
   if (!panel) return;
-  const isBreaker = kind === "breaker";
-  const paths = isBreaker ? panel.breakerPaths : panel.directoryPaths;
-  const files = isBreaker ? panel.breakerFiles : panel.directoryFiles;
+  const fields = CIRCUIT_BREAKER_PHOTO_FIELDS[normalizeCircuitBreakerPhotoKind(kind)];
+  if (!fields) return;
+  const paths = Array.isArray(panel[fields.paths]) ? panel[fields.paths] : [];
+  const files = Array.isArray(panel[fields.files]) ? panel[fields.files] : [];
   if (source === "path" && paths && paths.length > 0) {
     paths.splice(index, 1);
+    if (fields.pathCoverage && Array.isArray(panel[fields.pathCoverage])) {
+      panel[fields.pathCoverage].splice(index, 1);
+    }
   } else if (source === "file" && files && files.length > 0) {
     files.splice(index, 1);
+    if (fields.fileCoverage && Array.isArray(panel[fields.fileCoverage])) {
+      panel[fields.fileCoverage].splice(index, 1);
+    }
   } else if (paths && paths.length > 0) {
     paths.splice(index, 1);
+    if (fields.pathCoverage && Array.isArray(panel[fields.pathCoverage])) {
+      panel[fields.pathCoverage].splice(index, 1);
+    }
   } else if (files && files.length > 0) {
     files.splice(index, 1);
+    if (fields.fileCoverage && Array.isArray(panel[fields.fileCoverage])) {
+      panel[fields.fileCoverage].splice(index, 1);
+    }
   }
   updateCircuitBreakerUi();
+}
+
+function setCircuitBreakerPhotoCoverage(panelId, source, index, value) {
+  const panel = circuitBreakerState.panels.find((p) => p.id === panelId);
+  if (!panel) return;
+  const field = source === "path" ? "breakerPathCoverage" : "breakerFileCoverage";
+  if (!Array.isArray(panel[field])) panel[field] = [];
+  panel[field][index] = String(value || "").trimStart().slice(0, 160);
 }
 
 function formatCircuitBreakerBytes(bytes) {
@@ -31126,7 +31167,15 @@ function formatCircuitBreakerBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
-function renderCircuitBreakerFileList(containerId, paths, files, kind, panelId) {
+function renderCircuitBreakerFileList(
+  containerId,
+  paths,
+  files,
+  kind,
+  panelId,
+  pathCoverage = [],
+  fileCoverage = []
+) {
   const container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = "";
@@ -31136,7 +31185,13 @@ function renderCircuitBreakerFileList(containerId, paths, files, kind, panelId) 
     paths.forEach((path, index) => {
       const parts = path.split(/[\\/]/);
       const name = parts[parts.length - 1];
-      items.push({ name, index, source: "path", isPath: true });
+      items.push({
+        name,
+        index,
+        source: "path",
+        isPath: true,
+        coverage: pathCoverage[index] || "",
+      });
     });
   }
   if (files && files.length > 0) {
@@ -31147,6 +31202,7 @@ function renderCircuitBreakerFileList(containerId, paths, files, kind, panelId) 
         index,
         source: "file",
         isPath: false,
+        coverage: fileCoverage[index] || "",
       });
     });
   }
@@ -31158,6 +31214,9 @@ function renderCircuitBreakerFileList(containerId, paths, files, kind, panelId) 
   items.forEach((item) => {
     const fileItem = document.createElement("div");
     fileItem.className = "cb-file-item";
+
+    const mainRow = document.createElement("div");
+    mainRow.className = "cb-file-item-main";
 
     const info = document.createElement("div");
     info.className = "cb-file-item-info";
@@ -31174,7 +31233,10 @@ function renderCircuitBreakerFileList(containerId, paths, files, kind, panelId) 
 
     const nameSpan = document.createElement("span");
     nameSpan.className = "cb-file-item-name";
-    nameSpan.textContent = item.name;
+    nameSpan.textContent =
+      kind === "breaker"
+        ? `Photo ${displayIndex + 1} · ${item.name}`
+        : item.name;
     nameSpan.title = item.name;
 
     info.appendChild(iconSpan);
@@ -31202,8 +31264,37 @@ function renderCircuitBreakerFileList(containerId, paths, files, kind, panelId) 
       removeCircuitBreakerPhoto(panelId, kind, item.index, item.source);
     });
 
-    fileItem.appendChild(info);
-    fileItem.appendChild(removeBtn);
+    mainRow.appendChild(info);
+    mainRow.appendChild(removeBtn);
+    fileItem.appendChild(mainRow);
+
+    if (kind === "breaker") {
+      const coverageRow = document.createElement("label");
+      coverageRow.className = "cb-file-coverage";
+      const coverageLabel = document.createElement("span");
+      coverageLabel.textContent = "Circuit coverage";
+      const coverageInput = document.createElement("input");
+      coverageInput.type = "text";
+      coverageInput.value = item.coverage;
+      coverageInput.placeholder = "e.g. 11-31 and 12-32";
+      coverageInput.maxLength = 160;
+      coverageInput.disabled = circuitBreakerState.running;
+      coverageInput.setAttribute(
+        "aria-label",
+        `Circuit coverage shown in ${item.name}`
+      );
+      coverageInput.addEventListener("input", (event) => {
+        setCircuitBreakerPhotoCoverage(
+          panelId,
+          item.source,
+          item.index,
+          event.target.value
+        );
+      });
+      coverageRow.appendChild(coverageLabel);
+      coverageRow.appendChild(coverageInput);
+      fileItem.appendChild(coverageRow);
+    }
     container.appendChild(fileItem);
   });
 }
@@ -31213,6 +31304,8 @@ function updateCircuitBreakerUi() {
   const activePanel = getActiveCircuitBreakerPanel();
   const breakerFile = document.getElementById("cbBreakerFile");
   const directoryFile = document.getElementById("cbDirectoryFile");
+  const panelLabelFile = document.getElementById("cbPanelLabelFile");
+  const mainBreakerFile = document.getElementById("cbMainBreakerFile");
   const newRow = document.getElementById("cbNewScheduleRow");
   const newFormatRow = document.getElementById("cbNewScheduleFormatRow");
   const newFormatSelect = document.getElementById("cbNewScheduleFormat");
@@ -31230,6 +31323,8 @@ function updateCircuitBreakerUi() {
   const modeExisting = document.getElementById("cbOutputModeExisting");
   const breakerDrop = document.getElementById("cbBreakerDrop");
   const directoryDrop = document.getElementById("cbDirectoryDrop");
+  const panelLabelDrop = document.getElementById("cbPanelLabelDrop");
+  const mainBreakerDrop = document.getElementById("cbMainBreakerDrop");
   const runningOverlay = document.getElementById("cbRunningOverlay");
 
   renderCircuitBreakerPanelTabs();
@@ -31262,6 +31357,38 @@ function updateCircuitBreakerUi() {
       hasCircuitBreakerPhotoSelection(
         activePanel.directoryPaths,
         activePanel.directoryFiles
+      )
+        ? "false"
+        : "true";
+  }
+  if (panelLabelFile) {
+    const summary = getCircuitBreakerPhotoSummary(
+      activePanel?.panelLabelPaths,
+      activePanel?.panelLabelFiles
+    );
+    panelLabelFile.textContent = summary.label;
+    panelLabelFile.title = summary.title || summary.label;
+    panelLabelFile.dataset.empty =
+      activePanel &&
+      hasCircuitBreakerPhotoSelection(
+        activePanel.panelLabelPaths,
+        activePanel.panelLabelFiles
+      )
+        ? "false"
+        : "true";
+  }
+  if (mainBreakerFile) {
+    const summary = getCircuitBreakerPhotoSummary(
+      activePanel?.mainBreakerPaths,
+      activePanel?.mainBreakerFiles
+    );
+    mainBreakerFile.textContent = summary.label;
+    mainBreakerFile.title = summary.title || summary.label;
+    mainBreakerFile.dataset.empty =
+      activePanel &&
+      hasCircuitBreakerPhotoSelection(
+        activePanel.mainBreakerPaths,
+        activePanel.mainBreakerFiles
       )
         ? "false"
         : "true";
@@ -31394,6 +31521,28 @@ function updateCircuitBreakerUi() {
         : "false";
     directoryDrop.classList.toggle("is-disabled", circuitBreakerState.running);
   }
+  if (panelLabelDrop) {
+    panelLabelDrop.dataset.hasFile =
+      activePanel &&
+      hasCircuitBreakerPhotoSelection(
+        activePanel.panelLabelPaths,
+        activePanel.panelLabelFiles
+      )
+        ? "true"
+        : "false";
+    panelLabelDrop.classList.toggle("is-disabled", circuitBreakerState.running);
+  }
+  if (mainBreakerDrop) {
+    mainBreakerDrop.dataset.hasFile =
+      activePanel &&
+      hasCircuitBreakerPhotoSelection(
+        activePanel.mainBreakerPaths,
+        activePanel.mainBreakerFiles
+      )
+        ? "true"
+        : "false";
+    mainBreakerDrop.classList.toggle("is-disabled", circuitBreakerState.running);
+  }
 
   if (modeNew) modeNew.disabled = circuitBreakerState.running;
   if (modeExisting) modeExisting.disabled = circuitBreakerState.running;
@@ -31409,7 +31558,9 @@ function updateCircuitBreakerUi() {
       activePanel.breakerPaths,
       activePanel.breakerFiles,
       "breaker",
-      activePanel.id
+      activePanel.id,
+      activePanel.breakerPathCoverage,
+      activePanel.breakerFileCoverage
     );
     renderCircuitBreakerFileList(
       "cbDirectoryFileList",
@@ -31418,11 +31569,29 @@ function updateCircuitBreakerUi() {
       "directory",
       activePanel.id
     );
+    renderCircuitBreakerFileList(
+      "cbPanelLabelFileList",
+      activePanel.panelLabelPaths,
+      activePanel.panelLabelFiles,
+      "panelLabel",
+      activePanel.id
+    );
+    renderCircuitBreakerFileList(
+      "cbMainBreakerFileList",
+      activePanel.mainBreakerPaths,
+      activePanel.mainBreakerFiles,
+      "mainBreaker",
+      activePanel.id
+    );
   } else {
     const list1 = document.getElementById("cbBreakerFileList");
     if (list1) list1.innerHTML = "";
     const list2 = document.getElementById("cbDirectoryFileList");
     if (list2) list2.innerHTML = "";
+    const list3 = document.getElementById("cbPanelLabelFileList");
+    if (list3) list3.innerHTML = "";
+    const list4 = document.getElementById("cbMainBreakerFileList");
+    if (list4) list4.innerHTML = "";
   }
 
   if (circuitBreakerState.running) {
@@ -31478,13 +31647,16 @@ function openCircuitBreakerFilePicker(kind) {
 function setCircuitBreakerFiles(kind, files) {
   const panel = getActiveCircuitBreakerPanel();
   if (!panel) return;
+  const fields = CIRCUIT_BREAKER_PHOTO_FIELDS[normalizeCircuitBreakerPhotoKind(kind)];
+  if (!fields) return;
   const nextFiles = normalizeCircuitBreakerFiles(files);
-  if (kind === "breaker") {
-    panel.breakerFiles = nextFiles;
-    panel.breakerPaths = [];
-  } else {
-    panel.directoryFiles = nextFiles;
-    panel.directoryPaths = [];
+  panel[fields.files] = nextFiles;
+  panel[fields.paths] = [];
+  if (fields.fileCoverage) {
+    panel[fields.fileCoverage] = nextFiles.map(() => "");
+  }
+  if (fields.pathCoverage) {
+    panel[fields.pathCoverage] = [];
   }
   updateCircuitBreakerUi();
 }
@@ -31492,13 +31664,16 @@ function setCircuitBreakerFiles(kind, files) {
 function setCircuitBreakerPaths(kind, paths) {
   const panel = getActiveCircuitBreakerPanel();
   if (!panel) return;
+  const fields = CIRCUIT_BREAKER_PHOTO_FIELDS[normalizeCircuitBreakerPhotoKind(kind)];
+  if (!fields) return;
   const nextPaths = normalizeCircuitBreakerPaths(paths);
-  if (kind === "breaker") {
-    panel.breakerPaths = nextPaths;
-    panel.breakerFiles = [];
-  } else {
-    panel.directoryPaths = nextPaths;
-    panel.directoryFiles = [];
+  panel[fields.paths] = nextPaths;
+  panel[fields.files] = [];
+  if (fields.pathCoverage) {
+    panel[fields.pathCoverage] = nextPaths.map(() => "");
+  }
+  if (fields.fileCoverage) {
+    panel[fields.fileCoverage] = [];
   }
   updateCircuitBreakerUi();
 }
@@ -31507,17 +31682,19 @@ function appendCircuitBreakerFiles(kind, files) {
   const panel = getActiveCircuitBreakerPanel();
   if (!panel) return 0;
   const normalizedKind = normalizeCircuitBreakerPhotoKind(kind);
+  const fields = CIRCUIT_BREAKER_PHOTO_FIELDS[normalizedKind];
   const nextFiles = normalizeCircuitBreakerFiles(files);
-  if (!normalizedKind || !nextFiles.length) return 0;
-  if (normalizedKind === "breaker") {
-    panel.breakerFiles = [
-      ...normalizeCircuitBreakerFiles(panel.breakerFiles),
-      ...nextFiles,
-    ];
-  } else {
-    panel.directoryFiles = [
-      ...normalizeCircuitBreakerFiles(panel.directoryFiles),
-      ...nextFiles,
+  if (!fields || !nextFiles.length) return 0;
+  panel[fields.files] = [
+    ...normalizeCircuitBreakerFiles(panel[fields.files]),
+    ...nextFiles,
+  ];
+  if (fields.fileCoverage) {
+    panel[fields.fileCoverage] = [
+      ...(Array.isArray(panel[fields.fileCoverage])
+        ? panel[fields.fileCoverage]
+        : []),
+      ...nextFiles.map(() => ""),
     ];
   }
   setCircuitBreakerPasteTarget(normalizedKind);
@@ -31650,7 +31827,12 @@ function handleCircuitBreakerPaste(e) {
   }
   const count = appendCircuitBreakerFiles(targetKind, imageFiles);
   if (count > 0) {
-    const targetLabel = targetKind === "breaker" ? "breaker" : "directory";
+    const targetLabel = {
+      breaker: "breaker",
+      directory: "directory",
+      panelLabel: "panel label",
+      mainBreaker: "main breaker",
+    }[targetKind] || "panel";
     toast(
       count === 1
         ? `Pasted 1 ${targetLabel} photo.`
@@ -31879,14 +32061,29 @@ async function runCircuitBreakerInBackground() {
   for (const panel of circuitBreakerState.panels) {
     const breakerUploads = await filesToUploadPayloads(panel.breakerFiles);
     const directoryUploads = await filesToUploadPayloads(panel.directoryFiles);
+    const panelLabelUploads = await filesToUploadPayloads(panel.panelLabelFiles);
+    const mainBreakerUploads = await filesToUploadPayloads(panel.mainBreakerFiles);
+    const breakerCoverage = [
+      ...normalizeCircuitBreakerPaths(panel.breakerPaths).map(
+        (_, index) => String(panel.breakerPathCoverage?.[index] || "").trim()
+      ),
+      ...normalizeCircuitBreakerFiles(panel.breakerFiles).map(
+        (_, index) => String(panel.breakerFileCoverage?.[index] || "").trim()
+      ),
+    ];
     panels.push({
       panelId: panel.id,
       panelName: panel.panelName?.trim() || panel.label || "PANEL",
       inputMode: panel.inputMode || "field_photos",
       breakerPaths: [...normalizeCircuitBreakerPaths(panel.breakerPaths)],
       directoryPaths: [...normalizeCircuitBreakerPaths(panel.directoryPaths)],
+      panelLabelPaths: [...normalizeCircuitBreakerPaths(panel.panelLabelPaths)],
+      mainBreakerPaths: [...normalizeCircuitBreakerPaths(panel.mainBreakerPaths)],
+      breakerCoverage,
       breakerUploads,
       directoryUploads,
+      panelLabelUploads,
+      mainBreakerUploads,
     });
   }
 
@@ -31904,8 +32101,13 @@ async function runCircuitBreakerInBackground() {
     inputMode: firstPanel.inputMode || "field_photos",
     breakerPaths: firstPanel.breakerPaths || [],
     directoryPaths: firstPanel.directoryPaths || [],
+    panelLabelPaths: firstPanel.panelLabelPaths || [],
+    mainBreakerPaths: firstPanel.mainBreakerPaths || [],
+    breakerCoverage: firstPanel.breakerCoverage || [],
     breakerUploads: firstPanel.breakerUploads || [],
     directoryUploads: firstPanel.directoryUploads || [],
+    panelLabelUploads: firstPanel.panelLabelUploads || [],
+    mainBreakerUploads: firstPanel.mainBreakerUploads || [],
     panelName: firstPanel.panelName || "",
   };
   const outputFolderPath = outputPath.split(/[\\/]/).slice(0, -1).join("\\");
@@ -32018,9 +32220,11 @@ async function revealPanelScheduleOutput(targetPath) {
 
 // ---- Canvas selection -> Panel Schedule AI ----
 const CANVAS_PANEL_ROLE_LABELS = {
-  breaker: "Breaker photo",
+  breaker: "Branch breaker photo",
   as_built_schedule: "As-built schedule (printed)",
   field_directory: "Field directory card",
+  panel_label: "Panel label / nameplate",
+  main_breaker: "Main breaker photo",
   ignore: "Skip",
 };
 const CANVAS_PANEL_DIRECTORY_ROLES = ["as_built_schedule", "field_directory"];
@@ -32250,7 +32454,7 @@ async function openCanvasPanelScheduleDialog() {
     };
     canvasPanelScheduleState.loading = true;
     updateActivity(activityId, {
-      message: "Sorting breaker photos from circuit directories...",
+      message: "Sorting breakers, directories, panel labels, and main breakers...",
       progress: 40,
     });
     scheduleCanvasPanelClassificationPoll(canvasPanelScheduleState.job.jobId);
@@ -32538,12 +32742,16 @@ async function confirmCanvasPanelSchedule() {
   const directoryPaths = usable
     .filter((image) => isCanvasPanelDirectoryRole(image.role))
     .map((image) => image.absPath);
-  // The analyzer forwards breaker + directory images to Gemini regardless of mode,
-  // but the existing-directory prompt only describes directory images.
   const breakerPaths =
     state.inputMode === "existing_directory"
       ? []
       : usable.filter((image) => image.role === "breaker").map((image) => image.absPath);
+  const panelLabelPaths = usable
+    .filter((image) => image.role === "panel_label")
+    .map((image) => image.absPath);
+  const mainBreakerPaths = usable
+    .filter((image) => image.role === "main_breaker")
+    .map((image) => image.absPath);
 
   const panelName = state.panelName.trim() || "PANEL";
   const outputFolderPath = state.outputFolder;
@@ -32558,13 +32766,19 @@ async function confirmCanvasPanelSchedule() {
         inputMode: state.inputMode,
         breakerPaths,
         directoryPaths,
+        panelLabelPaths,
+        mainBreakerPaths,
         breakerUploads: [],
         directoryUploads: [],
+        panelLabelUploads: [],
+        mainBreakerUploads: [],
       },
     ],
     inputMode: state.inputMode,
     breakerPaths,
     directoryPaths,
+    panelLabelPaths,
+    mainBreakerPaths,
     panelName,
   };
 
@@ -38384,6 +38598,62 @@ function initEventListeners() {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         void selectCircuitBreakerImage("directory");
+      }
+    });
+  }
+
+  const cbPanelLabelDrop = document.getElementById("cbPanelLabelDrop");
+  if (cbPanelLabelDrop) {
+    cbPanelLabelDrop.addEventListener("focus", () =>
+      setCircuitBreakerPasteTarget("panelLabel")
+    );
+    cbPanelLabelDrop.addEventListener("pointerdown", () =>
+      setCircuitBreakerPasteTarget("panelLabel")
+    );
+    cbPanelLabelDrop.addEventListener("click", () => {
+      void selectCircuitBreakerImage("panelLabel");
+    });
+    cbPanelLabelDrop.addEventListener("dragover", (e) =>
+      handleCircuitBreakerDragOver(e, cbPanelLabelDrop)
+    );
+    cbPanelLabelDrop.addEventListener("dragleave", (e) =>
+      handleCircuitBreakerDragLeave(e, cbPanelLabelDrop)
+    );
+    cbPanelLabelDrop.addEventListener("drop", (e) =>
+      handleCircuitBreakerDrop("panelLabel", e, cbPanelLabelDrop)
+    );
+    cbPanelLabelDrop.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        void selectCircuitBreakerImage("panelLabel");
+      }
+    });
+  }
+
+  const cbMainBreakerDrop = document.getElementById("cbMainBreakerDrop");
+  if (cbMainBreakerDrop) {
+    cbMainBreakerDrop.addEventListener("focus", () =>
+      setCircuitBreakerPasteTarget("mainBreaker")
+    );
+    cbMainBreakerDrop.addEventListener("pointerdown", () =>
+      setCircuitBreakerPasteTarget("mainBreaker")
+    );
+    cbMainBreakerDrop.addEventListener("click", () => {
+      void selectCircuitBreakerImage("mainBreaker");
+    });
+    cbMainBreakerDrop.addEventListener("dragover", (e) =>
+      handleCircuitBreakerDragOver(e, cbMainBreakerDrop)
+    );
+    cbMainBreakerDrop.addEventListener("dragleave", (e) =>
+      handleCircuitBreakerDragLeave(e, cbMainBreakerDrop)
+    );
+    cbMainBreakerDrop.addEventListener("drop", (e) =>
+      handleCircuitBreakerDrop("mainBreaker", e, cbMainBreakerDrop)
+    );
+    cbMainBreakerDrop.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        void selectCircuitBreakerImage("mainBreaker");
       }
     });
   }

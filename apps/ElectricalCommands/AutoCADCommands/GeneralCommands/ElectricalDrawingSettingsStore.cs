@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using System;
+using System.Collections.Generic;
 
 namespace ElectricalCommands
 {
@@ -16,6 +17,7 @@ namespace ElectricalCommands
     private const string PanelNameKey = "PANEL_NAME";
     private const string PanelScheduleKey = "PANEL_SCHEDULE";
     private const string HomerunLayerKey = "HOMERUN_LAYER";
+    private const string RoomBoundariesKey = "ROOM_BOUNDARIES";
     private const string ReceptacleCircuitMaxKvaKey =
       "RECEPTACLE_CIRCUIT_MAX_KVA";
     private const int RecordVersion = 1;
@@ -38,6 +40,21 @@ namespace ElectricalCommands
     {
       public string WorkbookPath { get; set; } = string.Empty;
       public int CircuitCapacity { get; set; }
+    }
+
+    internal sealed class RoomBoundarySetting
+    {
+      public string Name { get; set; } = string.Empty;
+      public string SourceHandle { get; set; } = string.Empty;
+      public List<Point2d> RelativeBoundary { get; set; } =
+        new List<Point2d>();
+    }
+
+    internal sealed class RoomBoundariesSetting
+    {
+      public Point3d BasePoint { get; set; }
+      public List<RoomBoundarySetting> Rooms { get; set; } =
+        new List<RoomBoundarySetting>();
     }
 
     public static void WritePanelLocation(
@@ -320,6 +337,129 @@ namespace ElectricalCommands
 
       layerName = (Convert.ToString(values[1].Value) ?? string.Empty).Trim();
       return layerName.Length > 0;
+    }
+
+    public static void WriteRoomBoundaries(
+      Database database,
+      Point3d basePoint,
+      IList<RoomBoundarySetting> rooms)
+    {
+      if (rooms == null)
+      {
+        throw new ArgumentNullException(nameof(rooms));
+      }
+
+      List<TypedValue> values = new List<TypedValue>
+      {
+        new TypedValue((int)DxfCode.Int32, RecordVersion),
+        new TypedValue((int)DxfCode.Real, basePoint.X),
+        new TypedValue((int)DxfCode.Real, basePoint.Y),
+        new TypedValue((int)DxfCode.Real, basePoint.Z),
+        new TypedValue((int)DxfCode.Int32, rooms.Count),
+      };
+
+      foreach (RoomBoundarySetting room in rooms)
+      {
+        if (room == null ||
+            room.RelativeBoundary == null ||
+            room.RelativeBoundary.Count < 3)
+        {
+          throw new ArgumentException(
+            "Every saved room must contain at least three boundary points.",
+            nameof(rooms));
+        }
+
+        values.Add(new TypedValue(
+          (int)DxfCode.Text,
+          room.Name ?? string.Empty));
+        values.Add(new TypedValue(
+          (int)DxfCode.Text,
+          room.SourceHandle ?? string.Empty));
+        values.Add(new TypedValue(
+          (int)DxfCode.Int32,
+          room.RelativeBoundary.Count));
+        foreach (Point2d point in room.RelativeBoundary)
+        {
+          values.Add(new TypedValue((int)DxfCode.Real, point.X));
+          values.Add(new TypedValue((int)DxfCode.Real, point.Y));
+        }
+      }
+
+      WriteRecord(
+        database,
+        RoomBoundariesKey,
+        new ResultBuffer(values.ToArray()));
+    }
+
+    public static bool TryReadRoomBoundaries(
+      Database database,
+      out RoomBoundariesSetting setting)
+    {
+      setting = null;
+      TypedValue[] values = ReadRecord(database, RoomBoundariesKey);
+      if (values == null || values.Length < 5 || !HasSupportedVersion(values))
+      {
+        return false;
+      }
+
+      try
+      {
+        int valueIndex = 1;
+        Point3d basePoint = new Point3d(
+          Convert.ToDouble(values[valueIndex++].Value),
+          Convert.ToDouble(values[valueIndex++].Value),
+          Convert.ToDouble(values[valueIndex++].Value));
+        int roomCount = Convert.ToInt32(values[valueIndex++].Value);
+        if (roomCount < 1)
+        {
+          return false;
+        }
+
+        RoomBoundariesSetting result = new RoomBoundariesSetting
+        {
+          BasePoint = basePoint,
+        };
+        for (int roomIndex = 0; roomIndex < roomCount; roomIndex++)
+        {
+          if (valueIndex + 2 >= values.Length)
+          {
+            return false;
+          }
+
+          RoomBoundarySetting room = new RoomBoundarySetting
+          {
+            Name = Convert.ToString(values[valueIndex++].Value) ?? string.Empty,
+            SourceHandle =
+              Convert.ToString(values[valueIndex++].Value) ?? string.Empty,
+          };
+          int pointCount = Convert.ToInt32(values[valueIndex++].Value);
+          if (pointCount < 3 || valueIndex + pointCount * 2 > values.Length)
+          {
+            return false;
+          }
+
+          for (int pointIndex = 0; pointIndex < pointCount; pointIndex++)
+          {
+            room.RelativeBoundary.Add(new Point2d(
+              Convert.ToDouble(values[valueIndex++].Value),
+              Convert.ToDouble(values[valueIndex++].Value)));
+          }
+          result.Rooms.Add(room);
+        }
+
+        if (valueIndex != values.Length)
+        {
+          return false;
+        }
+
+        setting = result;
+        return true;
+      }
+      catch
+      {
+        setting = null;
+        return false;
+      }
     }
 
     private static bool HasSupportedVersion(TypedValue[] values)

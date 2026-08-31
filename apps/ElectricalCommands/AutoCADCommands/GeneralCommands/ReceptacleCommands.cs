@@ -267,7 +267,7 @@ namespace ElectricalCommands
     }
 
     [CommandMethod("RC", CommandFlags.Modal | CommandFlags.UsePickSet)]
-    public static void InsertReceptacle()
+    public static void CircuitReceptacles()
     {
       Document doc = Application.DocumentManager.MdiActiveDocument;
       if (doc == null)
@@ -278,12 +278,20 @@ namespace ElectricalCommands
       Database db = doc.Database;
       Editor ed = doc.Editor;
 
+      if (!IsInModelOrViewportSpace(db))
+      {
+        ed.WriteMessage(
+          "\nRC must be run from model space or from inside an active " +
+          "paper-space viewport. Double-click inside a viewport and try again.");
+        return;
+      }
+
       if (!ElectricalDrawingSettingsStore.TryReadPanelName(
         db,
         out string panelName))
       {
         ed.WriteMessage(
-          "\nReceptacle insertion requires a panel name. " +
+          "\nReceptacle circuiting requires a panel name. " +
           "Run SETPANELNAME (SPN) first.");
         return;
       }
@@ -313,6 +321,15 @@ namespace ElectricalCommands
         }
       }
 
+      if (!TryVerifyPanelScheduleWorkbookClosed(
+        panelSchedule.WorkbookPath,
+        out string workbookAvailabilityError))
+      {
+        ed.WriteMessage(
+          $"\nRC canceled: {workbookAvailabilityError}");
+        return;
+      }
+
       ElectricalDrawingSettingsStore.ScaleSetting scale;
       if (TrySetReceptacleScaleFromActiveViewport(
         db,
@@ -331,95 +348,47 @@ namespace ElectricalCommands
       else if (isEditingViewport)
       {
         ed.WriteMessage(
-          "\nReceptacle insertion could not determine the active " +
+          "\nReceptacle circuiting could not determine the active " +
           $"viewport scale: {viewportScaleError}");
         return;
       }
       else if (!ElectricalDrawingSettingsStore.TryReadScale(db, out scale))
       {
         ed.WriteMessage(
-          "\nReceptacle insertion requires a drawing scale. " +
+          "\nReceptacle circuiting requires a drawing scale. " +
           "Run SETSCALE (SS) first.");
         return;
       }
 
-      ObjectId[] impliedReceptacles = GetImpliedReceptacles(
+      ObjectId[] selectedReceptacles = GetImpliedReceptacles(
         db,
         ed,
-        out int impliedRejectedCount);
-      if (impliedReceptacles.Length > 0)
+        out int rejectedCount);
+      if (selectedReceptacles.Length == 0)
       {
-        if (impliedRejectedCount > 0)
-        {
-          ed.WriteMessage(
-            $"\nIgnored {impliedRejectedCount} preselected object(s) that " +
-            $"were not {ReceptBlockName} or {AlternateReceptBlockName} blocks.");
-        }
-
-        AutomaticallyCircuitReceptacles(
+        selectedReceptacles = PromptForReceptacles(
           db,
           ed,
-          impliedReceptacles,
-          scale.PaperInchesPerModelFoot,
-          panelName);
+          out rejectedCount);
+      }
+
+      if (selectedReceptacles.Length == 0)
+      {
         return;
       }
 
-      PromptPointOptions basePointOptions = new PromptPointOptions(
-        "\nSpecify insertion point for receptacle or " +
-        "[Existing/Room/Dedicated]: ")
+      if (rejectedCount > 0)
       {
-        AllowNone = false
-      };
-      basePointOptions.Keywords.Add("Existing");
-      basePointOptions.Keywords.Add("Room");
-      basePointOptions.Keywords.Add("Dedicated");
-
-      PromptPointResult basePointResult = ed.GetPoint(basePointOptions);
-      if (basePointResult.Status == PromptStatus.Keyword &&
-          string.Equals(
-            basePointResult.StringResult,
-            "Existing",
-            StringComparison.OrdinalIgnoreCase))
-      {
-        ObjectId[] selectedReceptacles = PromptForExistingReceptacles(
-          db,
-          ed,
-          out int rejectedCount);
-        if (selectedReceptacles.Length == 0)
-        {
-          return;
-        }
-
-        if (rejectedCount > 0)
-        {
-          ed.WriteMessage(
-            $"\nIgnored {rejectedCount} selected object(s) that were not " +
-            $"{ReceptBlockName} or {AlternateReceptBlockName} blocks.");
-        }
-
-        AutomaticallyCircuitReceptacles(
-          db,
-          ed,
-          selectedReceptacles,
-          scale.PaperInchesPerModelFoot,
-          panelName);
-        return;
+        ed.WriteMessage(
+          $"\nIgnored {rejectedCount} selected object(s) that were not " +
+          $"{ReceptBlockName} or {AlternateReceptBlockName} blocks.");
       }
 
-      if (basePointResult.Status == PromptStatus.Keyword &&
-          string.Equals(
-            basePointResult.StringResult,
-            "Dedicated",
-            StringComparison.OrdinalIgnoreCase))
+      if (selectedReceptacles.Length == 1)
       {
-        if (!TryPromptDedicatedReceptacle(
-          db,
+        if (!TryPromptDedicatedEquipment(
           ed,
-          out ObjectId dedicatedReceptacleId) ||
-            !TryPromptDedicatedEquipment(
-              ed,
-              out DedicatedEquipmentLoad equipment))
+          out DedicatedEquipmentLoad equipment))
         {
           return;
         }
@@ -427,214 +396,108 @@ namespace ElectricalCommands
         AutomaticallyCircuitDedicatedReceptacle(
           db,
           ed,
-          dedicatedReceptacleId,
+          selectedReceptacles[0],
           scale.PaperInchesPerModelFoot,
           panelName,
           equipment);
         return;
       }
 
-      if (basePointResult.Status == PromptStatus.Keyword &&
-          string.Equals(
-            basePointResult.StringResult,
-            "Room",
-            StringComparison.OrdinalIgnoreCase))
+      double configuredMaximumKva =
+        ResolveReceptacleCircuitMaximumKva(db);
+      ed.WriteMessage(
+        $"\nRoom circuits will be balanced up to " +
+        $"{configuredMaximumKva:0.00} kVA each. Change RC Max kVA in " +
+        "HRS to use a different project limit.");
+
+      if (ElectricalDrawingSettingsStore.TryReadRoomBoundaries(
+        db,
+        out var savedRoomBoundaries))
       {
-        double configuredMaximumKva =
-          ResolveReceptacleCircuitMaximumKva(db);
-        ed.WriteMessage(
-          $"\nRoom circuits will be balanced up to " +
-          $"{configuredMaximumKva:0.00} kVA each. Change RC Max kVA in " +
-          "HRS to use a different project limit.");
-
-        ObjectId[] selectedReceptacles = PromptForExistingReceptacles(
+        if (!TryBuildSavedRoomReceptacleSelections(
           db,
-          ed,
-          out int rejectedCount);
-        if (selectedReceptacles.Length == 0)
-        {
-          return;
-        }
-
-        if (rejectedCount > 0)
-        {
-          ed.WriteMessage(
-            $"\nIgnored {rejectedCount} selected object(s) that were not " +
-            $"{ReceptBlockName} or {AlternateReceptBlockName} blocks.");
-        }
-
-        if (!TryPromptReceptacleRoomName(ed, out string roomName))
-        {
-          return;
-        }
-
-        AutomaticallyCircuitRoomReceptacles(
-          db,
-          ed,
           selectedReceptacles,
+          savedRoomBoundaries,
+          out List<RoomReceptacleSelection> roomSelections,
+          out string roomMatchError))
+        {
+          ed.WriteMessage($"\nRC canceled: {roomMatchError}");
+          return;
+        }
+
+        ed.WriteMessage(
+          $"\nMatched {selectedReceptacles.Length} receptacle(s) to " +
+          $"{roomSelections.Count} saved room boundary(ies).");
+        AutomaticallyCircuitRoomReceptacleGroups(
+          db,
+          ed,
+          roomSelections,
           scale.PaperInchesPerModelFoot,
-          panelName,
-          roomName);
+          panelName);
         return;
       }
 
-      if (basePointResult.Status != PromptStatus.OK)
+      ed.WriteMessage(
+        "\nNo saved AREALABEL room boundaries were found; using manual " +
+        "room naming for this selection.");
+      if (!TryPromptReceptacleRoomName(ed, out string roomName))
       {
         return;
       }
 
-      Point3d basePointUcs = basePointResult.Value;
-
-      if (!TryPromptReceptacleCircuitNumber(
+      AutomaticallyCircuitRoomReceptacles(
+        db,
         ed,
+        selectedReceptacles,
+        scale.PaperInchesPerModelFoot,
         panelName,
-        out string circuitNumber))
+        roomName);
+    }
+
+    private static bool IsInModelOrViewportSpace(Database database)
+    {
+      if (database.TileMode)
       {
-        return;
+        return true;
       }
-
-      PromptPointOptions orientOptions = new PromptPointOptions(
-        "\nSpecify orientation for receptacle: ")
-      {
-        BasePoint = basePointUcs,
-        UseBasePoint = true,
-        AllowNone = false
-      };
-
-      PromptPointResult orientResult = ed.GetPoint(orientOptions);
-      if (orientResult.Status != PromptStatus.OK)
-      {
-        return;
-      }
-
-      Point3d orientPointUcs = orientResult.Value;
-      Vector3d ucsDir = orientPointUcs - basePointUcs;
-
-      if (ucsDir.Length < 1e-6)
-      {
-        ed.WriteMessage("\nOrientation point cannot be identical to insertion point.");
-        return;
-      }
-
-      Matrix3d ucsToWcs = ed.CurrentUserCoordinateSystem;
-      Point3d insertionPoint = basePointUcs.TransformBy(ucsToWcs);
-      Vector3d wcsDir = ucsDir.TransformBy(ucsToWcs);
-
-      double wcsAngle = Math.Atan2(wcsDir.Y, wcsDir.X);
-      double blockRotation = wcsAngle - (Math.PI / 2.0);
-
-      ResolveReceptNoteOrientation(
-        wcsAngle,
-        out double noteRotationDegrees,
-        out AttachmentPoint noteAttachment);
-
-      string panelCircuitLabel =
-        BuildPanelLabel(panelName) + circuitNumber;
-      double blockScale = ResolveReceptBlockScale(
-        scale.PaperInchesPerModelFoot);
-      double textHeight = ResolveHomerunSymbolSize(
-        scale.PaperInchesPerModelFoot);
-      double noteGap = ReceptNoteGapInPaperInches * blockScale;
-      double noteClearance =
-        ReceptNoteClearanceInPaperInches * blockScale;
-      double noteSearchStep = Math.Max(
-        ReceptNoteSearchStepInPaperInches * blockScale,
-        textHeight * 0.65);
-      double noteMaximumGap = Math.Max(
-        noteGap,
-        ReceptNoteMaximumGapInPaperInches * blockScale);
-      bool labelUsedAlternatePosition = false;
 
       try
       {
-        ObjectId noteLayerId = EnsureReceptNoteLayer(db);
-        ObjectId textStyleId = EnsureHomerunTextStyle(db);
-        string insertedBlockName = ReceptBlockName;
-
-        using (Transaction transaction = db.TransactionManager.StartTransaction())
-        {
-          BlockTable blockTable = (BlockTable)transaction.GetObject(
-            db.BlockTableId,
-            OpenMode.ForRead);
-
-          if (!TryResolveReceptBlockDefinition(
-            blockTable,
-            out ObjectId blockDefinitionId,
-            out insertedBlockName))
-          {
-            ed.WriteMessage(
-              "\nCannot insert receptacle: neither block " +
-              $"\"{ReceptBlockName}\" nor \"{AlternateReceptBlockName}\" " +
-              "is defined in the current drawing.");
-            return;
-          }
-
-          BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            db.CurrentSpaceId,
-            OpenMode.ForWrite);
-
-          BlockReference blockReference = new BlockReference(
-            insertionPoint,
-            blockDefinitionId);
-          blockReference.SetDatabaseDefaults(db);
-          blockReference.ScaleFactors = new Scale3d(blockScale);
-          blockReference.Rotation = blockRotation;
-
-          currentSpace.AppendEntity(blockReference);
-          transaction.AddNewlyCreatedDBObject(blockReference, true);
-
-          AddDefaultAttributes(
-            transaction,
-            blockDefinitionId,
-            blockReference);
-
-          Vector3d noteDirection = Vector3d.YAxis
-            .RotateBy(blockRotation, Vector3d.ZAxis);
-          Point3d noteLocation = ResolveReceptNoteLocation(
-            blockReference,
-            insertionPoint,
-            noteDirection,
-            noteGap);
-
-          MText panelLabel = CreateReceptPanelLabel(
-            db,
-            noteLocation,
-            noteRotationDegrees * Math.PI / 180.0,
-            textHeight,
-            EscapeMTextPlainText(panelCircuitLabel),
-            noteLayerId,
-            textStyleId,
-            noteAttachment);
-          currentSpace.AppendEntity(panelLabel);
-          transaction.AddNewlyCreatedDBObject(panelLabel, true);
-
-          labelUsedAlternatePosition = PlaceReceptPanelLabelWithoutOverlap(
-            ed,
-            transaction,
-            blockReference,
-            panelLabel,
-            noteDirection,
-            noteGap,
-            noteClearance,
-            noteSearchStep,
-            noteMaximumGap,
-            null);
-
-          transaction.Commit();
-        }
-
-        ed.WriteMessage(
-          $"\nInserted {insertedBlockName} at " +
-          $"{scale.DisplayText} (X/Y/Z scale {FormatNumber(blockScale)}) " +
-          $"with circuit label {panelCircuitLabel}." +
-          (labelUsedAlternatePosition
-            ? " The label was placed in an alternate position to avoid nearby objects."
-            : string.Empty));
+        return Convert.ToInt16(Application.GetSystemVariable("CVPORT")) > 1;
       }
-      catch (System.Exception ex)
+      catch
       {
-        ed.WriteMessage(
-          $"\nUnable to insert {ReceptBlockName}: {ex.Message}");
+        return false;
+      }
+    }
+
+    private static bool TryVerifyPanelScheduleWorkbookClosed(
+      string workbookPath,
+      out string errorMessage)
+    {
+      errorMessage = string.Empty;
+      try
+      {
+        string fullPath = Path.GetFullPath(workbookPath ?? string.Empty);
+        using (FileStream stream = new FileStream(
+          fullPath,
+          FileMode.Open,
+          FileAccess.ReadWrite,
+          FileShare.None))
+        {
+        }
+        return true;
+      }
+      catch (System.Exception ex) when (
+        ex is IOException ||
+        ex is UnauthorizedAccessException ||
+        ex is ArgumentException ||
+        ex is NotSupportedException)
+      {
+        errorMessage =
+          "close the linked panel schedule workbook in Excel and make sure " +
+          $"it is writable before running RC. ({ex.Message})";
+        return false;
       }
     }
 
@@ -674,33 +537,256 @@ namespace ElectricalCommands
       return true;
     }
 
-    private static bool TryPromptReceptacleCircuitNumber(
-      Editor editor,
-      string panelName,
-      out string circuitNumber)
+    private static bool TryBuildSavedRoomReceptacleSelections(
+      Database database,
+      ObjectId[] receptacleIds,
+      ElectricalDrawingSettingsStore.RoomBoundariesSetting savedRooms,
+      out List<RoomReceptacleSelection> roomSelections,
+      out string errorMessage)
     {
-      circuitNumber = string.Empty;
-      PromptStringOptions circuitOptions = new PromptStringOptions(
-        $"\nEnter circuit number for panel {panelName} " +
-        "(for example 19 or 1/5): ")
+      roomSelections = new List<RoomReceptacleSelection>();
+      errorMessage = string.Empty;
+      List<string> unmatchedHandles = new List<string>();
+      List<string> unnamedBoundaryHandles = new List<string>();
+
+      if (savedRooms == null ||
+          savedRooms.Rooms == null ||
+          savedRooms.Rooms.Count == 0)
       {
-        AllowSpaces = false
-      };
-      PromptResult circuitResult = editor.GetString(circuitOptions);
-      if (circuitResult.Status != PromptStatus.OK)
-      {
-        editor.WriteMessage("\nReceptacle insertion canceled.");
+        errorMessage =
+          "the saved AREALABEL room-boundary record is empty. Run " +
+          "AREALABEL again.";
         return false;
       }
 
-      circuitNumber =
-        (circuitResult.StringResult ?? string.Empty).Trim().TrimStart('-');
-      if (circuitNumber.Length == 0)
+      using (Transaction transaction =
+        database.TransactionManager.StartOpenCloseTransaction())
       {
-        editor.WriteMessage("\nCircuit number cannot be blank.");
+        foreach (ObjectId receptacleId in receptacleIds)
+        {
+          BlockReference blockReference = transaction.GetObject(
+            receptacleId,
+            OpenMode.ForRead,
+            false) as BlockReference;
+          if (blockReference == null)
+          {
+            unmatchedHandles.Add(receptacleId.Handle.ToString());
+            continue;
+          }
+
+          Point2d relativePosition = new Point2d(
+            blockReference.Position.X - savedRooms.BasePoint.X,
+            blockReference.Position.Y - savedRooms.BasePoint.Y);
+          ElectricalDrawingSettingsStore.RoomBoundarySetting matchedRoom =
+            FindSavedRoomAtPoint(savedRooms.Rooms, relativePosition);
+          if (matchedRoom == null)
+          {
+            unmatchedHandles.Add(receptacleId.Handle.ToString());
+            continue;
+          }
+
+          string roomName = Regex.Replace(
+            matchedRoom.Name ?? string.Empty,
+            @"\s+",
+            " ").Trim().ToUpperInvariant();
+          if (roomName.Length == 0)
+          {
+            string boundaryHandle = string.IsNullOrWhiteSpace(
+              matchedRoom.SourceHandle)
+              ? "unknown"
+              : matchedRoom.SourceHandle;
+            if (!unnamedBoundaryHandles.Contains(boundaryHandle))
+            {
+              unnamedBoundaryHandles.Add(boundaryHandle);
+            }
+            continue;
+          }
+
+          RoomReceptacleSelection selection = null;
+          foreach (RoomReceptacleSelection existing in roomSelections)
+          {
+            if (ReferenceEquals(existing.SavedRoom, matchedRoom))
+            {
+              selection = existing;
+              break;
+            }
+          }
+          if (selection == null)
+          {
+            selection = new RoomReceptacleSelection
+            {
+              RoomName = roomName,
+              SavedRoom = matchedRoom,
+            };
+            roomSelections.Add(selection);
+          }
+          selection.ReceptacleIds.Add(receptacleId);
+        }
+      }
+
+      if (unmatchedHandles.Count > 0)
+      {
+        errorMessage =
+          $"{unmatchedHandles.Count} selected receptacle(s) were outside " +
+          "the saved room boundaries (handles " +
+          FormatHandleList(unmatchedHandles) +
+          "). Run AREALABEL again with the current boundaries and common " +
+          "base point before circuiting.";
+        return false;
+      }
+
+      if (unnamedBoundaryHandles.Count > 0)
+      {
+        errorMessage =
+          $"{unnamedBoundaryHandles.Count} matched room boundary(ies) had " +
+          "no recognizable room-name text (boundary handles " +
+          FormatHandleList(unnamedBoundaryHandles) +
+          "). Add room-name text inside those boundaries and run " +
+          "AREALABEL again.";
+        return false;
+      }
+
+      if (roomSelections.Count == 0)
+      {
+        errorMessage = "none of the selected receptacles matched a saved room.";
         return false;
       }
       return true;
+    }
+
+    private static ElectricalDrawingSettingsStore.RoomBoundarySetting
+      FindSavedRoomAtPoint(
+        List<ElectricalDrawingSettingsStore.RoomBoundarySetting> rooms,
+        Point2d point)
+    {
+      ElectricalDrawingSettingsStore.RoomBoundarySetting bestRoom = null;
+      double bestArea = double.MaxValue;
+      foreach (ElectricalDrawingSettingsStore.RoomBoundarySetting room in rooms)
+      {
+        if (room == null ||
+            !IsPointInsideSavedRoomBoundary(point, room.RelativeBoundary))
+        {
+          continue;
+        }
+
+        double area = CalculateSavedRoomBoundaryArea(room.RelativeBoundary);
+        if (bestRoom == null || area < bestArea)
+        {
+          bestRoom = room;
+          bestArea = area;
+        }
+      }
+      return bestRoom;
+    }
+
+    private static bool IsPointInsideSavedRoomBoundary(
+      Point2d point,
+      List<Point2d> boundary)
+    {
+      if (boundary == null || boundary.Count < 3)
+      {
+        return false;
+      }
+
+      double minimumX = boundary[0].X;
+      double maximumX = boundary[0].X;
+      double minimumY = boundary[0].Y;
+      double maximumY = boundary[0].Y;
+      foreach (Point2d boundaryPoint in boundary)
+      {
+        minimumX = Math.Min(minimumX, boundaryPoint.X);
+        maximumX = Math.Max(maximumX, boundaryPoint.X);
+        minimumY = Math.Min(minimumY, boundaryPoint.Y);
+        maximumY = Math.Max(maximumY, boundaryPoint.Y);
+      }
+      double tolerance = Math.Max(
+        1e-7,
+        Math.Max(maximumX - minimumX, maximumY - minimumY) * 1e-9);
+      if (point.X < minimumX - tolerance ||
+          point.X > maximumX + tolerance ||
+          point.Y < minimumY - tolerance ||
+          point.Y > maximumY + tolerance)
+      {
+        return false;
+      }
+
+      bool inside = false;
+      for (int current = 0, previous = boundary.Count - 1;
+           current < boundary.Count;
+           previous = current++)
+      {
+        Point2d first = boundary[previous];
+        Point2d second = boundary[current];
+        if (IsPointOnSavedRoomSegment(point, first, second, tolerance))
+        {
+          return true;
+        }
+
+        bool crosses = (first.Y > point.Y) != (second.Y > point.Y);
+        if (crosses &&
+            point.X <
+              (second.X - first.X) * (point.Y - first.Y) /
+              (second.Y - first.Y) + first.X)
+        {
+          inside = !inside;
+        }
+      }
+      return inside;
+    }
+
+    private static bool IsPointOnSavedRoomSegment(
+      Point2d point,
+      Point2d first,
+      Point2d second,
+      double tolerance)
+    {
+      double segmentX = second.X - first.X;
+      double segmentY = second.Y - first.Y;
+      double pointX = point.X - first.X;
+      double pointY = point.Y - first.Y;
+      double segmentLength = Math.Sqrt(
+        segmentX * segmentX + segmentY * segmentY);
+      if (segmentLength <= tolerance)
+      {
+        return Math.Sqrt(pointX * pointX + pointY * pointY) <= tolerance;
+      }
+
+      double crossProduct = Math.Abs(pointX * segmentY - pointY * segmentX);
+      if (crossProduct > tolerance * segmentLength)
+      {
+        return false;
+      }
+
+      double dotProduct = pointX * segmentX + pointY * segmentY;
+      return dotProduct >= -tolerance * segmentLength &&
+        dotProduct <= segmentLength * segmentLength +
+          tolerance * segmentLength;
+    }
+
+    private static double CalculateSavedRoomBoundaryArea(
+      List<Point2d> boundary)
+    {
+      double doubledArea = 0.0;
+      for (int index = 0; index < boundary.Count; index++)
+      {
+        Point2d current = boundary[index];
+        Point2d next = boundary[(index + 1) % boundary.Count];
+        doubledArea += current.X * next.Y - next.X * current.Y;
+      }
+      return Math.Abs(doubledArea) / 2.0;
+    }
+
+    private static string FormatHandleList(List<string> handles)
+    {
+      const int displayedHandleCount = 5;
+      int count = Math.Min(handles.Count, displayedHandleCount);
+      string[] displayed = new string[count];
+      for (int index = 0; index < count; index++)
+      {
+        displayed[index] = handles[index];
+      }
+      return string.Join(", ", displayed) +
+        (handles.Count > displayedHandleCount ? ", ..." : string.Empty);
     }
 
     private static ObjectId[] GetImpliedReceptacles(
@@ -722,7 +808,7 @@ namespace ElectricalCommands
         out rejectedCount);
     }
 
-    private static ObjectId[] PromptForExistingReceptacles(
+    private static ObjectId[] PromptForReceptacles(
       Database database,
       Editor editor,
       out int rejectedCount)
@@ -1235,70 +1321,6 @@ namespace ElectricalCommands
       return false;
     }
 
-    private static void AutomaticallyCircuitReceptacles(
-      Database database,
-      Editor editor,
-      ObjectId[] receptacleIds,
-      double paperInchesPerModelFoot,
-      string panelName)
-    {
-      if (!ElectricalDrawingSettingsStore.TryReadPanelSchedule(
-        database,
-        out var panelSchedule))
-      {
-        editor.WriteMessage(
-          "\nAutomatic receptacle circuiting requires a linked panel " +
-          "schedule. Run SETPANELSCHEDULE (SPS) first.");
-        return;
-      }
-
-      CalculateSelectedReceptacleLoad(
-        database,
-        receptacleIds,
-        out double connectedWatts,
-        out int duplexCount,
-        out int quadCount,
-        out int defaultedCount);
-      if (connectedWatts <= 0.0)
-      {
-        editor.WriteMessage(
-          "\nNo supported receptacles were available for circuiting.");
-        return;
-      }
-
-      try
-      {
-        PanelScheduleAllocationResult allocation =
-          PanelScheduleWorkbookAllocator.AllocateReceptacleCircuit(
-            panelSchedule.WorkbookPath,
-            panelName,
-            panelSchedule.CircuitCapacity,
-            connectedWatts);
-
-        AddCircuitLabelsToReceptacles(
-          database,
-          editor,
-          receptacleIds,
-          paperInchesPerModelFoot,
-          panelName,
-          allocation.CircuitNumber.ToString());
-
-        editor.WriteMessage(
-          $"\nUpdated worksheet \"{allocation.WorksheetName}\", circuit " +
-          $"{allocation.CircuitNumber}: {connectedWatts:0} VA " +
-          $"({duplexCount} duplex, {quadCount} quad" +
-          (defaultedCount > 0
-            ? $", {defaultedCount} defaulted to 180 VA"
-            : string.Empty) +
-          ").");
-      }
-      catch (System.Exception ex)
-      {
-        editor.WriteMessage(
-          $"\nUnable to automatically circuit the receptacles: {ex.Message}");
-      }
-    }
-
     private static void AutomaticallyCircuitRoomReceptacles(
       Database database,
       Editor editor,
@@ -1306,6 +1328,26 @@ namespace ElectricalCommands
       double paperInchesPerModelFoot,
       string panelName,
       string roomName)
+    {
+      RoomReceptacleSelection roomSelection = new RoomReceptacleSelection
+      {
+        RoomName = roomName,
+      };
+      roomSelection.ReceptacleIds.AddRange(receptacleIds);
+      AutomaticallyCircuitRoomReceptacleGroups(
+        database,
+        editor,
+        new List<RoomReceptacleSelection> { roomSelection },
+        paperInchesPerModelFoot,
+        panelName);
+    }
+
+    private static void AutomaticallyCircuitRoomReceptacleGroups(
+      Database database,
+      Editor editor,
+      List<RoomReceptacleSelection> roomSelections,
+      double paperInchesPerModelFoot,
+      string panelName)
     {
       if (!ElectricalDrawingSettingsStore.TryReadPanelSchedule(
         database,
@@ -1319,37 +1361,72 @@ namespace ElectricalCommands
 
       try
       {
-        List<ReceptacleLoadItem> receptacles = ReadReceptacleLoadItems(
-          database,
-          receptacleIds,
-          out int duplexCount,
-          out int quadCount,
-          out int defaultedCount);
-        if (receptacles.Count == 0)
+        double maximumCircuitKva =
+          ResolveReceptacleCircuitMaximumKva(database);
+        int maximumLoadUnits = (int)Math.Round(
+          maximumCircuitKva / ReceptacleLoadUnitKva);
+        int totalReceptacleCount = 0;
+        int duplexCount = 0;
+        int quadCount = 0;
+        int defaultedCount = 0;
+        List<PendingRoomCircuitGroup> pendingGroups =
+          new List<PendingRoomCircuitGroup>();
+        List<RoomCircuitSummary> roomSummaries =
+          new List<RoomCircuitSummary>();
+
+        foreach (RoomReceptacleSelection roomSelection in roomSelections)
+        {
+          List<ReceptacleLoadItem> receptacles = ReadReceptacleLoadItems(
+            database,
+            roomSelection.ReceptacleIds.ToArray(),
+            out int roomDuplexCount,
+            out int roomQuadCount,
+            out int roomDefaultedCount);
+          if (receptacles.Count == 0)
+          {
+            continue;
+          }
+
+          totalReceptacleCount += receptacles.Count;
+          duplexCount += roomDuplexCount;
+          quadCount += roomQuadCount;
+          defaultedCount += roomDefaultedCount;
+          RoomCircuitSummary summary = new RoomCircuitSummary
+          {
+            RoomName = roomSelection.RoomName,
+          };
+          roomSummaries.Add(summary);
+
+          List<ReceptacleCircuitGroup> roomGroups =
+            BuildRoomReceptacleCircuitGroups(
+              receptacles,
+              maximumLoadUnits);
+          foreach (ReceptacleCircuitGroup roomGroup in roomGroups)
+          {
+            pendingGroups.Add(new PendingRoomCircuitGroup
+            {
+              RoomName = roomSelection.RoomName,
+              Group = roomGroup,
+              Summary = summary,
+            });
+          }
+        }
+
+        if (pendingGroups.Count == 0)
         {
           editor.WriteMessage(
             "\nNo supported receptacles were available for room circuiting.");
           return;
         }
 
-        double maximumCircuitKva =
-          ResolveReceptacleCircuitMaximumKva(database);
-        int maximumLoadUnits = (int)Math.Round(
-          maximumCircuitKva / ReceptacleLoadUnitKva);
-
-        List<ReceptacleCircuitGroup> groups =
-          BuildRoomReceptacleCircuitGroups(
-            receptacles,
-            maximumLoadUnits);
-        string loadDescription = "RECEPTACLES - " + roomName;
         List<PanelScheduleCircuitRequest> requests =
           new List<PanelScheduleCircuitRequest>();
-        foreach (ReceptacleCircuitGroup group in groups)
+        foreach (PendingRoomCircuitGroup pendingGroup in pendingGroups)
         {
           requests.Add(new PanelScheduleCircuitRequest
           {
-            ConnectedWatts = group.LoadUnits * 180.0,
-            LoadDescription = loadDescription,
+            ConnectedWatts = pendingGroup.Group.LoadUnits * 180.0,
+            LoadDescription = "RECEPTACLES - " + pendingGroup.RoomName,
           });
         }
 
@@ -1359,37 +1436,44 @@ namespace ElectricalCommands
             panelName,
             panelSchedule.CircuitCapacity,
             requests);
-        if (allocations.Count != groups.Count)
+        if (allocations.Count != pendingGroups.Count)
         {
           throw new InvalidOperationException(
             "The panel schedule did not return every requested room circuit.");
         }
 
-        List<string> circuitSummaries = new List<string>();
         double totalWatts = 0.0;
-        for (int index = 0; index < groups.Count; index++)
+        for (int index = 0; index < pendingGroups.Count; index++)
         {
-          ReceptacleCircuitGroup group = groups[index];
+          PendingRoomCircuitGroup pendingGroup = pendingGroups[index];
           PanelScheduleAllocationResult allocation = allocations[index];
-          double connectedWatts = group.LoadUnits * 180.0;
+          double connectedWatts = pendingGroup.Group.LoadUnits * 180.0;
           totalWatts += connectedWatts;
 
           AddCircuitLabelsToReceptacles(
             database,
             editor,
-            group.GetObjectIds(),
+            pendingGroup.Group.GetObjectIds(),
             paperInchesPerModelFoot,
             panelName,
             allocation.CircuitNumber.ToString());
-          circuitSummaries.Add(
+          pendingGroup.Summary.Circuits.Add(
             $"{allocation.CircuitNumber} ({connectedWatts / 1000.0:0.00} kVA)");
         }
 
+        List<string> roomSummaryText = new List<string>();
+        foreach (RoomCircuitSummary summary in roomSummaries)
+        {
+          roomSummaryText.Add(
+            $"{summary.RoomName}: " + string.Join(", ", summary.Circuits));
+        }
+
         editor.WriteMessage(
-          $"\nRoom circuiting complete for {roomName}: " +
-          $"{receptacles.Count} receptacle(s), {totalWatts / 1000.0:0.00} " +
-          $"kVA across {groups.Count} circuit(s): " +
-          string.Join(", ", circuitSummaries) + "." +
+          $"\nRoom circuiting complete for {roomSummaries.Count} room(s): " +
+          $"{totalReceptacleCount} receptacle(s), " +
+          $"{totalWatts / 1000.0:0.00} kVA across " +
+          $"{pendingGroups.Count} circuit(s). " +
+          string.Join("; ", roomSummaryText) + "." +
           (defaultedCount > 0
             ? $" {defaultedCount} nonstandard receptacle block(s) defaulted " +
               $"to {ReceptacleLoadUnitKva:0.00} kVA."
@@ -1401,7 +1485,7 @@ namespace ElectricalCommands
       catch (System.Exception ex)
       {
         editor.WriteMessage(
-          $"\nUnable to circuit receptacles for room {roomName}: {ex.Message}");
+          $"\nUnable to circuit room receptacles: {ex.Message}");
       }
     }
 
@@ -1741,61 +1825,6 @@ namespace ElectricalCommands
       double x = first.X - second.X;
       double y = first.Y - second.Y;
       return x * x + y * y;
-    }
-
-    private static void CalculateSelectedReceptacleLoad(
-      Database database,
-      ObjectId[] receptacleIds,
-      out double connectedWatts,
-      out int duplexCount,
-      out int quadCount,
-      out int defaultedCount)
-    {
-      connectedWatts = 0.0;
-      duplexCount = 0;
-      quadCount = 0;
-      defaultedCount = 0;
-
-      using (Transaction transaction =
-        database.TransactionManager.StartOpenCloseTransaction())
-      {
-        foreach (ObjectId receptacleId in receptacleIds)
-        {
-          BlockReference blockReference = transaction.GetObject(
-            receptacleId,
-            OpenMode.ForRead,
-            false) as BlockReference;
-          if (blockReference == null ||
-              !IsSupportedReceptacleBlock(transaction, blockReference))
-          {
-            continue;
-          }
-
-          string visibilityState = ResolveReceptacleVisibilityState(
-            blockReference);
-          if (visibilityState.StartsWith(
-            "QUAD",
-            StringComparison.OrdinalIgnoreCase))
-          {
-            connectedWatts += 360.0;
-            quadCount++;
-          }
-          else
-          {
-            connectedWatts += 180.0;
-            if (visibilityState.StartsWith(
-              "DUPLEX",
-              StringComparison.OrdinalIgnoreCase))
-            {
-              duplexCount++;
-            }
-            else
-            {
-              defaultedCount++;
-            }
-          }
-        }
-      }
     }
 
     private static string ResolveReceptacleVisibilityState(
@@ -2469,6 +2498,31 @@ namespace ElectricalCommands
       internal ObjectId ObjectId { get; set; }
       internal Point3d Position { get; set; }
       internal int LoadUnits { get; set; }
+    }
+
+    private sealed class RoomReceptacleSelection
+    {
+      internal string RoomName { get; set; } = string.Empty;
+      internal ElectricalDrawingSettingsStore.RoomBoundarySetting SavedRoom
+      {
+        get;
+        set;
+      }
+      internal List<ObjectId> ReceptacleIds { get; } =
+        new List<ObjectId>();
+    }
+
+    private sealed class PendingRoomCircuitGroup
+    {
+      internal string RoomName { get; set; } = string.Empty;
+      internal ReceptacleCircuitGroup Group { get; set; }
+      internal RoomCircuitSummary Summary { get; set; }
+    }
+
+    private sealed class RoomCircuitSummary
+    {
+      internal string RoomName { get; set; } = string.Empty;
+      internal List<string> Circuits { get; } = new List<string>();
     }
 
     private sealed class ReceptacleCircuitGroup

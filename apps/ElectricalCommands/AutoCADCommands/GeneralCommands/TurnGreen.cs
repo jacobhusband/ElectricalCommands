@@ -3,6 +3,8 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.Colors;
+using System;
+using System.Collections.Generic;
 
 namespace ElectricalCommands
 {
@@ -58,6 +60,15 @@ namespace ElectricalCommands
                             string xrefName = btr.Name;
                             ed.WriteMessage($"\nProcessing XREF: {xrefName}");
 
+                            // AutoCAD can expose a nested XREF's dependent layers under
+                            // the nested reference name rather than only under the selected
+                            // top-level prefix. Walk the XREF graph so every descendant is
+                            // included, while the visited-name set protects against cycles.
+                            HashSet<string> xrefNames = GetXrefHierarchyNames(
+                                db,
+                                btr.ObjectId,
+                                xrefName);
+
                             // Get the LayerTable
                             LayerTable lt = tr.GetObject(db.LayerTableId, OpenMode.ForRead) as LayerTable;
 
@@ -68,8 +79,10 @@ namespace ElectricalCommands
                             {
                                 LayerTableRecord ltr = tr.GetObject(layerId, OpenMode.ForRead) as LayerTableRecord;
 
-                                // XREF layer names are typically prefixed with "XREF_NAME|"
-                                if (ltr != null && ltr.Name.StartsWith(xrefName + "|", System.StringComparison.InvariantCultureIgnoreCase))
+                                // XREF layer names are prefixed with "XREF_NAME|". Checking
+                                // every name in the selected hierarchy also covers nested
+                                // references whose layers are not qualified by the root name.
+                                if (ltr != null && IsLayerInXrefHierarchy(ltr.Name, xrefNames))
                                 {
                                     // Upgrade the layer to write access
                                     ltr.UpgradeOpen();
@@ -82,7 +95,12 @@ namespace ElectricalCommands
 
                             if (layersChanged > 0)
                             {
-                                ed.WriteMessage($"\nChanged the color of {layersChanged} layer(s) in the selected XREF to green.");
+                                int nestedXrefCount = Math.Max(0, xrefNames.Count - 1);
+                                ed.WriteMessage(
+                                    $"\nChanged the color of {layersChanged} layer(s) in the selected XREF" +
+                                    (nestedXrefCount > 0
+                                        ? $" and {nestedXrefCount} nested XREF(s) to green."
+                                        : " to green."));
                             }
                             else
                             {
@@ -110,6 +128,62 @@ namespace ElectricalCommands
 
             // Regenerate the drawing to show the color changes immediately
             ed.Regen();
+        }
+
+        private static HashSet<string> GetXrefHierarchyNames(
+            Database db,
+            ObjectId rootBtrId,
+            string rootXrefName)
+        {
+            var xrefNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                using (XrefGraph xrefGraph = db.GetHostDwgXrefGraph(false))
+                {
+                    XrefGraphNode rootNode = xrefGraph.GetXrefNode(rootBtrId);
+                    CollectXrefHierarchyNames(rootNode, xrefNames);
+                }
+            }
+            catch (System.Exception)
+            {
+                // Fall back to the original top-level behavior if AutoCAD
+                // cannot construct an XREF graph for this drawing.
+            }
+
+            if (!string.IsNullOrWhiteSpace(rootXrefName))
+                xrefNames.Add(rootXrefName);
+
+            return xrefNames;
+        }
+
+        private static void CollectXrefHierarchyNames(
+            XrefGraphNode node,
+            HashSet<string> xrefNames)
+        {
+            if (node == null || string.IsNullOrWhiteSpace(node.Name) || !xrefNames.Add(node.Name))
+                return;
+
+            for (int index = 0; index < node.NumOut; index++)
+            {
+                CollectXrefHierarchyNames(node.Out(index) as XrefGraphNode, xrefNames);
+            }
+        }
+
+        private static bool IsLayerInXrefHierarchy(
+            string layerName,
+            IEnumerable<string> xrefNames)
+        {
+            if (string.IsNullOrWhiteSpace(layerName))
+                return false;
+
+            foreach (string xrefName in xrefNames)
+            {
+                if (layerName.StartsWith(xrefName + "|", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
         }
     }
 }

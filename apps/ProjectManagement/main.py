@@ -2904,6 +2904,14 @@ class PanelData(BaseModel):
     wire: str = Field(..., description="Wire")
     mounting: str = Field(..., description="Mounting")
     enclosure: str = Field(..., description="Enclosure")
+    main_type: str = Field(
+        "",
+        description="Main device type such as MCB or MLO, or blank if not visible",
+    )
+    main_breaker_amps: str = Field(
+        "",
+        description="Visible main breaker amp rating, or blank if not visible",
+    )
     circuits: List[CircuitItem] = Field(
         ..., description="List of detected breakers")
 
@@ -2919,7 +2927,14 @@ CANVAS_PANEL_UNSUPPORTED_IMAGE_EXTS = {".svg", ".svgz"}
 # "a table of circuits", but they drive opposite behavior downstream: the as-built gets
 # transcribed verbatim, the field card is only a label aid while kVA is estimated off
 # the breakers. They are separate roles so the model never has to pick a tool mode.
-CANVAS_PANEL_IMAGE_ROLES = ("breaker", "as_built_schedule", "field_directory", "ignore")
+CANVAS_PANEL_IMAGE_ROLES = (
+    "breaker",
+    "as_built_schedule",
+    "field_directory",
+    "panel_label",
+    "main_breaker",
+    "ignore",
+)
 CANVAS_PANEL_DIRECTORY_ROLES = ("as_built_schedule", "field_directory")
 CANVAS_PANEL_CONFIDENCE_LEVELS = ("high", "medium", "low")
 
@@ -2932,7 +2947,8 @@ class CanvasPanelImageRole(BaseModel):
         description=(
             "One of 'breaker' (photo of physical breakers), 'as_built_schedule' "
             "(printed/typed panel schedule document), 'field_directory' "
-            "(handwritten circuit card from the panel door), or 'ignore'"
+            "(handwritten circuit card from the panel door), 'panel_label' "
+            "(equipment nameplate), 'main_breaker' (close-up of the main device), or 'ignore'"
         ),
     )
     confidence: str = Field(
@@ -3071,6 +3087,20 @@ def cb_fix_nema_type(raw_type):
     return "NEMA 3R" if any(x in t for x in ["3R", "OUT", "EXT", "WEATHER"]) else "NEMA 1"
 
 
+def cb_format_main_requirement(panel_data: PanelData) -> str:
+    main_type = cb_clean_text(getattr(panel_data, "main_type", ""))
+    main_amps = cb_clean_text(getattr(panel_data, "main_breaker_amps", ""))
+    if main_amps and re.fullmatch(r"\d+(?:\.\d+)?", main_amps):
+        main_amps = f"{main_amps}A"
+    if main_type == "MLO":
+        return "MLO"
+    if main_amps and main_type:
+        return f"{main_amps} {main_type}"
+    if main_amps:
+        return f"{main_amps} MAIN"
+    return main_type
+
+
 def cb_resolve_ditto_marks(circuits: List[CircuitItem]) -> List[CircuitItem]:
     ditto_pattern = re.compile(r'^[\""\u2018\u2019\u201c\u201d\.]+$|^(SAME|DO)$', re.IGNORECASE)
     odds = sorted([c for c in circuits if c.circuit_number % 2 != 0], key=lambda x: x.circuit_number)
@@ -3137,6 +3167,9 @@ def cb_update_excel_workbook(panel_data: PanelData, workbook_path: str, use_extr
     target["K3"] = cb_clean_text(panel_data.phase)
     target["K4"] = cb_fix_nema_type(panel_data.enclosure)
     target["N2"] = cb_clean_text(panel_data.mounting)
+    main_requirement = cb_format_main_requirement(panel_data)
+    if main_requirement:
+        target["G4"] = main_requirement
     aic_rating = cb_clean_text(getattr(panel_data, "aic_rating", ""))
     if aic_rating:
         target["N3"] = aic_rating
@@ -7467,7 +7500,7 @@ Return ONLY the JSON object.
             return {'status': 'error', 'message': str(e)}
 
     def read_t24_output_json(self, json_path):
-        """Read and validate TXTSUMEXPORT output (T24Output.json)."""
+        """Read and validate SUMTEXT output (T24Output.json)."""
         try:
             normalized_path = _normalize_t24_output_json_path(json_path)
             if not os.path.isfile(normalized_path):
@@ -14401,6 +14434,13 @@ RULES
                 normalized.append(path)
         return normalized
 
+    def _normalize_panel_schedule_coverage(self, value):
+        values = value if isinstance(value, (list, tuple)) else [value]
+        return [
+            re.sub(r"\s+", " ", str(raw or "")).strip()[:160]
+            for raw in values
+        ]
+
     def _get_panel_schedule_path_value(self, data, plural_keys, singular_keys):
         if not isinstance(data, dict):
             return None
@@ -14603,12 +14643,35 @@ RULES
             except Exception:
                 pass
 
-    def _build_panel_schedule_prompt(self, panel_name, num_breaker_imgs, num_dir_imgs):
+    def _build_panel_schedule_prompt(
+        self,
+        panel_name,
+        num_breaker_imgs,
+        num_dir_imgs,
+        breaker_coverage=None,
+        num_label_imgs=0,
+        num_main_breaker_imgs=0,
+    ):
+        coverage_values = breaker_coverage if isinstance(breaker_coverage, (list, tuple)) else []
+        coverage_lines = []
+        for index in range(max(int(num_breaker_imgs or 0), 0)):
+            coverage = re.sub(
+                r"\s+", " ", str(coverage_values[index] if index < len(coverage_values) else "")
+            ).strip()[:160]
+            coverage_lines.append(
+                f'- Breaker image {index + 1}: {coverage or "coverage not provided; infer only from visible numbering"}'
+            )
+        coverage_block = "\n".join(coverage_lines) or "- No breaker images were provided."
         return f"""
 Analyze these electrical panel photos for Panel: {panel_name}.
 
 You are provided with {num_breaker_imgs} images of the CIRCUIT BREAKERS (first {num_breaker_imgs} images)
-and {num_dir_imgs} images of the CIRCUIT DIRECTORY (last {num_dir_imgs} images).
+followed by {num_dir_imgs} images of the CIRCUIT DIRECTORY,
+then {num_label_imgs} images of the PANEL LABEL / NAMEPLATE,
+and finally {num_main_breaker_imgs} images of the MAIN BREAKER.
+
+USER-PROVIDED BREAKER PHOTO COVERAGE
+{coverage_block}
 
 IMAGE INTERPRETATION RULES
 - All breaker images belong to the SAME panel.
@@ -14618,15 +14681,24 @@ IMAGE INTERPRETATION RULES
 - Merge partial and overlapping views into one complete understanding of the panel.
 - Do not treat split photos as separate panels.
 - Reconcile overlapping information by using visible circuit numbers, breaker positions, and the clearest label text.
-- Breaker images come first. Directory images come last.
+- Treat the user-provided breaker-photo coverage above as authoritative image placement guidance. It may list both columns, for example "11-31 and 12-32".
+- Use overlapping breaker views to confirm shared positions, then keep exactly one final breaker record per circuit.
+- Images are grouped in this exact order: breakers, directories, panel labels, main breakers.
 - Do not assume each image shows the entire panel or a complete directory by itself.
 
 TASK 1: HEADER
 - Extract Voltage, Bus Rating, Wire, Phase, Mounting, Enclosure.
-- Look at the directory images or labels on the panel across all images.
+- Use the dedicated PANEL LABEL / NAMEPLATE images as the primary source for these fields when provided. Otherwise use visible labels and directory headers across the other images.
 - Extract the panel AIC rating into JSON field "aic_rating" when visibly shown (examples: "10 KAIC", "22,000 AIC").
 - If AIC is blank, hidden, unreadable, or not present, set "aic_rating" to "".
 - Do not confuse AIC rating with Bus Rating, breaker amperage, voltage, or main requirement.
+- If sources conflict, prefer a legible manufacturer/nameplate value over a handwritten directory value.
+
+TASK 1B: MAIN DEVICE
+- Use the dedicated MAIN BREAKER images as the primary source when provided.
+- Set "main_type" to "MCB" for a main circuit breaker or "MLO" for main-lugs-only. Use another short visible device type only when clearly identified; otherwise use "".
+- Set "main_breaker_amps" to the main breaker handle/nameplate amp rating (examples: "200A", "225A"). If hidden or unreadable, use "".
+- Do not mistake branch breaker ratings, frame size, interrupting rating, voltage, or bus rating for the main breaker amp rating.
 
 TASK 2: CIRCUITS & POLES
 - Identify every breaker visible across the Breaker Images.
@@ -14644,11 +14716,17 @@ TASK 3: LOAD TYPES
 - LIGHTING -> 'C', RECEPTACLES -> 'G', MOTORS/HVAC -> 'M', KITCHEN -> 'K', DEDICATED -> 'D'
 """.strip()
 
-    def _build_existing_directory_prompt(self, panel_name, num_dir_imgs):
+    def _build_existing_directory_prompt(
+        self,
+        panel_name,
+        num_dir_imgs,
+        num_label_imgs=0,
+        num_main_breaker_imgs=0,
+    ):
         return f"""
 Analyze these electrical panel schedule directory document photos for Panel: {panel_name}.
 
-You are provided with {num_dir_imgs} images of the existing panel directory document. This document contains the circuit information (circuit numbers, load descriptions, breaker ratings/amperages, poles, and any visible kVA/load values) needed to recreate the panel schedule.
+You are provided with {num_dir_imgs} images of the existing panel directory document, followed by {num_label_imgs} PANEL LABEL / NAMEPLATE images and {num_main_breaker_imgs} MAIN BREAKER images. The directory document contains the circuit information (circuit numbers, load descriptions, breaker ratings/amperages, poles, and any visible kVA/load values) needed to recreate the panel schedule.
 
 IMAGE INTERPRETATION RULES
 - All directory images belong to the SAME panel directory document.
@@ -14658,9 +14736,12 @@ IMAGE INTERPRETATION RULES
 
 TASK 1: HEADER
 - Extract Voltage, Bus Rating, Wire, Phase, Mounting, Enclosure, and panel AIC rating from any headers, tables, or title block details.
+- When dedicated PANEL LABEL / NAMEPLATE images are provided, use them as the primary source for voltage, bus rating, wire, phase, enclosure, and AIC. Prefer a legible manufacturer/nameplate value if sources conflict.
 - Set the JSON field "aic_rating" to the visible AIC value (examples: "10 KAIC", "22,000 AIC").
 - If AIC is blank, hidden, unreadable, or not present, set "aic_rating" to "".
 - Do not confuse AIC rating with Bus Rating, breaker amperage, voltage, or main requirement.
+- Use dedicated MAIN BREAKER images as the primary source for the main device. Set "main_type" to "MCB" or "MLO" when established, and set "main_breaker_amps" to the visible main amp rating (examples: "200A", "225A"). Use "" for either field when not visible.
+- Do not mistake branch breaker ratings, frame size, interrupting rating, voltage, or bus rating for the main breaker amp rating.
 
 TASK 2: CIRCUITS & POLES
 - Identify every circuit entry in the directory document.
@@ -14681,7 +14762,16 @@ TASK 3: LOAD TYPES
 - LIGHTING -> 'C', RECEPTACLES -> 'G', MOTORS/HVAC -> 'M', KITCHEN -> 'K', DEDICATED -> 'D'
 """.strip()
 
-    def _analyze_panel_schedule_images(self, panel_name, breaker_paths, directory_paths, input_mode="field_photos"):
+    def _analyze_panel_schedule_images(
+        self,
+        panel_name,
+        breaker_paths,
+        directory_paths,
+        input_mode="field_photos",
+        breaker_coverage=None,
+        panel_label_paths=None,
+        main_breaker_paths=None,
+    ):
         api_key = self._resolve_panel_schedule_api_key()
         if not api_key:
             raise RuntimeError(
@@ -14696,16 +14786,38 @@ TASK 3: LOAD TYPES
 
         num_breaker_imgs = len(breaker_paths)
         num_dir_imgs = len(directory_paths)
+        panel_label_paths = list(panel_label_paths or [])
+        main_breaker_paths = list(main_breaker_paths or [])
+        num_label_imgs = len(panel_label_paths)
+        num_main_breaker_imgs = len(main_breaker_paths)
         if input_mode == "existing_directory":
-            prompt = self._build_existing_directory_prompt(panel_name, num_dir_imgs)
+            prompt = self._build_existing_directory_prompt(
+                panel_name,
+                num_dir_imgs,
+                num_label_imgs=num_label_imgs,
+                num_main_breaker_imgs=num_main_breaker_imgs,
+            )
         else:
             prompt = self._build_panel_schedule_prompt(
-                panel_name, num_breaker_imgs, num_dir_imgs
+                panel_name,
+                num_breaker_imgs,
+                num_dir_imgs,
+                breaker_coverage=breaker_coverage,
+                num_label_imgs=num_label_imgs,
+                num_main_breaker_imgs=num_main_breaker_imgs,
             )
+
+        analysis_paths = (
+            list(directory_paths)
+            if input_mode == "existing_directory"
+            else list(breaker_paths) + list(directory_paths)
+        )
+        analysis_paths.extend(panel_label_paths)
+        analysis_paths.extend(main_breaker_paths)
 
         gemini_images = []
         try:
-            for path in breaker_paths + directory_paths:
+            for path in analysis_paths:
                 if not os.path.exists(path):
                     raise ValueError(f"Image not found: {path}")
                 gemini_images.append(_open_panel_schedule_image(path))
@@ -14828,7 +14940,7 @@ You are given {image_count} images, numbered 0 through {last_index} in the order
 
 ROLE DEFINITIONS
 
-"breaker" - a FIELD PHOTO of the inside of an opened electrical panel showing the physical circuit breakers. Look for:
+"breaker" - a FIELD PHOTO of the inside of an opened electrical panel showing MULTIPLE BRANCH circuit breakers. Look for:
 - rows of breaker handles or toggle switches
 - amperage numbers stamped or molded into the breaker faces
 - bus bars, conduit, wire nuts, or colored conductors
@@ -14850,15 +14962,27 @@ If a person could retype the whole circuit list from this image alone without ev
 - photographed at an angle with the metal door, hinges, screws, or panel cover visible around it
 If the list is partial or informal and only makes sense alongside the panel itself, it is a "field_directory".
 
-"ignore" - anything else: site photos, equipment nameplates, one-line or riser diagrams, floor plans, blank or badly blurred images, screenshots of unrelated software.
+"panel_label" - a close photo of the panel's MANUFACTURER LABEL or EQUIPMENT NAMEPLATE. Look for:
+- manufacturer/model or catalog information
+- voltage, phase, wire, bus rating, AIC/SCCR, enclosure/type, or serial number fields
+- a compact label without a circuit-by-circuit directory table
+
+"main_breaker" - a close photo centered on the panel's SINGLE MAIN BREAKER or main disconnect. Look for:
+- one large breaker or disconnect handle, often marked MAIN
+- a prominent amp rating such as 200 or 225 on that main handle/device
+- frame, trip, catalog, or interrupting markings belonging to the main device
+- do not use this role for a view dominated by rows of branch breakers
+
+"ignore" - anything else: site photos, unrelated equipment nameplates, one-line or riser diagrams, floor plans, blank or badly blurred images, screenshots of unrelated software.
 
 DECIDING FACTORS - apply in this order
 1. Handwriting anywhere in the circuit rows means "field_directory". A handwritten list is NEVER an "as_built_schedule", no matter how complete it looks.
-2. A kVA or VA load column, or a header block listing AIC and bus rating, means "as_built_schedule".
-3. Visible physical breaker handles mean "breaker".
-4. A photo of the open door with the card taped to it, where the card text is readable, is "field_directory". If the card text is not readable but the breakers are, it is "breaker".
-5. A printed document you cannot read well enough to retype is "ignore", not "as_built_schedule". Being printed is not enough on its own.
-6. Do not guess. Use "ignore" whenever no definition clearly fits.
+2. A single compact equipment nameplate with electrical ratings but no circuit rows means "panel_label".
+3. A close-up dominated by one main breaker or disconnect means "main_breaker"; rows of branch handles mean "breaker".
+4. A kVA or VA load column, or a formal header plus circuit-by-circuit rows, means "as_built_schedule".
+5. A photo of the open door with the card taped to it, where the card text is readable, is "field_directory". If the card text is not readable but rows of breakers are, it is "breaker".
+6. A printed document you cannot read well enough to retype is "ignore", not "as_built_schedule". Being printed is not enough on its own.
+7. Do not guess. Use "ignore" whenever no definition clearly fits.
 
 This distinction matters: an "as_built_schedule" is transcribed exactly as drawn, while a "field_directory" is only used to label circuits that are read off the breaker photos. Choosing the wrong one produces a wrong panel schedule.
 
@@ -15297,8 +15421,27 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
                             ('directoryPath', 'directory_path'),
                         )
                     ),
+                    'panel_label_paths': self._normalize_panel_schedule_paths(
+                        self._get_panel_schedule_path_value(
+                            raw_panel,
+                            ('panelLabelPaths', 'panel_label_paths'),
+                            ('panelLabelPath', 'panel_label_path'),
+                        )
+                    ),
+                    'main_breaker_paths': self._normalize_panel_schedule_paths(
+                        self._get_panel_schedule_path_value(
+                            raw_panel,
+                            ('mainBreakerPaths', 'main_breaker_paths'),
+                            ('mainBreakerPath', 'main_breaker_path'),
+                        )
+                    ),
+                    'breaker_coverage': self._normalize_panel_schedule_coverage(
+                        raw_panel.get('breakerCoverage') or raw_panel.get('breaker_coverage') or []
+                    ),
                     'breaker_uploads': raw_panel.get('breakerUploads') or raw_panel.get('breaker_uploads') or [],
                     'directory_uploads': raw_panel.get('directoryUploads') or raw_panel.get('directory_uploads') or [],
+                    'panel_label_uploads': raw_panel.get('panelLabelUploads') or raw_panel.get('panel_label_uploads') or [],
+                    'main_breaker_uploads': raw_panel.get('mainBreakerUploads') or raw_panel.get('main_breaker_uploads') or [],
                 })
 
         if not panel_requests:
@@ -15323,8 +15466,27 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
                         ('directoryPath', 'directory_path'),
                     )
                 ),
+                'panel_label_paths': self._normalize_panel_schedule_paths(
+                    self._get_panel_schedule_path_value(
+                        data,
+                        ('panelLabelPaths', 'panel_label_paths'),
+                        ('panelLabelPath', 'panel_label_path'),
+                    )
+                ),
+                'main_breaker_paths': self._normalize_panel_schedule_paths(
+                    self._get_panel_schedule_path_value(
+                        data,
+                        ('mainBreakerPaths', 'main_breaker_paths'),
+                        ('mainBreakerPath', 'main_breaker_path'),
+                    )
+                ),
+                'breaker_coverage': self._normalize_panel_schedule_coverage(
+                    data.get('breakerCoverage') or data.get('breaker_coverage') or []
+                ),
                 'breaker_uploads': data.get('breakerUploads') or data.get('breaker_uploads') or [],
                 'directory_uploads': data.get('directoryUploads') or data.get('directory_uploads') or [],
+                'panel_label_uploads': data.get('panelLabelUploads') or data.get('panel_label_uploads') or [],
+                'main_breaker_uploads': data.get('mainBreakerUploads') or data.get('main_breaker_uploads') or [],
             })
 
         results = []
@@ -15359,8 +15521,13 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
             input_mode = str(panel_request.get('input_mode') or 'field_photos').strip().lower()
             breaker_paths = list(panel_request.get('breaker_paths') or [])
             directory_paths = list(panel_request.get('directory_paths') or [])
+            panel_label_paths = list(panel_request.get('panel_label_paths') or [])
+            main_breaker_paths = list(panel_request.get('main_breaker_paths') or [])
+            breaker_coverage = list(panel_request.get('breaker_coverage') or [])
             breaker_uploads = panel_request.get('breaker_uploads') or []
             directory_uploads = panel_request.get('directory_uploads') or []
+            panel_label_uploads = panel_request.get('panel_label_uploads') or []
+            main_breaker_uploads = panel_request.get('main_breaker_uploads') or []
             temp_paths = []
             _store_running_record(
                 f"Processing panel {index + 1} of {panel_count}: {panel_name}",
@@ -15380,6 +15547,18 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
                     )
                     directory_paths.extend(uploaded_paths)
                     temp_paths.extend(created)
+                if panel_label_uploads:
+                    uploaded_paths, created = self._panel_schedule_save_uploads(
+                        panel_label_uploads, "panel-label"
+                    )
+                    panel_label_paths.extend(uploaded_paths)
+                    temp_paths.extend(created)
+                if main_breaker_uploads:
+                    uploaded_paths, created = self._panel_schedule_save_uploads(
+                        main_breaker_uploads, "main-breaker"
+                    )
+                    main_breaker_paths.extend(uploaded_paths)
+                    temp_paths.extend(created)
 
                 if input_mode == "existing_directory":
                     if not directory_paths:
@@ -15394,7 +15573,13 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
 
                 try:
                     panel_data = self._analyze_panel_schedule_images(
-                        panel_name, breaker_paths, directory_paths, input_mode=input_mode
+                        panel_name,
+                        breaker_paths,
+                        directory_paths,
+                        input_mode=input_mode,
+                        breaker_coverage=breaker_coverage,
+                        panel_label_paths=panel_label_paths,
+                        main_breaker_paths=main_breaker_paths,
                     )
                 except Exception as e:
                     raise RuntimeError(self._format_panel_schedule_ai_error(e)) from e

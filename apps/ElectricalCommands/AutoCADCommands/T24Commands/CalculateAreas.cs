@@ -3,7 +3,9 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using System;
-using ElectricalCommands;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace ElectricalCommands
 {
@@ -42,8 +44,26 @@ namespace ElectricalCommands
           sset = selRes.Value;
         }
 
+        PromptPointResult basePointResult = ed.GetPoint(
+          new PromptPointOptions(
+            "\nSpecify the common base point for the saved room boundaries: "));
+        if (basePointResult.Status != PromptStatus.OK)
+        {
+          ed.WriteMessage("\nAREALABEL canceled before room data was saved.");
+          return;
+        }
+
+        Point3d basePoint = basePointResult.Value.TransformBy(
+          ed.CurrentUserCoordinateSystem);
+        List<ElectricalDrawingSettingsStore.RoomBoundarySetting>
+          savedRooms =
+            new List<ElectricalDrawingSettingsStore.RoomBoundarySetting>();
+        int unnamedRoomCount = 0;
+
         using (Transaction tr = doc.TransactionManager.StartTransaction())
         {
+          List<AreaLabelTextCandidate> roomTextCandidates =
+            ReadAreaLabelTextCandidates(db, tr);
           int processedCount = 0;
           foreach (ObjectId objId in sset.GetObjectIds())
           {
@@ -79,6 +99,34 @@ namespace ElectricalCommands
                 center = polyline.GetPoint3dAt(0);
               }
 
+              if (polyline.Closed && polyline.NumberOfVertices >= 3)
+              {
+                string roomName = ResolveAreaLabelRoomName(
+                  polyline,
+                  center,
+                  roomTextCandidates);
+                if (roomName.Length == 0)
+                {
+                  unnamedRoomCount++;
+                }
+
+                savedRooms.Add(
+                  new ElectricalDrawingSettingsStore.RoomBoundarySetting
+                  {
+                    Name = roomName,
+                    SourceHandle = polyline.Handle.ToString(),
+                    RelativeBoundary = BuildRelativeRoomBoundary(
+                      polyline,
+                      basePoint),
+                  });
+              }
+              else
+              {
+                ed.WriteMessage(
+                  $"\nPolyline {polyline.Handle} is not closed and was not " +
+                  "saved as a room boundary.");
+              }
+
               DBText text = new DBText
               {
                 Height = 9,
@@ -105,7 +153,29 @@ namespace ElectricalCommands
             }
           }
           tr.Commit();
-          ed.WriteMessage($"\nAREACALCULATOR command completed successfully. Processed {processedCount} polyline(s).");
+          ed.WriteMessage(
+            $"\nAREALABEL processed {processedCount} polyline(s).");
+        }
+
+        if (savedRooms.Count > 0)
+        {
+          ElectricalDrawingSettingsStore.WriteRoomBoundaries(
+            db,
+            basePoint,
+            savedRooms);
+          ed.WriteMessage(
+            $"\nSaved {savedRooms.Count} room boundary(ies) relative to " +
+            $"base point {FormatAreaLabelPoint(basePoint)} for RC." +
+            (unnamedRoomCount > 0
+              ? $" {unnamedRoomCount} boundary(ies) did not contain " +
+                "recognizable room-name text and must be corrected before " +
+                "RC can use receptacles in those rooms."
+              : string.Empty));
+        }
+        else
+        {
+          ed.WriteMessage(
+            "\nNo closed room boundaries were available to save for RC.");
         }
 
         // Clear the PickFirst selection set
@@ -162,6 +232,157 @@ namespace ElectricalCommands
       }
       // If the number of intersections is odd, the point is inside.
       return numIntersections % 2 != 0;
+    }
+
+    private static List<AreaLabelTextCandidate> ReadAreaLabelTextCandidates(
+      Database database,
+      Transaction transaction)
+    {
+      List<AreaLabelTextCandidate> candidates =
+        new List<AreaLabelTextCandidate>();
+      BlockTableRecord currentSpace = transaction.GetObject(
+        database.CurrentSpaceId,
+        OpenMode.ForRead) as BlockTableRecord;
+      if (currentSpace == null)
+      {
+        return candidates;
+      }
+
+      foreach (ObjectId objectId in currentSpace)
+      {
+        Entity entity = transaction.GetObject(
+          objectId,
+          OpenMode.ForRead,
+          false) as Entity;
+        string text = string.Empty;
+        Point3d position = Point3d.Origin;
+        if (entity is DBText dbText)
+        {
+          text = dbText.TextString;
+          position = dbText.Position;
+        }
+        else if (entity is MText mText)
+        {
+          text = mText.Text;
+          position = mText.Location;
+        }
+
+        text = NormalizeAreaLabelRoomText(text);
+        if (text.Length == 0 || IsAreaMeasurementText(text))
+        {
+          continue;
+        }
+
+        candidates.Add(new AreaLabelTextCandidate
+        {
+          Text = text,
+          Position = position,
+        });
+      }
+      return candidates;
+    }
+
+    private static string ResolveAreaLabelRoomName(
+      Polyline polyline,
+      Point3d center,
+      List<AreaLabelTextCandidate> candidates)
+    {
+      List<AreaLabelTextCandidate> inside = candidates
+        .Where(candidate => IsPointInside(polyline, candidate.Position))
+        .OrderBy(candidate => candidate.Position.DistanceTo(center))
+        .ToList();
+      if (inside.Count == 0)
+      {
+        return string.Empty;
+      }
+
+      AreaLabelTextCandidate descriptiveText = inside.FirstOrDefault(
+        candidate =>
+          Regex.IsMatch(candidate.Text, "[A-Z]", RegexOptions.IgnoreCase) &&
+          !IsLikelyRoomNumber(candidate.Text));
+      if (descriptiveText == null)
+      {
+        return inside[0].Text;
+      }
+
+      string roomName = descriptiveText.Text;
+      if (!Regex.IsMatch(roomName, @"\d"))
+      {
+        AreaLabelTextCandidate numberText = inside.FirstOrDefault(
+          candidate => IsLikelyRoomNumber(candidate.Text));
+        if (numberText != null)
+        {
+          roomName += " " + numberText.Text;
+        }
+      }
+      return NormalizeAreaLabelRoomText(roomName);
+    }
+
+    private static bool IsLikelyRoomNumber(string text)
+    {
+      return Regex.IsMatch(
+        text ?? string.Empty,
+        @"^[A-Z]?\d{1,5}[A-Z]?$",
+        RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsAreaMeasurementText(string text)
+    {
+      return Regex.IsMatch(
+        text ?? string.Empty,
+        @"^\s*[\d,.]+\s*(?:SQ\.?\s*FT\.?|SF|SQUARE\s+FEET)\s*$",
+        RegexOptions.IgnoreCase);
+    }
+
+    private static string NormalizeAreaLabelRoomText(string text)
+    {
+      return Regex.Replace(
+        text ?? string.Empty,
+        @"\s+",
+        " ").Trim().ToUpperInvariant();
+    }
+
+    private static List<Point2d> BuildRelativeRoomBoundary(
+      Polyline polyline,
+      Point3d basePoint)
+    {
+      List<Point2d> points = new List<Point2d>();
+      int segmentCount = polyline.Closed
+        ? polyline.NumberOfVertices
+        : Math.Max(0, polyline.NumberOfVertices - 1);
+      for (int segmentIndex = 0;
+           segmentIndex < segmentCount;
+           segmentIndex++)
+      {
+        double includedAngle = Math.Abs(
+          4.0 * Math.Atan(polyline.GetBulgeAt(segmentIndex)));
+        int subdivisions = Math.Max(
+          1,
+          (int)Math.Ceiling(includedAngle / (Math.PI / 18.0)));
+        for (int subdivision = 0;
+             subdivision < subdivisions;
+             subdivision++)
+        {
+          double parameter =
+            segmentIndex + subdivision / (double)subdivisions;
+          Point3d point = polyline.GetPointAtParameter(parameter);
+          points.Add(new Point2d(
+            point.X - basePoint.X,
+            point.Y - basePoint.Y));
+        }
+      }
+      return points;
+    }
+
+    private static string FormatAreaLabelPoint(Point3d point)
+    {
+      return $"({point.X:0.###}, {point.Y:0.###}, {point.Z:0.###})";
+    }
+
+    private sealed class AreaLabelTextCandidate
+    {
+      internal string Text { get; set; } = string.Empty;
+      internal Point3d Position { get; set; }
     }
   }
 }

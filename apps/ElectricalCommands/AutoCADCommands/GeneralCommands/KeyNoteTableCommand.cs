@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 
 namespace ElectricalCommands
@@ -335,165 +336,177 @@ namespace ElectricalCommands
             database.BlockTableId,
             OpenMode.ForRead);
           ObjectId defaultBlockId = blockTable.Has(KnBlockName) ? blockTable[KnBlockName] : ObjectId.Null;
-          ObjectId blockId = defaultBlockId;
-          double scale = 1.0;
-
-          // Scan the first column (column 0) for existing keyed-note numbers and block settings
-          var foundNumbers = new List<(int row, int number)>();
-          for (int row = 0; row < table.Rows.Count; row++)
-          {
-            if (TryGetCellNumber(table, transaction, row, 0, out int number, out ObjectId cellBlockId, out double cellScale))
-            {
-              foundNumbers.Add((row, number));
-              if (!cellBlockId.IsNull && cellBlockId.IsValid)
-              {
-                blockId = cellBlockId;
-                scale = cellScale;
-              }
-            }
-          }
-
-          if (blockId.IsNull)
+          if (defaultBlockId.IsNull)
           {
             editor.WriteMessage($"\nBlock {KnBlockName} is missing.");
             return;
           }
 
-          ObjectId attributeDefinitionId = FindKeyNoteAttributeDefinition(transaction, blockId);
-          if (attributeDefinitionId.IsNull)
-          {
-            editor.WriteMessage($"\nBlock {KnBlockName} has no editable keyed-note attribute.");
-            return;
-          }
+          var noteCells = new List<(
+            int row,
+            int symbolColumn,
+            bool hadNumber,
+            int oldNumber,
+            ObjectId blockId,
+            double scale)>();
+          var columnScales = new Dictionary<int, double>();
+          ObjectId templateBlockId = defaultBlockId;
+          double templateScale = 1.0;
 
-          // Determine the numbering pattern and starting row
-          int step = 1;
-          int lastFoundRow = -1;
-          int lastFoundNum = 0;
-          int firstDataRow = 0;
-
-          if (foundNumbers.Count >= 2)
+          // KNT tables consist of symbol/text column pairs. Number them in the
+          // same visual order used when the table is first created: down each
+          // pair, then continue at the top of the next pair.
+          for (int symbolColumn = 0;
+               symbolColumn < table.Columns.Count;
+               symbolColumn += 2)
           {
-            var prev = foundNumbers[foundNumbers.Count - 2];
-            var last = foundNumbers[foundNumbers.Count - 1];
-            int rowDiff = last.row - prev.row;
-            int numDiff = last.number - prev.number;
-            if (rowDiff > 0 && numDiff > 0 && numDiff % rowDiff == 0)
+            int textColumn = symbolColumn + 1;
+            for (int row = 0; row < table.Rows.Count; row++)
             {
-              step = numDiff / rowDiff;
-            }
-            else if (rowDiff > 0 && numDiff > 0)
-            {
-              step = Math.Max(1, numDiff / rowDiff);
-            }
-            lastFoundRow = last.row;
-            lastFoundNum = last.number;
-            firstDataRow = foundNumbers[0].row;
-          }
-          else if (foundNumbers.Count == 1)
-          {
-            lastFoundRow = foundNumbers[0].row;
-            lastFoundNum = foundNumbers[0].number;
-            firstDataRow = foundNumbers[0].row;
-          }
-          else
-          {
-            for (int r = 0; r < table.Rows.Count; r++)
-            {
-              if (!table.IsMergedCell(r, 0, out _))
-              {
-                firstDataRow = r;
-                break;
-              }
-            }
-            lastFoundRow = firstDataRow - 1;
-            lastFoundNum = 0;
-          }
-
-          int addedCount = 0;
-          int firstAdded = 0;
-          int lastAdded = 0;
-
-          for (int row = firstDataRow; row < table.Rows.Count; row++)
-          {
-            bool alreadyHasNumber = foundNumbers.Any(f => f.row == row);
-            if (!alreadyHasNumber)
-            {
-              if (table.IsMergedCell(row, 0, out CellRange range) && range.RightColumn > range.LeftColumn)
+              if (IsKeyNoteTableMergedHeader(table, row, symbolColumn) ||
+                  (textColumn < table.Columns.Count &&
+                   IsKeyNoteTableMergedHeader(table, row, textColumn)))
               {
                 continue;
               }
 
-              int currentNum;
-              if (row > lastFoundRow && lastFoundRow >= 0)
-              {
-                currentNum = lastFoundNum + (row - lastFoundRow) * step;
-              }
-              else if (foundNumbers.Count > 0)
-              {
-                currentNum = foundNumbers[0].number + (row - foundNumbers[0].row) * step;
-              }
-              else
-              {
-                currentNum = 1 + (row - firstDataRow) * step;
-              }
-
-              EnsureKeyNoteTableCellContent(table, row, 0);
-              table.SetBlockTableRecordId(row, 0, 0, blockId, false);
-              table.SetIsAutoScale(row, 0, 0, false);
-              table.SetScale(row, 0, 0, scale);
-              table.SetBlockAttributeValue(
+              bool hadNumber = TryGetCellNumber(
+                table,
+                transaction,
                 row,
-                0,
-                0,
-                attributeDefinitionId,
-                currentNum.ToString(CultureInfo.InvariantCulture));
-              table.Cells[row, 0].Alignment = CellAlignment.TopCenter;
+                symbolColumn,
+                out int oldNumber,
+                out ObjectId cellBlockId,
+                out double cellScale);
+              bool hasBlock = !cellBlockId.IsNull && cellBlockId.IsValid;
+              bool hasText = textColumn < table.Columns.Count &&
+                KeyNoteTableCellHasVisibleContent(table, row, textColumn);
 
-              if (addedCount == 0)
+              if (!hadNumber && !hasBlock && !hasText)
               {
-                firstAdded = currentNum;
+                continue;
               }
-              lastAdded = currentNum;
+
+              if (hasBlock)
+              {
+                templateBlockId = cellBlockId;
+                if (cellScale > 1e-9)
+                {
+                  templateScale = cellScale;
+                  columnScales[symbolColumn] = cellScale;
+                }
+              }
+
+              noteCells.Add((
+                row,
+                symbolColumn,
+                hadNumber,
+                oldNumber,
+                cellBlockId,
+                cellScale));
+            }
+          }
+
+          if (FindKeyNoteAttributeDefinition(transaction, templateBlockId).IsNull)
+          {
+            templateBlockId = defaultBlockId;
+          }
+
+          int addedCount = 0;
+          int correctedCount = 0;
+          int expectedNumber = 1;
+          foreach (var noteCell in noteCells)
+          {
+            ObjectId blockId = !noteCell.blockId.IsNull && noteCell.blockId.IsValid
+              ? noteCell.blockId
+              : templateBlockId;
+            ObjectId attributeDefinitionId = FindKeyNoteAttributeDefinition(
+              transaction,
+              blockId);
+            if (attributeDefinitionId.IsNull)
+            {
+              blockId = defaultBlockId;
+              attributeDefinitionId = FindKeyNoteAttributeDefinition(
+                transaction,
+                blockId);
+            }
+            if (attributeDefinitionId.IsNull)
+            {
+              editor.WriteMessage(
+                $"\nBlock {KnBlockName} has no editable keyed-note attribute.");
+              return;
+            }
+
+            bool hasExistingBlock = !noteCell.blockId.IsNull &&
+              noteCell.blockId.IsValid;
+            double scale = hasExistingBlock && noteCell.scale > 1e-9
+              ? noteCell.scale
+              : columnScales.TryGetValue(noteCell.symbolColumn, out double columnScale)
+                ? columnScale
+                : templateScale;
+            EnsureKeyNoteTableCellContent(
+              table,
+              noteCell.row,
+              noteCell.symbolColumn);
+            table.SetBlockTableRecordId(
+              noteCell.row,
+              noteCell.symbolColumn,
+              0,
+              blockId,
+              false);
+            table.SetIsAutoScale(
+              noteCell.row,
+              noteCell.symbolColumn,
+              0,
+              false);
+            table.SetScale(
+              noteCell.row,
+              noteCell.symbolColumn,
+              0,
+              scale);
+            table.SetBlockAttributeValue(
+              noteCell.row,
+              noteCell.symbolColumn,
+              0,
+              attributeDefinitionId,
+              expectedNumber.ToString(CultureInfo.InvariantCulture));
+            table.Cells[noteCell.row, noteCell.symbolColumn].Alignment =
+              CellAlignment.TopCenter;
+
+            if (!noteCell.hadNumber)
+            {
               addedCount++;
             }
-          }
-
-          // Apply 1/8" vertical margins and hide grids across all cells
-          table.VerticalCellMargin = KeyNoteTableVerticalMargin;
-          for (int r = 0; r < table.Rows.Count; r++)
-          {
-            for (int c = 0; c < table.Columns.Count; c++)
+            else if (noteCell.oldNumber != expectedNumber)
             {
-              HideKeyNoteCellGrid(table, r, c);
-              SetKeyNoteCellMargins(
-                table,
-                r,
-                c,
-                KeyNoteTableVerticalMargin,
-                KeyNoteTableVerticalMargin,
-                KeyNoteTableBaseMargin);
+              correctedCount++;
             }
+            expectedNumber++;
           }
 
+          FormatKeyNoteTableCells(table);
           table.GenerateLayout();
           CompressKeyNoteTableRows(table);
           table.GenerateLayout();
+          TryRecomputeTableBlock(table);
+          CompressKeyNoteTableRows(table);
+          TryRecomputeTableBlock(table);
 
           transaction.Commit();
 
-          if (addedCount > 0)
+          if (noteCells.Count == 0)
           {
             editor.WriteMessage(
-              $"\nUpdated keyed-note table {tableId.Handle}: added keyed note symbol{(addedCount == 1 ? string.Empty : "s")} " +
-              $"{firstAdded}{(addedCount > 1 ? $" to {lastAdded}" : string.Empty)} to column 1.");
+              $"\nKeyed-note table {tableId.Handle} contains no note rows to number. " +
+              "Row heights and 1/8-inch spacing were minimized.");
           }
           else
           {
-            string noteRange = foundNumbers.Count > 0
-              ? $" (notes {foundNumbers.First().number}" + (foundNumbers.Count > 1 ? $" through {foundNumbers.Last().number}" : string.Empty) + ")"
-              : string.Empty;
-            editor.WriteMessage($"\nKeyed-note table {tableId.Handle} is already up to date{noteRange}.");
+            editor.WriteMessage(
+              $"\nUpdated keyed-note table {tableId.Handle}: numbered {noteCells.Count} " +
+              $"note{(noteCells.Count == 1 ? string.Empty : "s")} 1 through {noteCells.Count}" +
+              $", corrected {correctedCount}, added {addedCount}; " +
+              "row heights and 1/8-inch spacing minimized.");
           }
         }
       }
@@ -562,6 +575,56 @@ namespace ElectricalCommands
               number = parsed;
               return true;
             }
+          }
+        }
+      }
+      catch
+      {
+      }
+
+      return false;
+    }
+
+    private static bool IsKeyNoteTableMergedHeader(
+      Table table,
+      int row,
+      int column)
+    {
+      try
+      {
+        return table.IsMergedCell(row, column, out CellRange range) &&
+          (range.TopRow != range.BottomRow ||
+           range.LeftColumn != range.RightColumn);
+      }
+      catch
+      {
+        return false;
+      }
+    }
+
+    private static bool KeyNoteTableCellHasVisibleContent(
+      Table table,
+      int row,
+      int column)
+    {
+      try
+      {
+        int contentCount = table.GetNumberOfContents(row, column);
+        for (int contentIndex = 0; contentIndex < contentCount; contentIndex++)
+        {
+          ObjectId blockId = table.GetBlockTableRecordId(
+            row,
+            column,
+            contentIndex);
+          if (!blockId.IsNull && blockId.IsValid)
+          {
+            return true;
+          }
+
+          string text = table.GetTextString(row, column, contentIndex);
+          if (!string.IsNullOrWhiteSpace(text))
+          {
+            return true;
           }
         }
       }
@@ -661,7 +724,7 @@ namespace ElectricalCommands
       double scale = GetKeyNoteColumnScale(singleColumn);
       double minimumRowHeight =
         KeyNoteHexHeight * scale +
-        (KeyNoteTableVerticalMargin * 2.0) * scale;
+        KeyNoteTableVerticalMargin;
       if (height <= minimumRowHeight)
       {
         editor.WriteMessage(
@@ -1154,6 +1217,8 @@ namespace ElectricalCommands
         table.GenerateLayout();
         ConfigureKeyNoteTableBreaks(table, plan);
         table.GenerateLayout();
+        CompressKeyNoteTableRows(table);
+        TryRecomputeTableBlock(table);
 
         if (eraseSource)
         {
@@ -1290,14 +1355,14 @@ namespace ElectricalCommands
               table,
               row,
               symbolColumn,
-              KeyNoteTableVerticalMargin,
+              0.0,
               KeyNoteTableVerticalMargin,
               KeyNoteTableBaseMargin);
             SetKeyNoteCellMargins(
               table,
               row,
               textColumn,
-              KeyNoteTableVerticalMargin,
+              0.0,
               KeyNoteTableVerticalMargin,
               KeyNoteTableBaseMargin);
             if (row >= column.Entries.Count)
@@ -1351,6 +1416,7 @@ namespace ElectricalCommands
         CompressKeyNoteTableRows(table);
         stage = "generating the final table layout";
         table.GenerateLayout();
+        TryRecomputeTableBlock(table);
         return table;
       }
       catch (System.Exception ex)
@@ -1362,8 +1428,37 @@ namespace ElectricalCommands
       }
     }
 
+    private static void FormatKeyNoteTableCells(Table table)
+    {
+      if (table == null)
+      {
+        return;
+      }
+
+      table.VerticalCellMargin = KeyNoteTableVerticalMargin;
+      for (int row = 0; row < table.Rows.Count; row++)
+      {
+        for (int column = 0; column < table.Columns.Count; column++)
+        {
+          HideKeyNoteCellGrid(table, row, column);
+          SetKeyNoteCellMargins(
+            table,
+            row,
+            column,
+            0.0,
+            KeyNoteTableVerticalMargin,
+            KeyNoteTableBaseMargin);
+        }
+      }
+    }
+
     private static void CompressKeyNoteTableRows(Table table)
     {
+      if (table == null)
+      {
+        return;
+      }
+
       for (int row = 0; row < table.Rows.Count; row++)
       {
         try
@@ -1376,9 +1471,50 @@ namespace ElectricalCommands
         }
         catch
         {
-          // The database-resident pass in WriteKeyNoteTable retries rows whose
-          // table style cannot calculate MinimumHeight during construction.
+          // A second pass runs after the table is database-resident because
+          // some table styles cannot calculate MinimumHeight while transient.
         }
+      }
+    }
+
+    private static void TryRecomputeTableBlock(Table table)
+    {
+      if (table == null)
+      {
+        return;
+      }
+
+      try
+      {
+        MethodInfo recomputeWithArg = table
+          .GetType()
+          .GetMethod(
+            "RecomputeTableBlock",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null,
+            new[] { typeof(bool) },
+            null);
+        if (recomputeWithArg != null)
+        {
+          recomputeWithArg.Invoke(table, new object[] { true });
+          return;
+        }
+
+        MethodInfo recomputeNoArg = table
+          .GetType()
+          .GetMethod(
+            "RecomputeTableBlock",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null,
+            Type.EmptyTypes,
+            null);
+        if (recomputeNoArg != null)
+        {
+          recomputeNoArg.Invoke(table, null);
+        }
+      }
+      catch
+      {
       }
     }
 

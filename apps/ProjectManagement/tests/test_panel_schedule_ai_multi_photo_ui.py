@@ -27,6 +27,9 @@ class PanelScheduleAiMultiPhotoUiTests(unittest.TestCase):
         self.assertIn("No photos", text)
         self.assertIn("JPG, PNG, HEIC, HEIF supported.", text)
         self.assertIn("pasted screenshots append", text)
+        self.assertIn("Panel label / nameplate", text)
+        self.assertIn("Main breaker", text)
+        self.assertIn("primary source for panel header fields", text)
         self.assertIn("Progress and results appear in the activity tray.", text)
         self.assertIn("Use the tray action to open the output folder after completion.", text)
 
@@ -35,8 +38,14 @@ class PanelScheduleAiMultiPhotoUiTests(unittest.TestCase):
 
         self.assertIn("breakerPaths: [],", text)
         self.assertIn("directoryPaths: [],", text)
+        self.assertIn("panelLabelPaths: [],", text)
+        self.assertIn("mainBreakerPaths: [],", text)
         self.assertIn("breakerFiles: [],", text)
         self.assertIn("directoryFiles: [],", text)
+        self.assertIn("panelLabelFiles: [],", text)
+        self.assertIn("mainBreakerFiles: [],", text)
+        self.assertIn("breakerPathCoverage: [],", text)
+        self.assertIn("breakerFileCoverage: [],", text)
         self.assertIn("launchContext: null,", text)
         self.assertIn("function setCircuitBreakerFiles(kind, files) {", text)
         self.assertIn("function setCircuitBreakerPaths(kind, paths) {", text)
@@ -49,6 +58,8 @@ class PanelScheduleAiMultiPhotoUiTests(unittest.TestCase):
         self.assertIn("if (files.length) setCircuitBreakerFiles(kind, files);", text)
         self.assertIn('void selectCircuitBreakerImage("breaker");', text)
         self.assertIn('void selectCircuitBreakerImage("directory");', text)
+        self.assertIn('void selectCircuitBreakerImage("panelLabel");', text)
+        self.assertIn('void selectCircuitBreakerImage("mainBreaker");', text)
         self.assertIn("defaultDirectory || null,", text)
         self.assertIn(
             "breakerPaths: [...normalizeCircuitBreakerPaths(panel.breakerPaths)],",
@@ -58,6 +69,15 @@ class PanelScheduleAiMultiPhotoUiTests(unittest.TestCase):
             "directoryPaths: [...normalizeCircuitBreakerPaths(panel.directoryPaths)],",
             text,
         )
+        self.assertIn(
+            "panelLabelPaths: [...normalizeCircuitBreakerPaths(panel.panelLabelPaths)],",
+            text,
+        )
+        self.assertIn(
+            "mainBreakerPaths: [...normalizeCircuitBreakerPaths(panel.mainBreakerPaths)],",
+            text,
+        )
+        self.assertIn("breakerCoverage,", text)
         self.assertIn("breakerPaths: firstPanel.breakerPaths || [],", text)
         self.assertIn("directoryPaths: firstPanel.directoryPaths || [],", text)
         self.assertIn("function filesToUploadPayloads(files) {", text)
@@ -70,13 +90,16 @@ class PanelScheduleAiMultiPhotoUiTests(unittest.TestCase):
         self.assertIn("function getCircuitBreakerClipboardImageFiles(clipboardData) {", text)
         self.assertIn("function resolveCircuitBreakerPasteTargetKind(eventTarget = null) {", text)
         self.assertIn("function appendCircuitBreakerFiles(kind, files) {", text)
-        self.assertIn("...normalizeCircuitBreakerFiles(panel.breakerFiles),", text)
-        self.assertIn("...normalizeCircuitBreakerFiles(panel.directoryFiles),", text)
+        self.assertIn("...normalizeCircuitBreakerFiles(panel[fields.files]),", text)
         self.assertIn("function handleCircuitBreakerPaste(e) {", text)
         self.assertIn('circuitBreakerDlg.addEventListener("paste", handleCircuitBreakerPaste);', text)
         self.assertIn("appendCircuitBreakerFiles(targetKind, imageFiles);", text)
         self.assertIn("breakerUploads,", text)
         self.assertIn("directoryUploads,", text)
+        self.assertIn("panelLabelUploads,", text)
+        self.assertIn("mainBreakerUploads,", text)
+        self.assertIn("function setCircuitBreakerPhotoCoverage(", text)
+        self.assertIn('coverageInput.placeholder = "e.g. 11-31 and 12-32";', text)
         self.assertIn("function schedulePanelScheduleStatusPoll(jobId, delay = 1000) {", text)
         self.assertIn("window.pywebview?.api?.get_panel_schedule_background_status", text)
         self.assertIn("window.updateActivityStatus({", text)

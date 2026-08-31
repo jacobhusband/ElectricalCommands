@@ -230,7 +230,6 @@ namespace ElectricalCommands
     internal double ConnectedWatts { get; set; }
     internal string LoadDescription { get; set; } = "RECEPTACLES";
     internal string LoadTypeCode { get; set; } = "G";
-    internal string Notes { get; set; } = string.Empty;
     internal int Poles { get; set; } = 1;
     internal int BreakerAmps { get; set; } = 20;
   }
@@ -258,28 +257,6 @@ namespace ElectricalCommands
           ApplyCapacityAndSpareRules(worksheet, slots, circuitCapacity);
           return worksheet.Name;
         });
-    }
-
-    internal static PanelScheduleAllocationResult AllocateReceptacleCircuit(
-      string workbookPath,
-      string panelName,
-      int circuitCapacity,
-      double connectedWatts)
-    {
-      List<PanelScheduleAllocationResult> results =
-        AllocateReceptacleCircuits(
-          workbookPath,
-          panelName,
-          circuitCapacity,
-          new List<PanelScheduleCircuitRequest>
-          {
-            new PanelScheduleCircuitRequest
-            {
-              ConnectedWatts = connectedWatts,
-              LoadDescription = "RECEPTACLES",
-            },
-          });
-      return results[0];
     }
 
     internal static List<PanelScheduleAllocationResult>
@@ -374,7 +351,7 @@ namespace ElectricalCommands
               WriteCell(
                 worksheet,
                 slot.NotesAddress,
-                isPrimary ? request.Notes : null);
+                null);
               WriteCell(
                 worksheet,
                 slot.PolesAddress,

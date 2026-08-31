@@ -164,11 +164,18 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
             captured = {}
             fake_panel_data = types.SimpleNamespace(panel_name="MDP")
 
-            def fake_analyze(panel_name, breaker_paths, directory_paths, input_mode="field_photos"):
+            def fake_analyze(
+                panel_name,
+                breaker_paths,
+                directory_paths,
+                input_mode="field_photos",
+                **kwargs,
+            ):
                 captured["panel_name"] = panel_name
                 captured["breaker_paths"] = list(breaker_paths)
                 captured["directory_paths"] = list(directory_paths)
                 captured["input_mode"] = input_mode
+                captured.update(kwargs)
                 return fake_panel_data
 
             with patch.object(
@@ -197,6 +204,12 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
                                     "directory-1-42.jpg",
                                     "directory-43-84.jpg",
                                 ],
+                                "panelLabelPaths": ["nameplate.jpg"],
+                                "mainBreakerPaths": ["main-breaker.jpg"],
+                                "breakerCoverage": [
+                                    "11-31 and 12-32",
+                                    "33-41 and 28-42",
+                                ],
                             }
                         ],
                     }
@@ -213,6 +226,12 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
                 captured["directory_paths"],
             )
             self.assertEqual("field_photos", captured["input_mode"])
+            self.assertEqual(
+                ["11-31 and 12-32", "33-41 and 28-42"],
+                captured["breaker_coverage"],
+            )
+            self.assertEqual(["nameplate.jpg"], captured["panel_label_paths"])
+            self.assertEqual(["main-breaker.jpg"], captured["main_breaker_paths"])
             update_mock.assert_called_once_with(
                 fake_panel_data,
                 os.path.normpath(str(output_path)),
@@ -294,7 +313,13 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
 
         self.assertEqual("success", result["status"])
         analyze_mock.assert_called_once_with(
-            "MDP", [], ["directory.jpg"], input_mode="existing_directory"
+            "MDP",
+            [],
+            ["directory.jpg"],
+            input_mode="existing_directory",
+            breaker_coverage=[],
+            panel_label_paths=[],
+            main_breaker_paths=[],
         )
         update_mock.assert_called_once_with(
             fake_panel_data,
@@ -303,7 +328,18 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
         )
 
     def test_build_panel_schedule_prompt_mentions_split_breakers_and_directories(self):
-        prompt = self.api._build_panel_schedule_prompt("MDP", 3, 2)
+        prompt = self.api._build_panel_schedule_prompt(
+            "MDP",
+            3,
+            2,
+            breaker_coverage=[
+                "11-31 and 12-32",
+                "33-41",
+                "28-42",
+            ],
+            num_label_imgs=1,
+            num_main_breaker_imgs=1,
+        )
 
         self.assertIn("upper half, middle, and bottom half images", prompt)
         self.assertIn("circuits 1-42 on one image and 43-84 on another", prompt)
@@ -314,9 +350,17 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
         )
         self.assertIn('JSON field "aic_rating"', prompt)
         self.assertIn("Do not confuse AIC rating with Bus Rating", prompt)
+        self.assertIn("Breaker image 1: 11-31 and 12-32", prompt)
+        self.assertIn("Treat the user-provided breaker-photo coverage", prompt)
+        self.assertIn("PANEL LABEL / NAMEPLATE", prompt)
+        self.assertIn("MAIN BREAKER", prompt)
+        self.assertIn('Set "main_type" to "MCB"', prompt)
+        self.assertIn('Set "main_breaker_amps"', prompt)
 
     def test_build_existing_directory_prompt_requires_visible_kva_extraction(self):
-        prompt = self.api._build_existing_directory_prompt("MDP", 2)
+        prompt = self.api._build_existing_directory_prompt(
+            "MDP", 2, num_label_imgs=1, num_main_breaker_imgs=1
+        )
 
         self.assertIn('JSON field "kva"', prompt)
         self.assertIn('JSON field "phase_kva"', prompt)
@@ -327,6 +371,9 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
         self.assertIn("do not infer it from breaker amperage", prompt)
         self.assertIn('JSON field "aic_rating"', prompt)
         self.assertIn("Do not confuse AIC rating with Bus Rating", prompt)
+        self.assertIn("PANEL LABEL / NAMEPLATE", prompt)
+        self.assertIn("MAIN BREAKER", prompt)
+        self.assertIn('"main_breaker_amps"', prompt)
 
     def test_workbook_writes_extracted_aic_rating_to_header(self):
         with tempfile.TemporaryDirectory(prefix="acies-panel-schedule-") as temp_dir:
@@ -365,6 +412,25 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
             try:
                 worksheet = workbook[sheet_name]
                 self.assertEqual("EXISTING", worksheet["N3"].value)
+            finally:
+                workbook.close()
+
+    def test_workbook_writes_main_breaker_requirement_from_photo_fields(self):
+        with tempfile.TemporaryDirectory(prefix="acies-panel-schedule-") as temp_dir:
+            workbook_path = Path(temp_dir) / "panel_schedule.xlsx"
+            self._create_panel_schedule_workbook(workbook_path)
+            panel_data = self._panel_data([])
+            panel_data.main_type = "MCB"
+            panel_data.main_breaker_amps = "225"
+
+            sheet_name = main.cb_update_excel_workbook(
+                panel_data,
+                str(workbook_path),
+            )
+
+            workbook = main.openpyxl.load_workbook(workbook_path)
+            try:
+                self.assertEqual("225A MCB", workbook[sheet_name]["G4"].value)
             finally:
                 workbook.close()
 
@@ -636,14 +702,26 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
                 "MDP",
                 ["breaker_top.HEIC"],
                 ["directory_bottom.HEIC"],
+                breaker_coverage=["1-21 and 2-22"],
+                panel_label_paths=["panel_label.HEIC"],
+                main_breaker_paths=["main_breaker.HEIC"],
             )
 
         self.assertEqual("MDP", result.panel_name)
         self.assertEqual(
-            ["breaker_top.HEIC", "directory_bottom.HEIC"],
+            [
+                "breaker_top.HEIC",
+                "directory_bottom.HEIC",
+                "panel_label.HEIC",
+                "main_breaker.HEIC",
+            ],
             opened_paths,
         )
         self.assertEqual("gemini-3.6-flash", generate_content_calls[0]["model"])
+        self.assertIn(
+            "Breaker image 1: 1-21 and 2-22",
+            generate_content_calls[0]["contents"][0],
+        )
         self.assertTrue(all(image.closed for image in fake_images))
 
     def test_run_panel_schedule_background_returns_job_id_and_seeds_running_status(self):
@@ -939,6 +1017,18 @@ class CanvasPanelSelectionTests(unittest.TestCase):
         self.assertEqual("field_photos", result["inputMode"])
         self.assertEqual("", result["blocking"])
 
+    def test_panel_label_and_main_breaker_roles_are_preserved_as_supporting_images(self):
+        result = self._coerce(
+            ["breaker", "field_directory", "panel_label", "main_breaker"]
+        )
+
+        self.assertEqual("field_photos", result["inputMode"])
+        self.assertEqual("", result["blocking"])
+        self.assertEqual(
+            ["breaker", "field_directory", "panel_label", "main_breaker"],
+            [image["role"] for image in result["images"]],
+        )
+
     def test_directory_only_selections_are_transcribed(self):
         for roles in (["as_built_schedule"], ["field_directory"]):
             with self.subTest(roles=roles):
@@ -1033,6 +1123,8 @@ class CanvasPanelSelectionTests(unittest.TestCase):
         self.assertIn('"breaker"', prompt)
         self.assertIn('"as_built_schedule"', prompt)
         self.assertIn('"field_directory"', prompt)
+        self.assertIn('"panel_label"', prompt)
+        self.assertIn('"main_breaker"', prompt)
 
         empty = self.api._build_canvas_panel_classification_prompt(1, [])
         self.assertIn("(no notes provided)", empty)

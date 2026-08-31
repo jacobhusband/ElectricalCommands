@@ -49,65 +49,21 @@ namespace ElectricalCommands
   {
     private const string CatalogFileName = "dedicated_equipment_loads.json";
 
-    internal static bool TryFind(
-      string description,
-      out DedicatedEquipmentLoad equipment,
+    internal static List<DedicatedEquipmentLoad> LoadAll(
       out string catalogPath)
     {
       catalogPath = ResolveCatalogPath();
       DedicatedEquipmentCatalogFile catalog = LoadOrCreate(catalogPath);
-      string requested = Normalize(description);
-      equipment = null;
-      int bestMatchLength = -1;
-
-      if (string.IsNullOrWhiteSpace(requested))
-      {
-        return false;
-      }
-
-      foreach (DedicatedEquipmentLoad candidate in catalog.Items)
-      {
-        foreach (string name in GetNames(candidate))
-        {
-          string normalizedName = Normalize(name);
-          if (normalizedName.Length == 0)
-          {
-            continue;
-          }
-
-          if (string.Equals(
-            requested,
-            normalizedName,
-            StringComparison.OrdinalIgnoreCase))
-          {
-            equipment = candidate;
-            return true;
-          }
-
-          if (normalizedName.Length >= 4 &&
-              requested.IndexOf(
-                normalizedName,
-                StringComparison.OrdinalIgnoreCase) >= 0 &&
-              normalizedName.Length > bestMatchLength)
-          {
-            equipment = candidate;
-            bestMatchLength = normalizedName.Length;
-          }
-          else if (requested.Length >= 4 &&
-                   normalizedName.IndexOf(
-                     requested,
-                     StringComparison.OrdinalIgnoreCase) >= 0 &&
-                   requested.Length > bestMatchLength)
-          {
-            equipment = candidate;
-            bestMatchLength = requested.Length;
-          }
-        }
-      }
-      return equipment != null;
+      return catalog.Items
+        .Where(item => item != null)
+        .Select(Copy)
+        .OrderBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
+        .ToList();
     }
 
-    internal static string SaveOrUpdate(DedicatedEquipmentLoad equipment)
+    internal static string SaveOrUpdate(
+      DedicatedEquipmentLoad equipment,
+      string originalDescription = null)
     {
       if (equipment == null || string.IsNullOrWhiteSpace(equipment.Description))
       {
@@ -119,23 +75,69 @@ namespace ElectricalCommands
       string catalogPath = ResolveCatalogPath();
       DedicatedEquipmentCatalogFile catalog = LoadOrCreate(catalogPath);
       string key = Normalize(equipment.Description);
-      int existingIndex = catalog.Items.FindIndex(
+      string originalKey = Normalize(originalDescription);
+      int originalIndex = originalKey.Length == 0
+        ? -1
+        : catalog.Items.FindIndex(
+          item => string.Equals(
+            Normalize(item.Description),
+            originalKey,
+            StringComparison.OrdinalIgnoreCase));
+      int matchingDescriptionIndex = catalog.Items.FindIndex(
         item => string.Equals(
           Normalize(item.Description),
           key,
           StringComparison.OrdinalIgnoreCase));
-      if (existingIndex >= 0)
+      if (originalIndex >= 0 &&
+          matchingDescriptionIndex >= 0 &&
+          matchingDescriptionIndex != originalIndex)
       {
-        catalog.Items[existingIndex] = equipment;
+        throw new InvalidOperationException(
+          $"A {equipment.Description} preset already exists.");
+      }
+
+      int saveIndex = originalIndex >= 0
+        ? originalIndex
+        : matchingDescriptionIndex;
+      if (saveIndex >= 0)
+      {
+        catalog.Items[saveIndex] = Copy(equipment);
       }
       else
       {
-        catalog.Items.Add(equipment);
+        catalog.Items.Add(Copy(equipment));
       }
 
       catalog.Items = catalog.Items
         .OrderBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
         .ToList();
+      Save(catalogPath, catalog);
+      return catalogPath;
+    }
+
+    internal static string Remove(string description)
+    {
+      string key = Normalize(description);
+      if (key.Length == 0)
+      {
+        throw new ArgumentException(
+          "A preset description is required.",
+          nameof(description));
+      }
+
+      string catalogPath = ResolveCatalogPath();
+      DedicatedEquipmentCatalogFile catalog = LoadOrCreate(catalogPath);
+      int removed = catalog.Items.RemoveAll(item =>
+        string.Equals(
+          Normalize(item?.Description),
+          key,
+          StringComparison.OrdinalIgnoreCase));
+      if (removed == 0)
+      {
+        throw new InvalidOperationException(
+          $"The {description} preset no longer exists.");
+      }
+
       Save(catalogPath, catalog);
       return catalogPath;
     }
@@ -153,37 +155,8 @@ namespace ElectricalCommands
           DedicatedEquipmentCatalogFile existing =
             JsonConvert.DeserializeObject<DedicatedEquipmentCatalogFile>(
               json);
-          if (existing?.Items != null && existing.Items.Count > 0)
+          if (existing?.Items != null)
           {
-            bool updated = false;
-            foreach (DedicatedEquipmentLoad defaultItem in defaults.Items)
-            {
-              string defaultKey = Normalize(defaultItem.Description);
-              if (!existing.Items.Any(item =>
-                string.Equals(
-                  Normalize(item.Description),
-                  defaultKey,
-                  StringComparison.OrdinalIgnoreCase)))
-              {
-                existing.Items.Add(defaultItem);
-                updated = true;
-              }
-            }
-
-            if (updated)
-            {
-              existing.Items = existing.Items
-                .OrderBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-              try
-              {
-                Save(catalogPath, existing);
-              }
-              catch
-              {
-              }
-            }
-
             return existing;
           }
         }
@@ -260,14 +233,25 @@ namespace ElectricalCommands
         CatalogFileName);
     }
 
-    private static IEnumerable<string> GetNames(
+    private static DedicatedEquipmentLoad Copy(
       DedicatedEquipmentLoad equipment)
     {
-      yield return equipment?.Description ?? string.Empty;
-      foreach (string alias in equipment?.Aliases ?? new List<string>())
+      if (equipment == null)
       {
-        yield return alias;
+        return new DedicatedEquipmentLoad();
       }
+      return new DedicatedEquipmentLoad
+      {
+        Description = equipment.Description ?? string.Empty,
+        Aliases = new List<string>(
+          equipment.Aliases ?? new List<string>()),
+        Kva = equipment.Kva,
+        Voltage = equipment.Voltage,
+        Poles = equipment.Poles,
+        McaAmps = equipment.McaAmps,
+        MocpAmps = equipment.MocpAmps,
+        LoadTypeCode = equipment.LoadTypeCode ?? "D",
+      };
     }
 
     private static string Normalize(string value)

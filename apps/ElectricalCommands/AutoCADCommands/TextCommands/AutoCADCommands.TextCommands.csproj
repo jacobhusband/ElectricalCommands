@@ -20,8 +20,6 @@
 
   <ItemGroup>
     <Compile Include="*.cs" />
-    <Compile Include="..\T24Commands\GetSumFromText.cs" Link="GetSumFromText.cs" />
-    <Compile Include="..\T24Commands\GetSumFromTextExport.cs" Link="GetSumFromTextExport.cs" />
   </ItemGroup>
 
   <!-- 

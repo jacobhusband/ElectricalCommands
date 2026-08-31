@@ -148,6 +148,8 @@ class CanvasPanelScheduleUiTests(unittest.TestCase):
         for expected in (
             'as_built_schedule: "As-built schedule (printed)",',
             'field_directory: "Field directory card",',
+            'panel_label: "Panel label / nameplate",',
+            'main_breaker: "Main breaker photo",',
             'const CANVAS_PANEL_DIRECTORY_ROLES = ["as_built_schedule", "field_directory"];',
             "function isCanvasPanelDirectoryRole(role) {",
             "function deriveCanvasPanelInputMode(images) {",
@@ -163,6 +165,16 @@ class CanvasPanelScheduleUiTests(unittest.TestCase):
         self.assertIn('if (asBuilts > 0) return "existing_directory";', derive_block)
         self.assertIn('if (breakers === 0) return "existing_directory";', derive_block)
         self.assertIn('return "field_photos";', derive_block)
+
+        confirm_block = self._block(
+            script,
+            "async function confirmCanvasPanelSchedule() {",
+            "const debouncedSaveLightingSchedule",
+        )
+        self.assertIn('image.role === "panel_label"', confirm_block)
+        self.assertIn('image.role === "main_breaker"', confirm_block)
+        self.assertIn("panelLabelPaths,", confirm_block)
+        self.assertIn("mainBreakerPaths,", confirm_block)
 
     def test_correcting_a_role_moves_the_mode_unless_overridden(self):
         script = SCRIPT_JS_PATH.read_text(encoding="utf-8")

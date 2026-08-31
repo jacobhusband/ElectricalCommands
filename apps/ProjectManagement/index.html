@@ -2801,7 +2801,7 @@
 
                     <section class="cb-section">
                         <div class="cb-section-title">2. Upload panel photos</div>
-                        <p class="tiny muted">Upload one or more breaker photos and one or more directory photos for the active panel tab depending on input mode selection.</p>
+                        <p class="tiny muted">Upload one or more breaker photos and one or more directory photos for the active panel tab. Panel-label and main-breaker photos are optional but improve the header data.</p>
                         <div class="cb-choice-row" style="margin-bottom: 12px;">
                             <button class="cb-choice-btn active" id="cbInputModeField" type="button">
                                 Field photos (Breakers &amp; Directory)
@@ -2813,7 +2813,7 @@
                         <div class="cb-upload-grid">
                             <div class="cb-upload-card" id="cbBreakerUploadCard">
                                 <div class="cb-upload-title">Circuit breaker photos</div>
-                                <p class="tiny muted">Clear photos of the breaker labels and handles. The same panel can be split into upper half, middle, and bottom half photos.</p>
+                                <p class="tiny muted">Clear photos of the breaker labels and handles. The same panel can be split into upper half, middle, and bottom half photos. Add the circuit coverage under each photo so split and overlapping views can be stitched together accurately.</p>
                                 <div id="cbBreakerDrop" class="cb-drop-zone" role="button" tabindex="0">
                                     <div class="cb-drop-icon" aria-hidden="true">
                                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2846,6 +2846,42 @@
                                     <span id="cbDirectoryFile" class="cb-file-pill" data-empty="true">No photos selected</span>
                                 </div>
                                 <div id="cbDirectoryFileList" class="cb-file-list"></div>
+                            </div>
+                            <div class="cb-upload-card" id="cbPanelLabelUploadCard">
+                                <div class="cb-upload-title">Panel label / nameplate <span class="cb-optional-badge">Optional</span></div>
+                                <p class="tiny muted">Upload the manufacturer or panel label showing voltage, phase, wire, bus rating, AIC, enclosure, or other nameplate data.</p>
+                                <div id="cbPanelLabelDrop" class="cb-drop-zone cb-drop-zone-compact" role="button" tabindex="0">
+                                    <div class="cb-drop-icon" aria-hidden="true">
+                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/>
+                                            <path d="M7 8H17M7 12H17M7 16H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                        </svg>
+                                    </div>
+                                    <div class="cb-drop-text">Add panel label photo(s)</div>
+                                    <div class="tiny muted">Used as the primary source for panel header fields.</div>
+                                </div>
+                                <div class="cb-upload-actions">
+                                    <span id="cbPanelLabelFile" class="cb-file-pill" data-empty="true">No photos selected</span>
+                                </div>
+                                <div id="cbPanelLabelFileList" class="cb-file-list"></div>
+                            </div>
+                            <div class="cb-upload-card" id="cbMainBreakerUploadCard">
+                                <div class="cb-upload-title">Main breaker <span class="cb-optional-badge">Optional</span></div>
+                                <p class="tiny muted">Upload a clear photo of the main breaker handle and markings so the main type and amp rating can be recorded.</p>
+                                <div id="cbMainBreakerDrop" class="cb-drop-zone cb-drop-zone-compact" role="button" tabindex="0">
+                                    <div class="cb-drop-icon" aria-hidden="true">
+                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <rect x="4" y="2" width="16" height="20" rx="2" stroke="currentColor" stroke-width="2"/>
+                                            <path d="M9 6H15V13H9V6ZM12 13V18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                    </div>
+                                    <div class="cb-drop-text">Add main breaker photo(s)</div>
+                                    <div class="tiny muted">Used for MCB/MLO and main amp information.</div>
+                                </div>
+                                <div class="cb-upload-actions">
+                                    <span id="cbMainBreakerFile" class="cb-file-pill" data-empty="true">No photos selected</span>
+                                </div>
+                                <div id="cbMainBreakerFileList" class="cb-file-list"></div>
                             </div>
                         </div>
                     </section>
@@ -2924,7 +2960,7 @@
             <div class="cps-body">
                 <div id="cpsLoading" class="cps-loading">
                     <div class="spinner">Reading your selection</div>
-                    <p class="tiny muted">The AI is sorting your images into breaker photos and circuit directories.</p>
+                    <p class="tiny muted">The AI is sorting your images into branch breakers, circuit directories, panel labels, and main breakers.</p>
                 </div>
                 <div id="cpsError" class="cps-error" hidden></div>
 

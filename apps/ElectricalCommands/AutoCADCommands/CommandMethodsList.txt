@@ -5,12 +5,9 @@ ElectricalCommands.TextCommands
 - TEXTINCREMENT / TextIncrement (AutoCADCommands\TextCommands\IncrementTextContent.cs:14)
 - TEXTREPLACE / TextReplace (AutoCADCommands\TextCommands\ReplaceTextContent.cs:12)
 - TEXTSELECT / TextSelect (AutoCADCommands\TextCommands\TextSelect.cs:11)
-- TEXTSUM / TextSum (AutoCADCommands\T24Commands\GetSumFromText.cs:11)
-- TEXTSUMEXPORT / TextSumExport (AutoCADCommands\T24Commands\GetSumFromTextExport.cs:16)
+- SUMTEXT / SumText (AutoCADCommands\TextCommands\SumText.cs:27)
 - TI / TextIncrement (AutoCADCommands\TextCommands\IncrementTextContent.cs:15)
 - TN / TextReplace (AutoCADCommands\TextCommands\ReplaceTextContent.cs:13)
-- TS / TextSum (AutoCADCommands\T24Commands\GetSumFromText.cs:12)
-- TSE / TextSumExport (AutoCADCommands\T24Commands\GetSumFromTextExport.cs:17)
 
 ElectricalCommands.T24Commands
 - IMGSHEETS / InsertPNGImages (AutoCADCommands\T24Commands\InsertPNGImages.cs:15)

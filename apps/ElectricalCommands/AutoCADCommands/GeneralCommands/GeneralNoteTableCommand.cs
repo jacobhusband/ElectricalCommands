@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -38,12 +39,12 @@ namespace ElectricalCommands
       PromptSelectionOptions selectionOptions = new PromptSelectionOptions
       {
         MessageForAdding =
-          "\nSelect MText note column(s), or the DBText lines that make up the notes: ",
-        MessageForRemoval = "\nRemove text objects: ",
+          "\nSelect MText note column(s), DBText lines, or an existing General Note Table: ",
+        MessageForRemoval = "\nRemove objects: ",
         RejectObjectsFromNonCurrentSpace = true,
       };
       SelectionFilter selectionFilter = new SelectionFilter(
-        new[] { new TypedValue((int)DxfCode.Start, "TEXT,MTEXT") });
+        new[] { new TypedValue((int)DxfCode.Start, "TEXT,MTEXT,ACAD_TABLE") });
       PromptSelectionResult selectionResult = editor.GetSelection(
         selectionOptions,
         selectionFilter);
@@ -59,6 +60,14 @@ namespace ElectricalCommands
         .GetObjectIds()
         .Distinct()
         .ToArray();
+
+      ObjectId existingTableId = FindSelectedTableId(database, sourceIds);
+      if (!existingTableId.IsNull)
+      {
+        UpdateExistingGeneralNoteTable(database, editor, existingTableId);
+        return;
+      }
+
       bool useEveryDbTextLine = false;
       bool containsMText;
       bool containsDbText;
@@ -263,6 +272,300 @@ namespace ElectricalCommands
       {
         editor.WriteMessage($"\nGENERALNOTETABLE error: {ex.Message}");
       }
+    }
+
+    private static void UpdateExistingGeneralNoteTable(
+      Database database,
+      Editor editor,
+      ObjectId tableId)
+    {
+      try
+      {
+        using (Transaction transaction = database.TransactionManager.StartTransaction())
+        {
+          Table table = transaction.GetObject(tableId, OpenMode.ForWrite) as Table;
+          if (table == null)
+          {
+            editor.WriteMessage("\nSelected object is not a table.");
+            return;
+          }
+
+          double textHeight = database.Textsize > 1e-9 ? database.Textsize : GeneralNoteDefaultAttributeHeight;
+          ObjectId textStyleId = database.Textstyle;
+          Color contentColor = Color.FromColorIndex(ColorMethod.ByAci, 256);
+          bool hasDot = true;
+
+          // Scan column 0 for existing numbers and text styling
+          var foundNumbers = new List<(int row, int number)>();
+          for (int row = 0; row < table.Rows.Count; row++)
+          {
+            if (TryGetCellGeneralNoteNumber(
+              table,
+              transaction,
+              row,
+              0,
+              out int number,
+              out bool cellHasDot,
+              out double cellHeight,
+              out ObjectId cellStyleId,
+              out Color cellColor))
+            {
+              foundNumbers.Add((row, number));
+              hasDot = cellHasDot;
+              if (cellHeight > 1e-9)
+              {
+                textHeight = cellHeight;
+              }
+              if (!cellStyleId.IsNull && cellStyleId.IsValid)
+              {
+                textStyleId = cellStyleId;
+              }
+              if (cellColor != null)
+              {
+                contentColor = cellColor;
+              }
+            }
+          }
+
+          // Determine numbering step and first row
+          int step = 1;
+          int lastFoundRow = -1;
+          int lastFoundNum = 0;
+          int firstDataRow = 0;
+
+          if (foundNumbers.Count >= 2)
+          {
+            var prev = foundNumbers[foundNumbers.Count - 2];
+            var last = foundNumbers[foundNumbers.Count - 1];
+            int rowDiff = last.row - prev.row;
+            int numDiff = last.number - prev.number;
+            if (rowDiff > 0 && numDiff > 0 && numDiff % rowDiff == 0)
+            {
+              step = numDiff / rowDiff;
+            }
+            else if (rowDiff > 0 && numDiff > 0)
+            {
+              step = Math.Max(1, numDiff / rowDiff);
+            }
+            lastFoundRow = last.row;
+            lastFoundNum = last.number;
+            firstDataRow = foundNumbers[0].row;
+          }
+          else if (foundNumbers.Count == 1)
+          {
+            lastFoundRow = foundNumbers[0].row;
+            lastFoundNum = foundNumbers[0].number;
+            firstDataRow = foundNumbers[0].row;
+          }
+          else
+          {
+            for (int r = 0; r < table.Rows.Count; r++)
+            {
+              if (!table.IsMergedCell(r, 0, out _))
+              {
+                firstDataRow = r;
+                break;
+              }
+            }
+            lastFoundRow = firstDataRow - 1;
+            lastFoundNum = 0;
+          }
+
+          int addedCount = 0;
+          int firstAdded = 0;
+          int lastAdded = 0;
+
+          for (int row = firstDataRow; row < table.Rows.Count; row++)
+          {
+            bool alreadyHasNumber = foundNumbers.Any(f => f.row == row);
+            if (!alreadyHasNumber)
+            {
+              if (table.IsMergedCell(row, 0, out CellRange range) && range.RightColumn > range.LeftColumn)
+              {
+                continue;
+              }
+
+              int currentNum;
+              if (row > lastFoundRow && lastFoundRow >= 0)
+              {
+                currentNum = lastFoundNum + (row - lastFoundRow) * step;
+              }
+              else if (foundNumbers.Count > 0)
+              {
+                currentNum = foundNumbers[0].number + (row - foundNumbers[0].row) * step;
+              }
+              else
+              {
+                currentNum = 1 + (row - firstDataRow) * step;
+              }
+
+              string numberString = hasDot
+                ? $"{currentNum.ToString(CultureInfo.InvariantCulture)}."
+                : currentNum.ToString(CultureInfo.InvariantCulture);
+
+              EnsureGeneralNoteTableCellContent(table, row, 0);
+              table.SetTextString(row, 0, 0, numberString);
+              table.SetTextHeight(row, 0, 0, textHeight);
+              table.SetTextStyleId(row, 0, 0, textStyleId);
+              table.Cells[row, 0].Alignment = CellAlignment.TopLeft;
+              table.SetContentColor(row, 0, 0, contentColor);
+              HideGeneralNoteCellGrid(table, row, 0);
+              SetGeneralNoteCellMargins(
+                table,
+                row,
+                0,
+                GeneralNoteTableVerticalMargin,
+                GeneralNoteTableVerticalMargin,
+                GeneralNoteTableBaseMargin);
+
+              if (table.Columns.Count > 1)
+              {
+                HideGeneralNoteCellGrid(table, row, 1);
+                EnsureGeneralNoteTableCellContent(table, row, 1);
+                SetGeneralNoteCellMargins(
+                  table,
+                  row,
+                  1,
+                  GeneralNoteTableVerticalMargin,
+                  GeneralNoteTableVerticalMargin,
+                  GeneralNoteTableBaseMargin);
+              }
+
+              double minRowHeight = textHeight * 1.5 + GeneralNoteTableVerticalMargin * 2.0;
+              try
+              {
+                if (table.Rows[row].Height < minRowHeight)
+                {
+                  table.Rows[row].Height = minRowHeight;
+                }
+              }
+              catch
+              {
+              }
+
+              if (addedCount == 0)
+              {
+                firstAdded = currentNum;
+              }
+              lastAdded = currentNum;
+              addedCount++;
+            }
+          }
+
+          table.VerticalCellMargin = GeneralNoteTableVerticalMargin;
+          table.GenerateLayout();
+          TryRecomputeTableBlock(table);
+
+          transaction.Commit();
+
+          if (addedCount > 0)
+          {
+            editor.WriteMessage(
+              $"\nUpdated general-note table {tableId.Handle}: added note number{(addedCount == 1 ? string.Empty : "s")} " +
+              $"{firstAdded}{(addedCount > 1 ? $" to {lastAdded}" : string.Empty)} to column 1.");
+          }
+          else
+          {
+            string noteRange = foundNumbers.Count > 0
+              ? $" (notes {foundNumbers.First().number}" + (foundNumbers.Count > 1 ? $" through {foundNumbers.Last().number}" : string.Empty) + ")"
+              : string.Empty;
+            editor.WriteMessage($"\nGeneral-note table {tableId.Handle} is already up to date{noteRange}.");
+          }
+        }
+      }
+      catch (System.Exception ex)
+      {
+        editor.WriteMessage($"\nGENERALNOTETABLE update error: {ex.Message}");
+      }
+    }
+
+    private static bool TryGetCellGeneralNoteNumber(
+      Table table,
+      Transaction transaction,
+      int row,
+      int column,
+      out int number,
+      out bool hasDot,
+      out double textHeight,
+      out ObjectId textStyleId,
+      out Color contentColor)
+    {
+      number = 0;
+      hasDot = true;
+      textHeight = 0.09375;
+      textStyleId = ObjectId.Null;
+      contentColor = Color.FromColorIndex(ColorMethod.ByAci, 256);
+
+      try
+      {
+        if (table.IsMergedCell(row, column, out CellRange range) && range.RightColumn > range.LeftColumn)
+        {
+          return false;
+        }
+
+        string rawText = string.Empty;
+        int numContents = table.GetNumberOfContents(row, column);
+        for (int i = 0; i < numContents; i++)
+        {
+          string txt = table.GetTextString(row, column, i);
+          if (!string.IsNullOrWhiteSpace(txt))
+          {
+            rawText = txt;
+            try
+            {
+              textHeight = table.GetTextHeight(row, column, i);
+              textStyleId = table.GetTextStyleId(row, column, i);
+              contentColor = table.GetContentColor(row, column, i);
+            }
+            catch
+            {
+            }
+            break;
+          }
+        }
+
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+          rawText = table.Cells[row, column].TextString ?? string.Empty;
+          if (textHeight <= 1e-9)
+          {
+            try
+            {
+              if (table.Cells[row, column].TextHeight.HasValue)
+              {
+                textHeight = table.Cells[row, column].TextHeight.Value;
+              }
+              if (table.Cells[row, column].TextStyleId.HasValue)
+              {
+                textStyleId = table.Cells[row, column].TextStyleId.Value;
+              }
+              contentColor = table.Cells[row, column].ContentColor ?? contentColor;
+            }
+            catch
+            {
+            }
+          }
+        }
+
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+          return false;
+        }
+
+        string plain = RemoveGeneralMTextFormatting(rawText).Trim();
+        Match match = Regex.Match(plain, @"^\s*(\d+)");
+        if (match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+        {
+          number = parsed;
+          hasDot = plain.Contains(".");
+          return true;
+        }
+      }
+      catch
+      {
+      }
+
+      return false;
     }
 
     private static bool TryPromptGeneralNoteBoundary(
@@ -843,10 +1146,11 @@ namespace ElectricalCommands
         ObjectId tableId = space.AppendEntity(table);
         transaction.AddNewlyCreatedDBObject(table, true);
         table.GenerateLayout();
-        CompressGeneralNoteTableRows(table);
+        EnsureMinimumGeneralNoteRowHeights(table, plan);
         table.GenerateLayout();
         ConfigureGeneralNoteTableBreaks(table, plan);
         table.GenerateLayout();
+        TryRecomputeTableBlock(table);
 
         if (eraseSource)
         {
@@ -1036,9 +1340,10 @@ namespace ElectricalCommands
         stage = "generating the initial table layout";
         table.GenerateLayout();
         stage = "sizing table rows";
-        CompressGeneralNoteTableRows(table);
+        EnsureMinimumGeneralNoteRowHeights(table, plan);
         stage = "generating the final table layout";
         table.GenerateLayout();
+        TryRecomputeTableBlock(table);
         return table;
       }
       catch (System.Exception ex)
@@ -1050,22 +1355,35 @@ namespace ElectricalCommands
       }
     }
 
-    private static void CompressGeneralNoteTableRows(Table table)
+    private static void EnsureMinimumGeneralNoteRowHeights(
+      Table table,
+      GeneralNoteTablePlan plan)
     {
+      if (table == null || plan == null)
+      {
+        return;
+      }
+
       for (int row = 0; row < table.Rows.Count; row++)
       {
         try
         {
-          double minimumHeight = table.Rows[row].MinimumHeight;
-          if (minimumHeight > 1e-9)
+          double maxTextHeight = GeneralNoteDefaultAttributeHeight;
+          foreach (var col in plan.Columns)
           {
-            table.Rows[row].Height = minimumHeight;
+            if (row < col.Entries.Count)
+            {
+              maxTextHeight = Math.Max(maxTextHeight, col.Entries[row].TextHeight);
+            }
+          }
+          double minRowHeight = maxTextHeight * 1.5 + GeneralNoteTableVerticalMargin * 2.0;
+          if (table.Rows[row].Height < minRowHeight)
+          {
+            table.Rows[row].Height = minRowHeight;
           }
         }
         catch
         {
-          // The database-resident pass in WriteGeneralNoteTable retries rows whose
-          // table style cannot calculate MinimumHeight during construction.
         }
       }
     }
