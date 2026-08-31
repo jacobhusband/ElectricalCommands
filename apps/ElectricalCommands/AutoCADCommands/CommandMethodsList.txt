@@ -83,5 +83,7 @@ ElectricalCommands.PlotCommands
 - P24 / Plot24x36 (AutoCADCommands\PlotCommands\PlotCommands.cs:70)
 - P30 / Plot30x42 (AutoCADCommands\PlotCommands\PlotCommands.cs:64)
 - P36 / Plot36x48 (AutoCADCommands\PlotCommands\PlotCommands.cs:58)
+- PLOTSHEET / PlotCurrentSheet (AutoCADCommands\PlotCommands\PlotCurrentSheetCommand.cs)
 - PLOTMOVE / PlotAndMove (AutoCADCommands\PlotCommands\PlotCommands.cs:88)
+- PSHEET / PlotCurrentSheet (AutoCADCommands\PlotCommands\PlotCurrentSheetCommand.cs)
 - QM / PlotAndMove (AutoCADCommands\PlotCommands\PlotCommands.cs:89)
