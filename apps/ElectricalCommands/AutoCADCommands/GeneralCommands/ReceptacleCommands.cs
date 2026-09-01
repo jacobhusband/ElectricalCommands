@@ -410,6 +410,33 @@ namespace ElectricalCommands
         $"{configuredMaximumKva:0.00} kVA each. Change RC Max kVA in " +
         "HRS to use a different project limit.");
 
+      bool matchedTaggedRooms = TryBuildTaggedRoomReceptacleSelections(
+        db,
+        selectedReceptacles,
+        out List<RoomReceptacleSelection> taggedRoomSelections,
+        out bool taggedRoomsFound,
+        out string taggedRoomMatchError);
+      if (taggedRoomsFound)
+      {
+        if (!matchedTaggedRooms)
+        {
+          ed.WriteMessage($"\nRC canceled: {taggedRoomMatchError}");
+          return;
+        }
+
+        ed.WriteMessage(
+          $"\nMatched {selectedReceptacles.Length} receptacle(s) to " +
+          $"{taggedRoomSelections.Count} room polyline(s) using invisible " +
+          "AREALABEL metadata.");
+        AutomaticallyCircuitRoomReceptacleGroups(
+          db,
+          ed,
+          taggedRoomSelections,
+          scale.PaperInchesPerModelFoot,
+          panelName);
+        return;
+      }
+
       if (ElectricalDrawingSettingsStore.TryReadRoomBoundaries(
         db,
         out var savedRoomBoundaries))
@@ -639,10 +666,9 @@ namespace ElectricalCommands
       {
         errorMessage =
           $"{unnamedBoundaryHandles.Count} matched room boundary(ies) had " +
-          "no recognizable room-name text (boundary handles " +
+          "no saved room name (boundary handles " +
           FormatHandleList(unnamedBoundaryHandles) +
-          "). Add room-name text inside those boundaries and run " +
-          "AREALABEL again.";
+          "). Run AREALABEL and name those boundaries in the room UI.";
         return false;
       }
 
@@ -652,6 +678,157 @@ namespace ElectricalCommands
         return false;
       }
       return true;
+    }
+
+    private static bool TryBuildTaggedRoomReceptacleSelections(
+      Database database,
+      ObjectId[] receptacleIds,
+      out List<RoomReceptacleSelection> roomSelections,
+      out bool taggedRoomsFound,
+      out string errorMessage)
+    {
+      roomSelections = new List<RoomReceptacleSelection>();
+      taggedRoomsFound = false;
+      errorMessage = string.Empty;
+      List<string> unmatchedHandles = new List<string>();
+      List<TaggedRoomBoundary> taggedRooms =
+        new List<TaggedRoomBoundary>();
+
+      using (Transaction transaction =
+        database.TransactionManager.StartOpenCloseTransaction())
+      {
+        BlockTableRecord currentSpace = transaction.GetObject(
+          database.CurrentSpaceId,
+          OpenMode.ForRead,
+          false) as BlockTableRecord;
+        if (currentSpace == null)
+        {
+          errorMessage = "the current drawing space could not be scanned.";
+          return false;
+        }
+
+        foreach (ObjectId objectId in currentSpace)
+        {
+          Polyline polyline = transaction.GetObject(
+            objectId,
+            OpenMode.ForRead,
+            false) as Polyline;
+          if (polyline == null || polyline.NumberOfVertices < 3 ||
+              !RoomBoundaryMetadataStore.TryRead(
+                polyline,
+                transaction,
+                out var metadata))
+          {
+            continue;
+          }
+
+          taggedRooms.Add(new TaggedRoomBoundary
+          {
+            ObjectId = objectId,
+            RoomName = metadata.Name,
+            BasePoint = metadata.BasePoint,
+            RelativeBoundary = BuildRelativeRoomBoundary(
+              polyline,
+              metadata.BasePoint),
+          });
+        }
+
+        taggedRoomsFound = taggedRooms.Count > 0;
+        if (!taggedRoomsFound)
+        {
+          return false;
+        }
+
+        foreach (ObjectId receptacleId in receptacleIds)
+        {
+          BlockReference blockReference = transaction.GetObject(
+            receptacleId,
+            OpenMode.ForRead,
+            false) as BlockReference;
+          if (blockReference == null)
+          {
+            unmatchedHandles.Add(receptacleId.Handle.ToString());
+            continue;
+          }
+
+          TaggedRoomBoundary matchedRoom = FindTaggedRoomAtPoint(
+            taggedRooms,
+            blockReference.Position);
+          if (matchedRoom == null)
+          {
+            unmatchedHandles.Add(receptacleId.Handle.ToString());
+            continue;
+          }
+
+          RoomReceptacleSelection selection = null;
+          foreach (RoomReceptacleSelection existing in roomSelections)
+          {
+            if (existing.SourceBoundaryId == matchedRoom.ObjectId)
+            {
+              selection = existing;
+              break;
+            }
+          }
+          if (selection == null)
+          {
+            selection = new RoomReceptacleSelection
+            {
+              RoomName = matchedRoom.RoomName,
+              SourceBoundaryId = matchedRoom.ObjectId,
+            };
+            roomSelections.Add(selection);
+          }
+          selection.ReceptacleIds.Add(receptacleId);
+        }
+      }
+
+      if (unmatchedHandles.Count > 0)
+      {
+        errorMessage =
+          $"{unmatchedHandles.Count} selected receptacle(s) were outside " +
+          "the tagged room polylines (handles " +
+          FormatHandleList(unmatchedHandles) +
+          "). Run AREALABEL on the current room boundaries before " +
+          "circuiting.";
+        return false;
+      }
+
+      if (roomSelections.Count == 0)
+      {
+        errorMessage =
+          "none of the selected receptacles matched a tagged room polyline.";
+        return false;
+      }
+      return true;
+    }
+
+    private static TaggedRoomBoundary FindTaggedRoomAtPoint(
+      List<TaggedRoomBoundary> rooms,
+      Point3d point)
+    {
+      TaggedRoomBoundary bestRoom = null;
+      double bestArea = double.MaxValue;
+      foreach (TaggedRoomBoundary room in rooms)
+      {
+        Point2d relativePosition = new Point2d(
+          point.X - room.BasePoint.X,
+          point.Y - room.BasePoint.Y);
+        if (!IsPointInsideSavedRoomBoundary(
+          relativePosition,
+          room.RelativeBoundary))
+        {
+          continue;
+        }
+
+        double area = CalculateSavedRoomBoundaryArea(
+          room.RelativeBoundary);
+        if (bestRoom == null || area < bestArea)
+        {
+          bestRoom = room;
+          bestArea = area;
+        }
+      }
+      return bestRoom;
     }
 
     private static ElectricalDrawingSettingsStore.RoomBoundarySetting
@@ -1435,6 +1612,7 @@ namespace ElectricalCommands
             panelSchedule.WorkbookPath,
             panelName,
             panelSchedule.CircuitCapacity,
+            panelSchedule.SpareCount,
             requests);
         if (allocations.Count != pendingGroups.Count)
         {
@@ -1480,7 +1658,10 @@ namespace ElectricalCommands
             : string.Empty) +
           $" Loads: {duplexCount} duplex, {quadCount} quad. " +
           $"Maximum circuit load: {maximumCircuitKva:0.00} kVA " +
-          "(change in HRS).");
+          "(change in HRS)." +
+          (allocations.Count > 0 && allocations[0].RemainingCounts != null
+            ? $"\n{FormatPanelCircuitStatus(panelName, allocations[0].RemainingCounts)}"
+            : string.Empty));
       }
       catch (System.Exception ex)
       {
@@ -2503,6 +2684,7 @@ namespace ElectricalCommands
     private sealed class RoomReceptacleSelection
     {
       internal string RoomName { get; set; } = string.Empty;
+      internal ObjectId SourceBoundaryId { get; set; }
       internal ElectricalDrawingSettingsStore.RoomBoundarySetting SavedRoom
       {
         get;
@@ -2510,6 +2692,15 @@ namespace ElectricalCommands
       }
       internal List<ObjectId> ReceptacleIds { get; } =
         new List<ObjectId>();
+    }
+
+    private sealed class TaggedRoomBoundary
+    {
+      internal ObjectId ObjectId { get; set; }
+      internal string RoomName { get; set; } = string.Empty;
+      internal Point3d BasePoint { get; set; }
+      internal List<Point2d> RelativeBoundary { get; set; } =
+        new List<Point2d>();
     }
 
     private sealed class PendingRoomCircuitGroup

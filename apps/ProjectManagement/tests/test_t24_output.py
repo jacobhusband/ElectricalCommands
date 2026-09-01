@@ -84,7 +84,49 @@ class TestT24OutputJson(unittest.TestCase):
         res = self.api.read_t24_output_json(t24_file)
         self.assertEqual(res["status"], "success")
         self.assertEqual(len(res["data"]["rows"]), 2)
-        self.assertEqual(res["data"]["totalSquareFeet"], 650.0)
+    def test_read_arealabel_json_with_total(self):
+        area_file = os.path.join(self.temp_dir, "AreaLabel.json")
+        sample_data = [
+            {"RoomType": "CONFERENCE", "SquareFeet": 420.0},
+            {"RoomType": "OFFICE", "SquareFeet": 850.5},
+            {"RoomType": "TOTAL", "SquareFeet": 1270.5}
+        ]
+        with open(area_file, "w", encoding="utf-8") as f:
+            json.dump(sample_data, f, indent=2)
+
+        res = self.api.read_t24_output_json(area_file)
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(len(res["data"]["rows"]), 2)
+        self.assertEqual(res["data"]["rows"][0]["roomType"], "CONFERENCE")
+        self.assertEqual(res["data"]["rows"][0]["squareFeet"], 420.0)
+        self.assertEqual(res["data"]["rows"][1]["roomType"], "OFFICE")
+        self.assertEqual(res["data"]["rows"][1]["squareFeet"], 850.5)
+        self.assertEqual(res["data"]["totalSquareFeet"], 1270.5)
+
+    def test_read_arealabel_json_with_room_name_key(self):
+        area_file = os.path.join(self.temp_dir, "AreaLabel.json")
+        sample_data = [
+            {"RoomName": "LOBBY", "SquareFeet": 600.0},
+            {"RoomName": "STORAGE", "SquareFeet": 100.0}
+        ]
+        with open(area_file, "w", encoding="utf-8") as f:
+            json.dump(sample_data, f, indent=2)
+
+        res = self.api.read_t24_output_json(area_file)
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(len(res["data"]["rows"]), 2)
+        self.assertEqual(res["data"]["rows"][0]["roomType"], "LOBBY")
+        self.assertEqual(res["data"]["rows"][0]["squareFeet"], 600.0)
+        self.assertEqual(res["data"]["totalSquareFeet"], 700.0)
+
+    def test_read_invalid_filename_rejected(self):
+        invalid_file = os.path.join(self.temp_dir, "OtherData.json")
+        with open(invalid_file, "w", encoding="utf-8") as f:
+            json.dump([{"RoomType": "OFFICE", "SquareFeet": 100.0}], f)
+
+        res = self.api.read_t24_output_json(invalid_file)
+        self.assertEqual(res["status"], "error")
+        self.assertIn("Expected file name", res["message"])
 
 
 if __name__ == "__main__":

@@ -41,6 +41,7 @@ namespace ElectricalCommands
     {
       public string WorkbookPath { get; set; } = string.Empty;
       public int CircuitCapacity { get; set; }
+      public int SpareCount { get; set; } = 6;
     }
 
     internal sealed class RoomBoundarySetting
@@ -190,15 +191,18 @@ namespace ElectricalCommands
     public static void WritePanelSchedule(
       Database database,
       string workbookPath,
-      int circuitCapacity)
+      int circuitCapacity,
+      int spareCount = 6)
     {
+      int validSpareCount = Math.Max(0, Math.Min(spareCount, circuitCapacity));
       WriteRecord(
         database,
         PanelScheduleKey,
         new ResultBuffer(
           new TypedValue((int)DxfCode.Int32, RecordVersion),
           new TypedValue((int)DxfCode.Text, workbookPath ?? string.Empty),
-          new TypedValue((int)DxfCode.Int32, circuitCapacity)
+          new TypedValue((int)DxfCode.Int32, circuitCapacity),
+          new TypedValue((int)DxfCode.Int32, validSpareCount)
         )
       );
     }
@@ -219,8 +223,9 @@ namespace ElectricalCommands
         string workbookPath =
           (Convert.ToString(values[1].Value) ?? string.Empty).Trim();
         int circuitCapacity = Convert.ToInt32(values[2].Value);
+        int spareCount = values.Length >= 4 ? Convert.ToInt32(values[3].Value) : 6;
         if (workbookPath.Length == 0 ||
-            circuitCapacity < 6 ||
+            circuitCapacity < 2 ||
             circuitCapacity % 2 != 0)
         {
           return false;
@@ -230,6 +235,7 @@ namespace ElectricalCommands
         {
           WorkbookPath = workbookPath,
           CircuitCapacity = circuitCapacity,
+          SpareCount = Math.Max(0, Math.Min(spareCount, circuitCapacity)),
         };
         return true;
       }

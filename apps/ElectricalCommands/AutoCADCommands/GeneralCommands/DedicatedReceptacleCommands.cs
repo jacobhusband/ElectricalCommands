@@ -70,6 +70,7 @@ namespace ElectricalCommands
             panelSchedule.WorkbookPath,
             panelName,
             panelSchedule.CircuitCapacity,
+            panelSchedule.SpareCount,
             new[]
             {
               new PanelScheduleCircuitRequest
@@ -95,7 +96,10 @@ namespace ElectricalCommands
           $"\"{allocation.WorksheetName}\", circuit " +
           $"{allocation.CircuitLabel}: {equipment.Description}, " +
           $"{equipment.Kva:0.###} kVA, {equipment.Voltage}V, " +
-          $"{equipment.Poles}P, {breakerAmps}A breaker.");
+          $"{equipment.Poles}P, {breakerAmps}A breaker." +
+          (allocation.RemainingCounts != null
+            ? $"\n{FormatPanelCircuitStatus(panelName, allocation.RemainingCounts)}"
+            : string.Empty));
 
         OfferDedicatedKeyedNoteSource(
           database,

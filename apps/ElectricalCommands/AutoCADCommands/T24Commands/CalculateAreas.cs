@@ -29,7 +29,7 @@ namespace ElectricalCommands
         {
           PromptSelectionOptions options = new PromptSelectionOptions
           {
-            MessageForAdding = "\nSelect closed room polylines: ",
+            MessageForAdding = "\nSelect room polylines: ",
             AllowDuplicates = false,
             RejectObjectsOnLockedLayers = true,
           };
@@ -54,7 +54,7 @@ namespace ElectricalCommands
         if (roomItems.Count == 0)
         {
           ed.WriteMessage(
-            "\nAREALABEL requires at least one closed polyline with three " +
+            "\nAREALABEL requires at least one polyline with three " +
             "or more vertices.");
           return;
         }
@@ -63,7 +63,22 @@ namespace ElectricalCommands
         // individually highlighted boundary at a time.
         ed.SetImpliedSelection(new ObjectId[0]);
         ObjectId highlightedBoundaryId = ObjectId.Null;
-        RoomNamingWindow namingWindow = new RoomNamingWindow(roomItems);
+        string drawingDirectory = null;
+        try
+        {
+          if (!string.IsNullOrWhiteSpace(db.Filename))
+          {
+            drawingDirectory = System.IO.Path.GetDirectoryName(db.Filename);
+          }
+        }
+        catch
+        {
+          // Ignore drawing path resolution exceptions
+        }
+        RoomNamingWindow namingWindow = new RoomNamingWindow(
+          roomItems,
+          drawingDirectory,
+          ed);
         namingWindow.SelectedBoundaryChanged += selectedId =>
         {
           if (selectedId == highlightedBoundaryId)
@@ -113,37 +128,35 @@ namespace ElectricalCommands
         using (Transaction transaction =
           doc.TransactionManager.StartTransaction())
         {
-          BlockTableRecord currentSpace = (BlockTableRecord)
-            transaction.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
           foreach (AreaLabelRoomItem roomItem in roomItems)
           {
             Polyline polyline = transaction.GetObject(
               roomItem.ObjectId,
-              OpenMode.ForRead,
+              OpenMode.ForWrite,
               false) as Polyline;
             if (polyline == null ||
-                !polyline.Closed ||
                 polyline.NumberOfVertices < 3)
             {
               throw new InvalidOperationException(
                 $"Room boundary {roomItem.SourceHandle} is no longer a " +
-                "valid closed polyline.");
+                "valid polyline with at least three vertices.");
             }
 
+            roomItem.SquareFeet = polyline.Area / 144.0;
             Point3d labelLocation = ResolveAreaLabelLocation(polyline);
-            DBText text = new DBText
-            {
-              Height = 9,
-              TextString = $"{Math.Ceiling(roomItem.SquareFeet)} sq ft",
-              Rotation = 0,
-              HorizontalMode = TextHorizontalMode.TextCenter,
-              VerticalMode = TextVerticalMode.TextVerticalMid,
-              Layer = "0",
-              Position = labelLocation,
-              AlignmentPoint = labelLocation,
-            };
-            currentSpace.AppendEntity(text);
-            transaction.AddNewlyCreatedDBObject(text, true);
+            Point2d relativeLocation = new Point2d(
+              labelLocation.X - basePoint.X,
+              labelLocation.Y - basePoint.Y);
+            RoomBoundaryMetadataStore.Write(
+              polyline,
+              transaction,
+              new RoomBoundaryMetadataStore.RoomMetadata
+              {
+                Name = roomItem.RoomName,
+                SquareFeet = roomItem.SquareFeet,
+                BasePoint = basePoint,
+                RelativeLocation = relativeLocation,
+              });
 
             savedRooms.Add(
               new ElectricalDrawingSettingsStore.RoomBoundarySetting
@@ -151,9 +164,7 @@ namespace ElectricalCommands
                 Name = roomItem.RoomName,
                 SourceHandle = polyline.Handle.ToString(),
                 SquareFeet = roomItem.SquareFeet,
-                RelativeLocation = new Point2d(
-                  labelLocation.X - basePoint.X,
-                  labelLocation.Y - basePoint.Y),
+                RelativeLocation = relativeLocation,
                 RelativeBoundary = BuildRelativeRoomBoundary(
                   polyline,
                   basePoint),
@@ -167,10 +178,10 @@ namespace ElectricalCommands
           basePoint,
           savedRooms);
         ed.WriteMessage(
-          $"\nAREALABEL created {savedRooms.Count} area label(s) and saved " +
-          "their room names, square footage, relative locations, and " +
-          $"boundaries from base point {FormatAreaLabelPoint(basePoint)} " +
-          "for RC.");
+          $"\nAREALABEL saved invisible metadata on {savedRooms.Count} " +
+          "room polyline(s): names, current square footage, and locations " +
+          $"relative to base point {FormatAreaLabelPoint(basePoint)}. No " +
+          "drawing text was created.");
         ed.SetImpliedSelection(new ObjectId[0]);
       }
       catch (System.Exception ex)
@@ -185,6 +196,23 @@ namespace ElectricalCommands
       SelectionSet selectionSet)
     {
       List<AreaLabelRoomItem> rooms = new List<AreaLabelRoomItem>();
+      Dictionary<string, string> legacyRoomNames =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+      if (ElectricalDrawingSettingsStore.TryReadRoomBoundaries(
+        database,
+        out var legacyRoomData))
+      {
+        foreach (ElectricalDrawingSettingsStore.RoomBoundarySetting legacyRoom
+          in legacyRoomData.Rooms)
+        {
+          if (!string.IsNullOrWhiteSpace(legacyRoom.SourceHandle) &&
+              !string.IsNullOrWhiteSpace(legacyRoom.Name))
+          {
+            legacyRoomNames[legacyRoom.SourceHandle] = legacyRoom.Name;
+          }
+        }
+      }
+
       using (Transaction transaction =
         database.TransactionManager.StartOpenCloseTransaction())
       {
@@ -201,24 +229,38 @@ namespace ElectricalCommands
               "lightweight polyline.");
             continue;
           }
-          if (!polyline.Closed || polyline.NumberOfVertices < 3)
+          if (polyline.NumberOfVertices < 3)
           {
             editor.WriteMessage(
               $"\nIgnored polyline {polyline.Handle}; room boundaries must " +
-              "be closed and contain at least three vertices.");
+              "contain at least three vertices.");
             continue;
           }
 
           double squareFeet = polyline.Area / 144.0;
           int roomNumber = rooms.Count + 1;
           string defaultName = $"Polyline {roomNumber}";
+          string roomName = defaultName;
+          if (RoomBoundaryMetadataStore.TryRead(
+            polyline,
+            transaction,
+            out var existingMetadata))
+          {
+            roomName = existingMetadata.Name;
+          }
+          else if (legacyRoomNames.TryGetValue(
+            polyline.Handle.ToString(),
+            out string legacyRoomName))
+          {
+            roomName = legacyRoomName;
+          }
           rooms.Add(new AreaLabelRoomItem
           {
             ObjectId = objectId,
             SourceLabel = defaultName,
             SourceHandle = polyline.Handle.ToString(),
             DefaultRoomName = defaultName,
-            RoomName = defaultName,
+            RoomName = roomName,
             SquareFeet = squareFeet,
           });
         }
@@ -343,6 +385,14 @@ namespace ElectricalCommands
             point.X - basePoint.X,
             point.Y - basePoint.Y));
         }
+      }
+      if (!polyline.Closed && polyline.NumberOfVertices > 0)
+      {
+        Point3d finalPoint = polyline.GetPoint3dAt(
+          polyline.NumberOfVertices - 1);
+        points.Add(new Point2d(
+          finalPoint.X - basePoint.X,
+          finalPoint.Y - basePoint.Y));
       }
       return points;
     }

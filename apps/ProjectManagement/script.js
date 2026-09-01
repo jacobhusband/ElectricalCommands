@@ -34966,7 +34966,7 @@ function renderTitle24RoomAreaRows(title24) {
     td.colSpan = 3;
     td.className = "title24-room-empty-row tiny muted";
     td.textContent =
-      "No room areas imported yet. Click Import T24Output.json to load room types.";
+      "No room areas imported yet. Click Import AreaLabel.json to load room types.";
     tr.appendChild(td);
     body.appendChild(tr);
     return;
@@ -35293,7 +35293,7 @@ async function importTitle24OutputJson() {
       selection.paths[0]
     );
     if (response?.status !== "success") {
-      throw new Error(response?.message || "Failed to read T24Output.json.");
+      throw new Error(response?.message || "Failed to read room area JSON.");
     }
 
     const incomingRows = Array.isArray(response?.data?.rows)
@@ -35309,11 +35309,15 @@ async function importTitle24OutputJson() {
 
     renderTitle24Compliance(title24);
     save();
+    const sourceFileName =
+      String(title24.roomAreas.sourcePath || "")
+        .split(/[\\/]/)
+        .pop() || "AreaLabel.json";
     toast(
-      `Imported ${incomingRows.length} room type entr${incomingRows.length === 1 ? "y" : "ies"} from T24Output.json.`
+      `Imported ${incomingRows.length} room type entr${incomingRows.length === 1 ? "y" : "ies"} from ${sourceFileName}.`
     );
   } catch (error) {
-    reportClientError("Failed to import T24Output.json", error);
+    reportClientError("Failed to import room area JSON", error);
     toast(`Import failed: ${error?.message || "Unknown error."}`);
   }
 }

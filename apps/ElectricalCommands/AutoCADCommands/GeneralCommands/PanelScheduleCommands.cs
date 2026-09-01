@@ -14,8 +14,8 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    private const int DefaultPanelCircuitCapacity = 42;
-    internal const int ReservedPanelCircuitCount = 6;
+    internal const int DefaultPanelCircuitCapacity = 42;
+    internal const int DefaultPanelSpareCount = 6;
 
     [CommandMethod("SETPANELSCHEDULE", CommandFlags.Modal)]
     [CommandMethod("SPS", CommandFlags.Modal)]
@@ -83,58 +83,118 @@ namespace ElectricalCommands
         return;
       }
 
-      int defaultCapacity = existingSetting?.CircuitCapacity ??
-        DefaultPanelCircuitCapacity;
-      PromptIntegerOptions capacityOptions = new PromptIntegerOptions(
-        $"\nEnter the number of circuits in panel {panelName} " +
-        $"<{defaultCapacity}>: ")
-      {
-        AllowNone = true,
-        AllowNegative = false,
-        AllowZero = false,
-        DefaultValue = defaultCapacity,
-        LowerLimit = ReservedPanelCircuitCount,
-        UpperLimit = 84,
-        UseDefaultValue = true,
-      };
-      PromptIntegerResult capacityResult = editor.GetInteger(capacityOptions);
-      if (capacityResult.Status != PromptStatus.OK &&
-          capacityResult.Status != PromptStatus.None)
-      {
-        editor.WriteMessage("\nPanel schedule selection canceled.");
-        return;
-      }
-
-      int circuitCapacity = capacityResult.Status == PromptStatus.None
-        ? defaultCapacity
-        : capacityResult.Value;
-      if (circuitCapacity % 2 != 0)
-      {
-        editor.WriteMessage("\nPanel circuit count must be an even number.");
-        return;
-      }
+      int spareCount = 0;
 
       try
       {
         string worksheetName = PanelScheduleWorkbookAllocator.PreparePanel(
           dialog.FileName,
           panelName,
-          circuitCapacity);
+          circuitCapacity: 0,
+          spareCount: spareCount,
+          out int detectedCapacity,
+          out PanelCircuitCounts counts);
         ElectricalDrawingSettingsStore.WritePanelSchedule(
           document.Database,
           Path.GetFullPath(dialog.FileName),
-          circuitCapacity);
+          detectedCapacity,
+          spareCount);
         HomerunSettingsPalette.Refresh();
 
         editor.WriteMessage(
-          $"\nPanel schedule linked to worksheet \"{worksheetName}\". " +
-          $"Circuits 1-{circuitCapacity} are active; " +
-          $"{BuildReservedCircuitSummary(circuitCapacity)} are reserved as spares.");
+          $"\nPanel schedule linked to worksheet \"{worksheetName}\". Autodetected {detectedCapacity} active circuits (1-{detectedCapacity})." +
+          $"\n{FormatPanelCircuitStatus(panelName, counts)}");
       }
       catch (System.Exception ex)
       {
         editor.WriteMessage(
           $"\nUnable to link the panel schedule: {ex.Message}");
+      }
+    }
+
+    [CommandMethod("SETSPARES", CommandFlags.Modal)]
+    [CommandMethod("SPSPARES", CommandFlags.Modal)]
+    [CommandMethod("SETSPANELSPARES", CommandFlags.Modal)]
+    public static void SetPanelSparesCommand()
+    {
+      Document document = Application.DocumentManager.MdiActiveDocument;
+      if (document == null)
+      {
+        return;
+      }
+
+      Editor editor = document.Editor;
+      if (!ElectricalDrawingSettingsStore.TryReadPanelName(
+        document.Database,
+        out string panelName))
+      {
+        editor.WriteMessage(
+          "\nSet the panel name with SETPANELNAME (SPN) first.");
+        return;
+      }
+
+      if (!ElectricalDrawingSettingsStore.TryReadPanelSchedule(
+        document.Database,
+        out var panelSchedule) ||
+        string.IsNullOrWhiteSpace(panelSchedule.WorkbookPath) ||
+        !File.Exists(panelSchedule.WorkbookPath))
+      {
+        editor.WriteMessage(
+          "\nNo linked panel schedule found. Run SETPANELSCHEDULE (SPS) first.");
+        return;
+      }
+
+      int defaultSpares = Math.Max(
+        0,
+        Math.Min(panelSchedule.SpareCount, panelSchedule.CircuitCapacity));
+      PromptIntegerOptions spareOptions = new PromptIntegerOptions(
+        $"\nEnter the number of spare circuits to reserve in panel {panelName} " +
+        $"<{defaultSpares}>: ")
+      {
+        AllowNone = true,
+        AllowNegative = false,
+        AllowZero = true,
+        DefaultValue = defaultSpares,
+        LowerLimit = 0,
+        UpperLimit = panelSchedule.CircuitCapacity,
+        UseDefaultValue = true,
+      };
+      PromptIntegerResult spareResult = editor.GetInteger(spareOptions);
+      if (spareResult.Status != PromptStatus.OK &&
+          spareResult.Status != PromptStatus.None)
+      {
+        editor.WriteMessage("\nSet panel spares canceled.");
+        return;
+      }
+
+      int spareCount = spareResult.Status == PromptStatus.None
+        ? defaultSpares
+        : spareResult.Value;
+
+      try
+      {
+        string worksheetName = PanelScheduleWorkbookAllocator.PreparePanel(
+          panelSchedule.WorkbookPath,
+          panelName,
+          panelSchedule.CircuitCapacity,
+          spareCount,
+          out PanelCircuitCounts counts);
+
+        ElectricalDrawingSettingsStore.WritePanelSchedule(
+          document.Database,
+          panelSchedule.WorkbookPath,
+          panelSchedule.CircuitCapacity,
+          spareCount);
+        HomerunSettingsPalette.Refresh();
+
+        editor.WriteMessage(
+          $"\nPanel {panelName} spares set to {spareCount} on worksheet \"{worksheetName}\"." +
+          $"\n{FormatPanelCircuitStatus(panelName, counts)}");
+      }
+      catch (System.Exception ex)
+      {
+        editor.WriteMessage(
+          $"\nUnable to update panel spares: {ex.Message}");
       }
     }
 
@@ -204,10 +264,16 @@ namespace ElectricalCommands
       }
     }
 
-    private static string BuildReservedCircuitSummary(int circuitCapacity)
+    private static string BuildReservedCircuitSummary(
+      int circuitCapacity,
+      int spareCount)
     {
+      if (spareCount <= 0)
+      {
+        return "no circuits";
+      }
       List<string> numbers = new List<string>();
-      for (int circuit = circuitCapacity - ReservedPanelCircuitCount + 1;
+      for (int circuit = Math.Max(1, circuitCapacity - spareCount + 1);
            circuit <= circuitCapacity;
            circuit++)
       {
@@ -215,6 +281,29 @@ namespace ElectricalCommands
       }
       return "circuits " + string.Join(", ", numbers);
     }
+
+    internal static string FormatPanelCircuitStatus(
+      string panelName,
+      PanelCircuitCounts counts)
+    {
+      if (counts == null)
+      {
+        return string.Empty;
+      }
+      return $"Panel {panelName} remaining: {counts.Spares} spare(s), " +
+        $"{counts.Spaces} space(s), {counts.Empties} empty circuit(s) " +
+        $"({counts.AvailableTotal} total available).";
+    }
+  }
+
+  internal sealed class PanelCircuitCounts
+  {
+    internal int Spares { get; set; }
+    internal int Spaces { get; set; }
+    internal int Empties { get; set; }
+    internal int ActiveLoads { get; set; }
+    internal int TotalCircuits { get; set; }
+    internal int AvailableTotal => Spares + Spaces + Empties;
   }
 
   internal sealed class PanelScheduleAllocationResult
@@ -223,6 +312,7 @@ namespace ElectricalCommands
     internal string CircuitLabel { get; set; } = string.Empty;
     internal string WorksheetName { get; set; } = string.Empty;
     internal double ConnectedWatts { get; set; }
+    internal PanelCircuitCounts RemainingCounts { get; set; }
   }
 
   internal sealed class PanelScheduleCircuitRequest
@@ -246,17 +336,46 @@ namespace ElectricalCommands
     internal static string PreparePanel(
       string workbookPath,
       string panelName,
-      int circuitCapacity)
+      int circuitCapacity,
+      int spareCount,
+      out int resolvedCapacity,
+      out PanelCircuitCounts counts)
     {
-      return ExecuteWithPanelWorksheet(
+      PanelCircuitCounts localCounts = null;
+      int localCapacity = circuitCapacity;
+      string sheetName = ExecuteWithPanelWorksheet(
         workbookPath,
         panelName,
         worksheet =>
         {
+          if (localCapacity <= 0)
+          {
+            localCapacity = DetectNonHiddenCircuitCapacity(worksheet);
+          }
           List<PanelCircuitSlot> slots = BuildCircuitSlots(worksheet);
-          ApplyCapacityAndSpareRules(worksheet, slots, circuitCapacity);
+          ApplyCapacityAndSpareRules(worksheet, slots, localCapacity, spareCount);
+          localCounts = CountRemainingSlots(worksheet, slots, localCapacity);
           return worksheet.Name;
         });
+      resolvedCapacity = localCapacity;
+      counts = localCounts;
+      return sheetName;
+    }
+
+    internal static string PreparePanel(
+      string workbookPath,
+      string panelName,
+      int circuitCapacity,
+      int spareCount,
+      out PanelCircuitCounts counts)
+    {
+      return PreparePanel(
+        workbookPath,
+        panelName,
+        circuitCapacity,
+        spareCount,
+        out _,
+        out counts);
     }
 
     internal static List<PanelScheduleAllocationResult>
@@ -264,6 +383,7 @@ namespace ElectricalCommands
         string workbookPath,
         string panelName,
         int circuitCapacity,
+        int spareCount,
         IList<PanelScheduleCircuitRequest> requests)
     {
       if (requests == null || requests.Count == 0)
@@ -294,7 +414,7 @@ namespace ElectricalCommands
         worksheet =>
         {
           List<PanelCircuitSlot> slots = BuildCircuitSlots(worksheet);
-          ApplyCapacityAndSpareRules(worksheet, slots, circuitCapacity);
+          ApplyCapacityAndSpareRules(worksheet, slots, circuitCapacity, spareCount);
           bool isExistingPanel = IsExistingPanel(worksheet, panelName);
 
           List<PanelScheduleAllocationResult> results =
@@ -305,13 +425,16 @@ namespace ElectricalCommands
               worksheet,
               slots,
               circuitCapacity,
+              spareCount,
               request.Poles);
             if (available.Count != request.Poles)
             {
+              string spareDetail = spareCount > 0
+                ? $" (excluding {spareCount} reserved spares)"
+                : string.Empty;
               throw new InvalidOperationException(
                 $"Panel {panelName} does not have enough usable SPARE, " +
-                "SPACE, or empty consecutive circuit positions before its " +
-                $"six reserved spares for a {request.Poles}-pole load.");
+                $"SPACE, or empty consecutive circuit positions{spareDetail} for a {request.Poles}-pole load.");
             }
 
             bool[] hadExistingBreakers = available
@@ -385,6 +508,14 @@ namespace ElectricalCommands
               ConnectedWatts = request.ConnectedWatts,
             });
           }
+
+          PanelCircuitCounts remainingCounts =
+            CountRemainingSlots(worksheet, slots, circuitCapacity);
+          foreach (PanelScheduleAllocationResult result in results)
+          {
+            result.RemainingCounts = remainingCounts;
+          }
+
           return results;
         });
     }
@@ -632,55 +763,117 @@ namespace ElectricalCommands
       return text.Trim(' ', '\"', '\'').ToUpperInvariant();
     }
 
+    internal static int DetectNonHiddenCircuitCapacity(
+      Excel.Worksheet worksheet)
+    {
+      if (!TryFindCircuitStartRow(worksheet, out int startRow))
+      {
+        return GeneralCommands.DefaultPanelCircuitCapacity;
+      }
+
+      string rightCktCol = DetectRightCircuitColumn(worksheet, startRow);
+
+      int highestCircuit = 0;
+      for (int row = startRow; row < startRow + 42; row++)
+      {
+        int leftCircuit = ReadInteger(worksheet, $"A{row}");
+        int rightCircuit = ReadInteger(worksheet, $"{rightCktCol}{row}");
+        bool hasLeftCircuit = IsValidCircuitNumber(leftCircuit);
+        bool hasRightCircuit = IsValidCircuitNumber(rightCircuit);
+        if (!hasLeftCircuit && !hasRightCircuit)
+        {
+          // The first unnumbered pair marks the end of the circuit table.
+          // Do not interpret demand-calculation or sub-panel summary rows as
+          // additional circuit positions.
+          break;
+        }
+
+        Excel.Range rowRange = null;
+        try
+        {
+          rowRange = worksheet.Rows[row] as Excel.Range;
+          if (rowRange != null && Convert.ToBoolean(rowRange.Hidden))
+          {
+            // Row is hidden, ignore
+            continue;
+          }
+        }
+        finally
+        {
+          ReleaseComObject(rowRange);
+        }
+
+        int inferredLeftCircuit = hasLeftCircuit
+          ? leftCircuit
+          : rightCircuit - 1;
+        int inferredRightCircuit = hasRightCircuit
+          ? rightCircuit
+          : leftCircuit + 1;
+        highestCircuit = Math.Max(
+          highestCircuit,
+          Math.Max(inferredLeftCircuit, inferredRightCircuit));
+      }
+
+      if (highestCircuit > 0)
+      {
+        if (highestCircuit % 2 != 0)
+        {
+          highestCircuit++;
+        }
+        return highestCircuit;
+      }
+
+      return GeneralCommands.DefaultPanelCircuitCapacity;
+    }
+
     private static List<PanelCircuitSlot> BuildCircuitSlots(
       Excel.Worksheet worksheet)
     {
-      if (string.Equals(
-        ReadText(worksheet, "A5"),
-        "CKT#",
-        StringComparison.OrdinalIgnoreCase))
+      bool hasExplicitCircuitNumbers = TryFindCircuitStartRow(
+        worksheet,
+        out int startRow);
+      if (!hasExplicitCircuitNumbers)
       {
-        return BuildAttachedAciesSlots(worksheet);
+        startRow = GeneratedStartRow;
       }
 
-      List<PanelCircuitSlot> slots = new List<PanelCircuitSlot>();
-      for (int row = GeneratedStartRow; row <= GeneratedMaxRow; row++)
-      {
-        int oddCircuit = (row - GeneratedStartRow) * 2 + 1;
-        slots.Add(new PanelCircuitSlot
-        {
-          CircuitNumber = oddCircuit,
-          Row = row,
-          LoadTypeAddress = $"C{row}",
-          NotesAddress = $"B{row}",
-          PolesAddress = $"D{row}",
-          BreakerAmpsAddress = $"E{row}",
-          LoadDescriptionAddress = $"F{row}",
-          ConnectedKvaAddress = $"I{row}",
-        });
-        slots.Add(new PanelCircuitSlot
-        {
-          CircuitNumber = oddCircuit + 1,
-          Row = row,
-          ConnectedKvaAddress = $"K{row}",
-          LoadDescriptionAddress = $"L{row}",
-          NotesAddress = $"R{row}",
-          PolesAddress = $"O{row}",
-          BreakerAmpsAddress = $"P{row}",
-          LoadTypeAddress = $"Q{row}",
-        });
-      }
-      return slots;
-    }
+      string rightCktCol = DetectRightCircuitColumn(worksheet, startRow);
+      int endRow = hasExplicitCircuitNumbers
+        ? startRow + 41
+        : GeneratedMaxRow;
 
-    private static List<PanelCircuitSlot> BuildAttachedAciesSlots(
-      Excel.Worksheet worksheet)
-    {
       List<PanelCircuitSlot> slots = new List<PanelCircuitSlot>();
-      for (int row = AciesStartRow; row <= AciesMaxRow; row++)
+      for (int row = startRow; row <= endRow; row++)
       {
         int leftCircuit = ReadInteger(worksheet, $"A{row}");
-        if (leftCircuit > 0)
+        int oddCircuit = (row - startRow) * 2 + 1;
+        int rightCircuit = ReadInteger(worksheet, $"{rightCktCol}{row}");
+
+        if (hasExplicitCircuitNumbers)
+        {
+          bool hasLeftCircuit = IsValidCircuitNumber(leftCircuit);
+          bool hasRightCircuit = IsValidCircuitNumber(rightCircuit);
+          if (!hasLeftCircuit && !hasRightCircuit)
+          {
+            break;
+          }
+
+          leftCircuit = hasLeftCircuit
+            ? leftCircuit
+            : rightCircuit - 1;
+          rightCircuit = hasRightCircuit
+            ? rightCircuit
+            : leftCircuit + 1;
+        }
+        else
+        {
+          // Preserve the original generated-workbook fallback, whose circuit
+          // rows are fixed at 8-28 even when the number cells are blank.
+          leftCircuit = oddCircuit;
+          rightCircuit = oddCircuit + 1;
+        }
+
+        if (rightCktCol == "U")
         {
           slots.Add(new PanelCircuitSlot
           {
@@ -693,11 +886,6 @@ namespace ElectricalCommands
             LoadDescriptionAddress = $"F{row}",
             ConnectedKvaAddress = $"K{row}",
           });
-        }
-
-        int rightCircuit = ReadInteger(worksheet, $"U{row}");
-        if (rightCircuit > 0)
-        {
           slots.Add(new PanelCircuitSlot
           {
             CircuitNumber = rightCircuit,
@@ -710,6 +898,37 @@ namespace ElectricalCommands
             LoadTypeAddress = $"S{row}",
           });
         }
+        else
+        {
+          // Standard ACIES / Charles Schwab / BofA 19-column layout (Right CKT Col = S, L:N merged for description)
+          slots.Add(new PanelCircuitSlot
+          {
+            CircuitNumber = leftCircuit,
+            Row = row,
+            LoadTypeAddress = $"C{row}",
+            NotesAddress = $"B{row}",
+            PolesAddress = $"D{row}",
+            BreakerAmpsAddress = $"E{row}",
+            LoadDescriptionAddress = $"F{row}",
+            ConnectedKvaAddress = $"H{row}",
+          });
+          slots.Add(new PanelCircuitSlot
+          {
+            CircuitNumber = rightCircuit,
+            Row = row,
+            ConnectedKvaAddress = $"K{row}",
+            LoadDescriptionAddress = $"L{row}",
+            NotesAddress = $"R{row}",
+            PolesAddress = $"O{row}",
+            BreakerAmpsAddress = $"P{row}",
+            LoadTypeAddress = $"Q{row}",
+          });
+        }
+
+        if (leftCircuit >= 84 || rightCircuit >= 84)
+        {
+          break;
+        }
       }
 
       if (slots.Count == 0)
@@ -720,27 +939,79 @@ namespace ElectricalCommands
       return slots;
     }
 
+    private static bool TryFindCircuitStartRow(
+      Excel.Worksheet worksheet,
+      out int startRow)
+    {
+      for (int row = 5; row <= 15; row++)
+      {
+        if (ReadInteger(worksheet, $"A{row}") == 1)
+        {
+          startRow = row;
+          return true;
+        }
+      }
+
+      startRow = -1;
+      return false;
+    }
+
+    private static string DetectRightCircuitColumn(
+      Excel.Worksheet worksheet,
+      int startRow)
+    {
+      if (ReadInteger(worksheet, $"U{startRow}") == 2)
+      {
+        return "U";
+      }
+      if (ReadInteger(worksheet, $"S{startRow}") == 2)
+      {
+        return "S";
+      }
+      if (ReadInteger(worksheet, $"T{startRow}") == 2)
+      {
+        return "T";
+      }
+      if (string.Equals(
+            ReadText(worksheet, "U5"),
+            "CKT#",
+            StringComparison.OrdinalIgnoreCase) ||
+          string.Equals(
+            ReadText(worksheet, "U6"),
+            "CKT#",
+            StringComparison.OrdinalIgnoreCase))
+      {
+        return "U";
+      }
+      return "S";
+    }
+
+    private static bool IsValidCircuitNumber(int circuitNumber)
+    {
+      return circuitNumber > 0 && circuitNumber <= 84;
+    }
+
     private static void ApplyCapacityAndSpareRules(
       Excel.Worksheet worksheet,
       List<PanelCircuitSlot> slots,
-      int circuitCapacity)
+      int circuitCapacity,
+      int spareCount)
     {
-      if (circuitCapacity < 6 || circuitCapacity % 2 != 0)
+      if (circuitCapacity < 2 || circuitCapacity % 2 != 0)
       {
         throw new InvalidOperationException(
-          "Panel circuit capacity must be an even number of at least six.");
+          "Panel circuit capacity must be an even number of at least two.");
       }
 
       int maximumCircuit = 0;
-      List<int> conflicts = new List<int>();
+      List<int> hiddenConflicts = new List<int>();
       foreach (PanelCircuitSlot slot in slots)
       {
         maximumCircuit = Math.Max(maximumCircuit, slot.CircuitNumber);
-        if ((slot.CircuitNumber > circuitCapacity ||
-             IsReservedCircuit(slot.CircuitNumber, circuitCapacity)) &&
+        if (slot.CircuitNumber > circuitCapacity &&
             !IsAvailableSlot(worksheet, slot))
         {
-          conflicts.Add(slot.CircuitNumber);
+          hiddenConflicts.Add(slot.CircuitNumber);
         }
       }
 
@@ -750,12 +1021,12 @@ namespace ElectricalCommands
           $"The selected worksheet only contains circuits through " +
           $"{maximumCircuit}, not {circuitCapacity}.");
       }
-      if (conflicts.Count > 0)
+      if (hiddenConflicts.Count > 0)
       {
         throw new InvalidOperationException(
-          "Existing loads occupy circuits that must be reserved or hidden: " +
-          string.Join(", ", conflicts) +
-          ". Move those loads before applying this panel configuration.");
+          "Existing loads occupy circuits that would be hidden by the selected capacity: " +
+          string.Join(", ", hiddenConflicts) +
+          ". Move those loads before reducing the panel circuit count.");
       }
 
       HashSet<int> processedRows = new HashSet<int>();
@@ -768,17 +1039,6 @@ namespace ElectricalCommands
             slot.Row,
             slot.CircuitNumber > circuitCapacity);
         }
-
-        if (slot.CircuitNumber <= circuitCapacity &&
-            IsReservedCircuit(slot.CircuitNumber, circuitCapacity))
-        {
-          WriteCell(worksheet, slot.LoadDescriptionAddress, "SPARE");
-          WriteCell(worksheet, slot.LoadTypeAddress, null);
-          WriteCell(worksheet, slot.NotesAddress, null);
-          WriteCell(worksheet, slot.PolesAddress, 1);
-          WriteCell(worksheet, slot.BreakerAmpsAddress, 20);
-          WriteCell(worksheet, slot.ConnectedKvaAddress, 0.0);
-        }
       }
     }
 
@@ -786,29 +1046,48 @@ namespace ElectricalCommands
       Excel.Worksheet worksheet,
       List<PanelCircuitSlot> slots,
       int circuitCapacity,
+      int spareCount,
       int poles)
     {
-      var empty = new List<PanelCircuitSlot>();
-      Dictionary<int, PanelCircuitSlot> slotsByCircuit = slots.ToDictionary(
+      var activeSlots = slots
+        .Where(slot => slot.CircuitNumber <= circuitCapacity)
+        .ToList();
+
+      // Count total spares currently in the panel
+      int totalSparesInPanel = activeSlots.Count(s =>
+      {
+        string desc = ReadSlotDescription(worksheet, s).ToUpperInvariant();
+        return desc.Contains("SPARE");
+      });
+
+      // Allowable spares that can be converted to new circuits
+      int allowableSparesToUse = Math.Max(0, totalSparesInPanel - spareCount);
+
+      Dictionary<int, PanelCircuitSlot> slotsByCircuit = activeSlots.ToDictionary(
         slot => slot.CircuitNumber);
+
+      // Pass 1: Try to find consecutive EMPTY or SPACE slots (without consuming any spares)
       for (int parity = 1; parity >= 0; parity--)
       {
-        foreach (PanelCircuitSlot startingSlot in slots
+        foreach (PanelCircuitSlot startingSlot in activeSlots
           .Where(slot => slot.CircuitNumber % 2 == parity)
           .OrderBy(slot => slot.CircuitNumber))
         {
           var group = new List<PanelCircuitSlot>();
           for (int poleIndex = 0; poleIndex < poles; poleIndex++)
           {
-            int circuitNumber =
-              startingSlot.CircuitNumber + poleIndex * 2;
-            if (!slotsByCircuit.TryGetValue(
-                  circuitNumber,
-                  out PanelCircuitSlot slot) ||
-                slot.CircuitNumber > circuitCapacity ||
-                IsReservedCircuit(slot.CircuitNumber, circuitCapacity) ||
+            int circuitNumber = startingSlot.CircuitNumber + poleIndex * 2;
+            if (!slotsByCircuit.TryGetValue(circuitNumber, out PanelCircuitSlot slot) ||
                 !IsAvailableSlot(worksheet, slot))
             {
+              group.Clear();
+              break;
+            }
+
+            string desc = ReadSlotDescription(worksheet, slot).ToUpperInvariant();
+            if (desc.Contains("SPARE"))
+            {
+              // Do not consume spares in pass 1
               group.Clear();
               break;
             }
@@ -820,42 +1099,157 @@ namespace ElectricalCommands
           }
         }
       }
-      return empty;
+
+      // Pass 2: If allowableSparesToUse >= poles, find consecutive available slots that may include SPARE
+      if (allowableSparesToUse >= poles)
+      {
+        for (int parity = 1; parity >= 0; parity--)
+        {
+          foreach (PanelCircuitSlot startingSlot in activeSlots
+            .Where(slot => slot.CircuitNumber % 2 == parity)
+            .OrderBy(slot => slot.CircuitNumber))
+          {
+            var group = new List<PanelCircuitSlot>();
+            int sparesInGroup = 0;
+            for (int poleIndex = 0; poleIndex < poles; poleIndex++)
+            {
+              int circuitNumber = startingSlot.CircuitNumber + poleIndex * 2;
+              if (!slotsByCircuit.TryGetValue(circuitNumber, out PanelCircuitSlot slot) ||
+                  !IsAvailableSlot(worksheet, slot))
+              {
+                group.Clear();
+                break;
+              }
+
+              string desc = ReadSlotDescription(worksheet, slot).ToUpperInvariant();
+              if (desc.Contains("SPARE"))
+              {
+                sparesInGroup++;
+              }
+              group.Add(slot);
+            }
+            if (group.Count == poles && sparesInGroup <= allowableSparesToUse)
+            {
+              return group;
+            }
+          }
+        }
+      }
+
+      return new List<PanelCircuitSlot>();
     }
 
-    private static bool IsReservedCircuit(
-      int circuitNumber,
+    private static PanelCircuitCounts CountRemainingSlots(
+      Excel.Worksheet worksheet,
+      List<PanelCircuitSlot> slots,
       int circuitCapacity)
     {
-      return circuitNumber >
-        circuitCapacity - GeneralCommands.ReservedPanelCircuitCount &&
-        circuitNumber <= circuitCapacity;
+      var counts = new PanelCircuitCounts
+      {
+        TotalCircuits = circuitCapacity,
+      };
+
+      foreach (PanelCircuitSlot slot in slots.Where(s => s.CircuitNumber <= circuitCapacity))
+      {
+        string description = ReadSlotDescription(worksheet, slot).Trim().ToUpperInvariant();
+        string loadType = ReadText(worksheet, slot.LoadTypeAddress).Trim();
+        string kvaText = ReadText(worksheet, slot.ConnectedKvaAddress).Trim();
+        int breaker = ReadInteger(worksheet, slot.BreakerAmpsAddress);
+
+        if (description.Contains("SPARE"))
+        {
+          counts.Spares++;
+        }
+        else if (description.Contains("SPACE"))
+        {
+          counts.Spaces++;
+        }
+        else if ((description.Length == 0 || description == "---" || description == "-") &&
+                 string.IsNullOrWhiteSpace(loadType) &&
+                 breaker == 0 &&
+                 (string.IsNullOrWhiteSpace(kvaText) || kvaText == "0" || kvaText == "0.00" || kvaText == "0.0"))
+        {
+          counts.Empties++;
+        }
+        else
+        {
+          counts.ActiveLoads++;
+        }
+      }
+
+      return counts;
+    }
+
+    private static string ReadSlotDescription(
+      Excel.Worksheet worksheet,
+      PanelCircuitSlot slot)
+    {
+      string text = ReadText(worksheet, slot.LoadDescriptionAddress);
+      if (!string.IsNullOrWhiteSpace(text) && text != "---" && text != "-")
+      {
+        return text;
+      }
+      if (slot.LoadDescriptionAddress.StartsWith("F", StringComparison.OrdinalIgnoreCase))
+      {
+        string alt = ReadText(worksheet, $"G{slot.Row}");
+        if (!string.IsNullOrWhiteSpace(alt) && alt != "---" && alt != "-")
+        {
+          return alt;
+        }
+      }
+      else if (slot.LoadDescriptionAddress.StartsWith("L", StringComparison.OrdinalIgnoreCase) ||
+               slot.LoadDescriptionAddress.StartsWith("N", StringComparison.OrdinalIgnoreCase))
+      {
+        string altN = ReadText(worksheet, $"N{slot.Row}");
+        if (!string.IsNullOrWhiteSpace(altN) && altN != "---" && altN != "-")
+        {
+          return altN;
+        }
+        string altM = ReadText(worksheet, $"M{slot.Row}");
+        if (!string.IsNullOrWhiteSpace(altM) && altM != "---" && altM != "-")
+        {
+          return altM;
+        }
+        string altL = ReadText(worksheet, $"L{slot.Row}");
+        if (!string.IsNullOrWhiteSpace(altL) && altL != "---" && altL != "-")
+        {
+          return altL;
+        }
+      }
+      return text;
     }
 
     private static bool IsAvailableSlot(
       Excel.Worksheet worksheet,
       PanelCircuitSlot slot)
     {
-      string description = ReadText(
+      string description = ReadSlotDescription(
         worksheet,
-        slot.LoadDescriptionAddress);
+        slot);
       string normalized = description.Trim().ToUpperInvariant();
       if (normalized.Contains("SPARE") || normalized.Contains("SPACE"))
       {
         return true;
       }
-      return normalized.Length == 0 &&
-        string.IsNullOrWhiteSpace(
-          ReadText(worksheet, slot.LoadTypeAddress));
+      if (normalized.Length == 0 || normalized == "---" || normalized == "-")
+      {
+        string loadType = ReadText(worksheet, slot.LoadTypeAddress);
+        int breaker = ReadInteger(worksheet, slot.BreakerAmpsAddress);
+        string kva = ReadText(worksheet, slot.ConnectedKvaAddress);
+        return string.IsNullOrWhiteSpace(loadType) &&
+               breaker == 0 &&
+               (string.IsNullOrWhiteSpace(kva) || kva == "0" || kva == "0.00" || kva == "0.0");
+      }
+      return false;
     }
 
     private static bool HasExistingCircuitBreaker(
       Excel.Worksheet worksheet,
       PanelCircuitSlot slot)
     {
-      string description = ReadText(
+      string description = ReadSlotDescription(
         worksheet,
-        slot.LoadDescriptionAddress).ToUpperInvariant();
+        slot).ToUpperInvariant();
       if (description.Contains("SPACE"))
       {
         return false;
@@ -908,6 +1302,49 @@ namespace ElectricalCommands
       try
       {
         range = worksheet.Range[address];
+        if (Convert.ToBoolean(range.MergeCells))
+        {
+          Excel.Range mergeArea = null;
+          try
+          {
+            mergeArea = range.MergeArea;
+            // Check top-left cell first
+            Excel.Range firstCell = mergeArea.Cells[1, 1] as Excel.Range;
+            try
+            {
+              object firstVal = firstCell?.Value2;
+              if (firstVal != null && !string.IsNullOrWhiteSpace(Convert.ToString(firstVal, CultureInfo.InvariantCulture)))
+              {
+                return firstVal;
+              }
+            }
+            finally
+            {
+              ReleaseComObject(firstCell);
+            }
+
+            // If top-left cell is empty, check any other cell in the merge area
+            foreach (Excel.Range cell in mergeArea.Cells)
+            {
+              try
+              {
+                object cellVal = cell.Value2;
+                if (cellVal != null && !string.IsNullOrWhiteSpace(Convert.ToString(cellVal, CultureInfo.InvariantCulture)))
+                {
+                  return cellVal;
+                }
+              }
+              finally
+              {
+                ReleaseComObject(cell);
+              }
+            }
+          }
+          finally
+          {
+            ReleaseComObject(mergeArea);
+          }
+        }
         return range.Value2;
       }
       finally
@@ -925,6 +1362,26 @@ namespace ElectricalCommands
       try
       {
         range = worksheet.Range[address];
+        if (Convert.ToBoolean(range.MergeCells))
+        {
+          Excel.Range mergeArea = null;
+          Excel.Range firstCell = null;
+          try
+          {
+            mergeArea = range.MergeArea;
+            firstCell = mergeArea.Cells[1, 1] as Excel.Range;
+            if (firstCell != null)
+            {
+              firstCell.Value2 = value;
+              return;
+            }
+          }
+          finally
+          {
+            ReleaseComObject(firstCell);
+            ReleaseComObject(mergeArea);
+          }
+        }
         range.Value2 = value;
       }
       finally
@@ -995,11 +1452,13 @@ namespace ElectricalCommands
       int color)
     {
       Excel.Range range = null;
+      Excel.Range targetRange = null;
       Excel.Font font = null;
       try
       {
         range = worksheet.Range[address];
-        font = range.Font;
+        targetRange = Convert.ToBoolean(range.MergeCells) ? range.MergeArea : range;
+        font = targetRange.Font;
         font.Bold = bold;
         font.Italic = italic;
         font.Color = color;
@@ -1007,6 +1466,10 @@ namespace ElectricalCommands
       finally
       {
         ReleaseComObject(font);
+        if (!ReferenceEquals(targetRange, range))
+        {
+          ReleaseComObject(targetRange);
+        }
         ReleaseComObject(range);
       }
     }

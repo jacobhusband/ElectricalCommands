@@ -1528,8 +1528,9 @@ def _normalize_t24_output_json_path(json_path):
         raise ValueError("JSON path must be an absolute path.")
     if os.path.splitext(normalized)[1].lower() != ".json":
         raise ValueError("JSON path must end with .json.")
-    if os.path.basename(normalized).lower() != "t24output.json":
-        raise ValueError("Expected file name: T24Output.json.")
+    base = os.path.basename(normalized).lower()
+    if base not in ("arealabel.json", "t24output.json"):
+        raise ValueError("Expected file name: AreaLabel.json or T24Output.json.")
     return normalized
 
 
@@ -7590,17 +7591,18 @@ Return ONLY the JSON object.
             return {'status': 'error', 'message': str(e)}
 
     def read_t24_output_json(self, json_path):
-        """Read and validate SUMTEXT output (T24Output.json)."""
+        """Read and validate AREALABEL / SUMTEXT output (AreaLabel.json or T24Output.json)."""
         try:
             normalized_path = _normalize_t24_output_json_path(json_path)
+            file_name = os.path.basename(normalized_path)
             if not os.path.isfile(normalized_path):
                 raise FileNotFoundError(
-                    f"T24Output.json was not found at: {normalized_path}")
+                    f"{file_name} was not found at: {normalized_path}")
 
             payload = _read_json_file_strict(normalized_path)
             if not isinstance(payload, list):
                 raise ValueError(
-                    "T24Output.json must contain a JSON array of room entries.")
+                    f"{file_name} must contain a JSON array of room entries.")
 
             rows = []
             explicit_total = None
@@ -7609,7 +7611,7 @@ Return ONLY the JSON object.
                     raise ValueError(
                         f"Entry #{idx} must be a JSON object with RoomType and SquareFeet.")
 
-                room_type = str(item.get("RoomType", "")).strip()
+                room_type = str(item.get("RoomType") or item.get("RoomName") or "").strip()
                 if not room_type:
                     raise ValueError(f"Entry #{idx} is missing RoomType.")
 
@@ -7650,10 +7652,10 @@ Return ONLY the JSON object.
         except FileNotFoundError as e:
             return {"status": "error", "message": str(e)}
         except ValueError as e:
-            logging.warning(f"T24Output.json validation failed: {e}")
+            logging.warning(f"Room area JSON validation failed: {e}")
             return {"status": "error", "message": str(e)}
         except Exception as e:
-            logging.error(f"Error reading T24Output.json: {e}")
+            logging.error(f"Error reading room area JSON: {e}")
             return {"status": "error", "message": str(e)}
 
     def get_notes(self):

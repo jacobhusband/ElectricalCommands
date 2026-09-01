@@ -52,7 +52,7 @@ ACIES-Tools/
   `"C:\Users\JacobH\OneDrive - ACIES Engineering\Documents\dotnet-sdk\dotnet.exe"`
 - **Build Solution Command**:
   ```powershell
-  & "C:\Users\JacobH\OneDrive - ACIES Engineering\Documents\dotnet-sdk\dotnet.exe" build "apps/ElectricalCommands/ElectricalCommands.sln"
+  & "C:\Users\JacobH\OneDrive - ACIES Engineering\Documents\dotnet-sdk\dotnet.exe" build "apps/ElectricalCommands/ElectricalCommands.sln" -c Release
   ```
 
 ### Python Environment

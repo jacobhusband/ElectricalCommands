@@ -136,14 +136,14 @@ namespace ElectricalCommands
         string drawingDirectory = Path.GetDirectoryName(db.Filename);
         if (!string.IsNullOrWhiteSpace(drawingDirectory))
         {
-          string jsonPath = Path.Combine(drawingDirectory, "T24Output.json");
+          string jsonPath = Path.Combine(drawingDirectory, "AreaLabel.json");
           string json = JsonConvert.SerializeObject(combinedRooms, Formatting.Indented);
           File.WriteAllText(jsonPath, json);
           ed.WriteMessage($"\nExported room information to: {jsonPath}");
         }
         else
         {
-          ed.WriteMessage("\nThe drawing has not been saved, so T24Output.json was not exported.");
+          ed.WriteMessage("\nThe drawing has not been saved, so AreaLabel.json was not exported.");
         }
 
         ed.WriteMessage(

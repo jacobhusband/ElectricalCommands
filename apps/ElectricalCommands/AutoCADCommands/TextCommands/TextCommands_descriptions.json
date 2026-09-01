@@ -2,7 +2,7 @@
     "commands": {
         "TEXTCOUNT": "Counts selected TEXT, MTEXT, and ATTRIB values, groups identical strings, reports totals, and exports a timestamped text report.",
         "TEXTSELECT": "Filters a mixed selection so only TEXT and MTEXT objects remain selected.",
-        "SUMTEXT": "Totals selected room square-footage text, labels the total above the selection, and exports grouped totals to T24Output.json.",
+        "SUMTEXT": "Totals selected room square-footage text, labels the total above the selection, and exports grouped totals to AreaLabel.json (AREALABEL recommended).",
         "TEXTREPLACE": "Replaces the content of selected TEXT and MTEXT objects with a new user-specified value.",
         "TEXTINCREMENT": "Renumbers selected TEXT and MTEXT objects using a prefix, start/end range, and odd/even filtering.",
         "TEXTADD": "Adds a specified integer value to numbers found inside selected TEXT and MTEXT objects.",

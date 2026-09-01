@@ -28,14 +28,14 @@
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0" Margin="0,0,0,14">
-      <TextBlock Text="Name the selected room boundaries"
+      <TextBlock Text="Name the selected room polylines"
                  FontSize="18"
                  FontWeight="SemiBold"
                  Foreground="#1F2933"/>
       <TextBlock Margin="0,4,0,0"
                  Foreground="#52606D"
                  TextWrapping="Wrap"
-                 Text="Select a row to highlight its polyline in AutoCAD, then replace every placeholder with the correct room name and number."/>
+                 Text="Open and closed polylines are included. Select a row to highlight it in AutoCAD, then replace every placeholder with the correct room name and number."/>
     </StackPanel>
 
     <Border Grid.Row="1"
@@ -84,11 +84,11 @@
         <TextBlock x:Name="SelectedRoomTextBlock"
                    Foreground="#334E68"
                    FontWeight="SemiBold"/>
-        <TextBlock x:Name="StatusTextBlock"
+      <TextBlock x:Name="StatusTextBlock"
                    Margin="0,3,0,0"
                    Foreground="#52606D"
                    TextWrapping="Wrap"
-                   Text="Double-click a Room Name cell to edit it."/>
+                   Text="Previously saved names are preloaded from the polyline metadata. Double-click a Room Name cell to edit it."/>
       </StackPanel>
     </Border>
 
@@ -97,18 +97,25 @@
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="Auto"/>
         <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <TextBlock Grid.Column="0"
                  VerticalAlignment="Center"
                  Foreground="#7B8794"
-                 Text="The base point will be requested after this review."/>
+                 Text="The base point will be requested after this review. No drawing text will be created."/>
       <Button Grid.Column="1"
+              x:Name="ExportJsonButton"
+              Content="Export JSON"
+              Click="ExportJson_Click"
+              MinWidth="100"
+              Margin="12,0,0,0"/>
+      <Button Grid.Column="2"
               Content="Cancel"
               Click="Cancel_Click"
               IsCancel="True"
               MinWidth="86"
-              Margin="12,0,0,0"/>
-      <Button Grid.Column="2"
+              Margin="8,0,0,0"/>
+      <Button Grid.Column="3"
               Content="Save Room Names"
               Click="Save_Click"
               IsDefault="True"
