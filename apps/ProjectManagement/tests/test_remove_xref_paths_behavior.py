@@ -104,6 +104,14 @@ class RemoveXrefPathsBehaviorTests(unittest.TestCase):
         output = (result.stdout or "") + (result.stderr or "")
         return result, output
 
+    def _read_compare_pairs(self, output):
+        marker = "PROGRESS: DWG_COMPARE_PAIR:"
+        return [
+            json.loads(line.split(marker, 1)[1].strip())
+            for line in output.splitlines()
+            if marker in line
+        ]
+
     def test_arch_source_stages_into_xrefs_and_archives_existing_target(self):
         with tempfile.TemporaryDirectory(prefix="acies-remove-xrefs-arch-") as temp_dir:
             project_root = Path(temp_dir) / "260243 Example"
@@ -123,6 +131,11 @@ class RemoveXrefPathsBehaviorTests(unittest.TestCase):
             self.assertEqual("existing-target", archived_targets[0].read_text(encoding="utf-8"))
             self.assertIn("Staged Arch source in Xrefs as __incoming__", output)
             self.assertIn("Archived existing file to A01-01 (E)_", output)
+            compare_pairs = self._read_compare_pairs(output)
+            self.assertEqual(1, len(compare_pairs), msg=output)
+            self.assertEqual(str(canonical_target), compare_pairs[0]["newPath"])
+            self.assertEqual(str(archived_targets[0]), compare_pairs[0]["oldPath"])
+            self.assertEqual("A01-01", compare_pairs[0]["label"])
 
     def test_manifest_file_source_stages_into_xrefs(self):
         with tempfile.TemporaryDirectory(prefix="acies-remove-xrefs-manifest-file-") as temp_dir:
@@ -142,6 +155,33 @@ class RemoveXrefPathsBehaviorTests(unittest.TestCase):
             self.assertEqual("manifest-arch-source", canonical_target.read_text(encoding="utf-8"))
             self.assertIn("Using 1 DWG source(s) from workflow selection.", output)
             self.assertIn("Staged Arch source in Xrefs as __incoming__", output)
+
+    def test_multiple_replacements_report_one_compare_pair_per_drawing(self):
+        with tempfile.TemporaryDirectory(prefix="acies-remove-xrefs-compare-many-") as temp_dir:
+            project_root = Path(temp_dir) / "260249 Example"
+            sources = [
+                project_root / "Arch" / "A01-01 plan.dwg",
+                project_root / "Arch" / "A02-02 plan.dwg",
+            ]
+            targets = [
+                project_root / "Xrefs" / "A01-01 (E).dwg",
+                project_root / "Xrefs" / "A02-02 (E).dwg",
+            ]
+            for index, source in enumerate(sources, start=1):
+                self._write_file(source, f"new-{index}")
+            for index, target in enumerate(targets, start=1):
+                self._write_file(target, f"old-{index}")
+
+            result, output = self._run_script(sources)
+
+            self.assertEqual(0, result.returncode, msg=output)
+            compare_pairs = self._read_compare_pairs(output)
+            self.assertEqual(2, len(compare_pairs), msg=output)
+            self.assertEqual({"A01-01", "A02-02"}, {pair["label"] for pair in compare_pairs})
+            self.assertEqual(
+                {str(target) for target in targets},
+                {pair["newPath"] for pair in compare_pairs},
+            )
 
     def test_manifest_zip_entry_extracts_and_stages_into_project_xrefs(self):
         with tempfile.TemporaryDirectory(prefix="acies-remove-xrefs-manifest-zip-") as temp_dir:

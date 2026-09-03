@@ -717,7 +717,7 @@ class PanelScheduleAiBackendTests(unittest.TestCase):
             ],
             opened_paths,
         )
-        self.assertEqual("gemini-3.6-flash", generate_content_calls[0]["model"])
+        self.assertEqual("gemini-3.8-flash", generate_content_calls[0]["model"])
         self.assertIn(
             "Breaker image 1: 1-21 and 2-22",
             generate_content_calls[0]["contents"][0],
@@ -1304,11 +1304,59 @@ class CanvasPanelSelectionTests(unittest.TestCase):
         rate_limit.assert_not_called()
         self.assertIs(parsed, result)
         self.assertEqual(1, len(loaded))
-        self.assertEqual("gemini-3.6-flash", captured["model"])
+        self.assertEqual("gemini-3.8-flash", captured["model"])
         self.assertEqual(
             main.CANVAS_PANEL_CLASSIFY_MAX_IMAGE_EDGE,
             open_image.call_args.kwargs["max_edge"],
         )
+
+    def test_analyze_panel_schedule_images_falls_back_across_models_until_success(self):
+        calls = []
+
+        class FakeClient:
+            class models:
+                @staticmethod
+                def generate_content(**kwargs):
+                    calls.append(kwargs["model"])
+                    if kwargs["model"] == "gemini-3.8-flash":
+                        raise RuntimeError("503 UNAVAILABLE: high demand")
+                    if kwargs["model"] == "gemini-3.7-flash":
+                        raise RuntimeError("504 DEADLINE_EXCEEDED")
+                    return types.SimpleNamespace(
+                        parsed=types.SimpleNamespace(
+                            panel_name="LP1",
+                            voltage="120/208V",
+                            phase=3,
+                            bus_rating=225,
+                            main_type="MCB",
+                            main_rating=100,
+                            breakers=[],
+                        )
+                    )
+
+        with tempfile.TemporaryDirectory() as td:
+            img_path = os.path.join(td, "b1.png")
+            with open(img_path, "wb") as f:
+                f.write(b"fake-image-bytes")
+
+            with patch("main.genai.Client", return_value=FakeClient()), patch.object(
+                self.api, "_resolve_panel_schedule_api_key", return_value="fake-key"
+            ), patch.object(
+                self.api, "_ensure_aiohttp", return_value=None
+            ), patch(
+                "main._open_panel_schedule_image", return_value=types.SimpleNamespace(close=lambda: None)
+            ), patch(
+                "main.cb_enforce_rate_limit", return_value=None
+            ):
+                data = self.api._analyze_panel_schedule_images(
+                    "LP1",
+                    [img_path],
+                    [],
+                    input_mode="field_photos",
+                )
+
+        self.assertEqual("LP1", data.panel_name)
+        self.assertEqual(["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"], calls)
 
 
 if __name__ == "__main__":

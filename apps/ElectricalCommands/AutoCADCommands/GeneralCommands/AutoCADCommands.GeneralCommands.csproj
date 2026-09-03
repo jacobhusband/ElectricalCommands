@@ -35,6 +35,7 @@
     <Page Include="OpenDrawingLayerWindow.xaml" />
     <Page Include="ProjectChecklistWindow.xaml" />
     <Page Include="RoomNamingWindow.xaml" />
+    <Page Include="SwitchConfigurationWindow.xaml" />
     <Page Include="ViewportFromRegionOptionsWindow.xaml" />
     <Page Include="XrefPickerWindow.xaml" />
   </ItemGroup>

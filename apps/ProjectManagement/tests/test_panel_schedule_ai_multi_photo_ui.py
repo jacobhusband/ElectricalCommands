@@ -113,6 +113,15 @@ class PanelScheduleAiMultiPhotoUiTests(unittest.TestCase):
         self.assertIn("circuitBreakerState.lastHandledTerminalJobId === jobId", text)
         self.assertNotIn("await window.pywebview.api.open_path(folder);", text)
 
+    def test_breaker_photo_number_is_scoped_to_the_file_render_loop(self):
+        text = SCRIPT_JS_PATH.read_text(encoding="utf-8")
+        start = text.index("function renderCircuitBreakerFileList(")
+        end = text.index("function updateCircuitBreakerUi()", start)
+        render_block = text[start:end]
+
+        self.assertIn("items.forEach((item, displayIndex) => {", render_block)
+        self.assertIn("`Photo ${displayIndex + 1} · ${item.name}`", render_block)
+
 
 if __name__ == "__main__":
     unittest.main()

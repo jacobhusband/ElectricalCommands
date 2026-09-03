@@ -236,7 +236,7 @@ class DeliverableStatusBriefingApiTests(unittest.TestCase):
         self.assertEqual("H", result["headline"])
         self.assertEqual(["A", "B"], result["paragraphs"])
         self.assertTrue(result["generatedAt"])
-        self.assertEqual("gemini-3-flash-preview", calls[0]["model"])
+        self.assertEqual("gemini-3.8-flash", calls[0]["model"])
         # Prose, not structured extraction - deliberately not temperature 0.
         self.assertEqual(0.2, calls[0]["config"]["temperature"])
         self.assertEqual("application/json", calls[0]["config"]["response_mime_type"])

@@ -38,6 +38,7 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn(".activity-card-action.rerun", text)
         self.assertIn(".activity-card-action.queue", text)
         self.assertIn(".activity-card-action.cancel", text)
+        self.assertIn(".activity-card-action.compare", text)
         self.assertIn('.activity-card[data-status="queued"]', text)
         self.assertIn('.activity-card[data-status="cancelled"]', text)
         self.assertIn(".activity-tray-clear", text)
@@ -61,6 +62,7 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn("async function handleActivityTrayOpenFolder(activityId) {", text)
         self.assertIn("async function handleActivityTrayCopyCombinedPdf(activityId) {", text)
         self.assertIn("async function handleActivityTrayOpenCombinedPdf(activityId) {", text)
+        self.assertIn("async function handleActivityTrayDwgCompare(activityId, pairIndex = 0) {", text)
         self.assertIn("function handleActivityTrayAccept(activityId) {", text)
         self.assertIn("function renderActivityTray() {", text)
         self.assertIn("function formatActivityDateTime(timestamp) {", text)
@@ -76,6 +78,7 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn('textContent: "Rerun"', text)
         self.assertIn('textContent: "Queue Again"', text)
         self.assertIn('textContent: "Accept"', text)
+        self.assertIn('"Compare Old vs New"', text)
         self.assertIn('`${isQueued ? "Queued" : "Started"}: ${formatActivityDateTime(startedAt)}`', text)
         self.assertIn('textContent: `Ended: ${formatActivityDateTime(endedAt)}`', text)
         self.assertIn('"data-activity-duration-id": item.id', text)
@@ -85,10 +88,13 @@ class ActivityTrayUiTests(unittest.TestCase):
         self.assertIn('"data-activity-action": "rerun"', text)
         self.assertIn('"data-activity-action": "queue"', text)
         self.assertIn('"data-activity-action": "cancel"', text)
+        self.assertIn('"data-activity-action": "dwg-compare"', text)
         self.assertIn('await handleActivityTrayRerun(activityId);', text)
         self.assertIn('await handleActivityTrayCancel(activityId);', text)
         self.assertIn("window.pywebview.api.cancel_activity(activityId)", text)
         self.assertIn('rawMessage.startsWith("INPUT_FOLDER:")', text)
+        self.assertIn('rawMessage.startsWith("DWG_COMPARE_PAIR:")', text)
+        self.assertIn("window.pywebview.api.launch_dwg_compare(", text)
         self.assertIn(
             'const result = await window.pywebview.api.open_path(activity.openFolderPath);',
             text,

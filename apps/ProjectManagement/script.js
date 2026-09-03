@@ -311,10 +311,12 @@ const activityTrayState = {
   launchingQueuedActivityId: "",
 };
 const activeToolActivityIds = new Map();
+const activeDwgCompareLaunches = new Set();
 const ACTIVITY_RERUN_TOOL_IDS = new Set([
   "toolCopyProjectLocally",
   "toolPublishDwgs",
   "toolManageLayers",
+  "toolRepairXrefPaths",
   "toolCleanXrefs",
   "toolCreateNarrativeTemplate",
   "toolCreatePlanCheckTemplate",
@@ -324,6 +326,7 @@ const ACTIVITY_RERUN_TOOL_IDS = new Set([
 const ACTIVITY_CANCELLABLE_TOOL_IDS = new Set([
   "toolPublishDwgs",
   "toolManageLayers",
+  "toolRepairXrefPaths",
   "toolCleanXrefs",
   "toolBackupDrawings",
   "toolWorkflow",
@@ -2640,6 +2643,7 @@ const WORKROOM_AUTO_SELECT_CAD_TOOL_IDS = new Set([
 ]);
 const WORKROOM_CAD_TOOL_IDS = new Set([
   ...WORKROOM_AUTO_SELECT_CAD_TOOL_IDS,
+  "toolRepairXrefPaths",
   "toolCleanXrefs",
 ]);
 const WORKROOM_TEMPLATE_TOOL_IDS = new Set([
@@ -2670,7 +2674,7 @@ const WORKROOM_PHASE_CHECKLIST_MAP = {
   post_permit: null,
 };
 const WORKROOM_PHASE_TOOL_MAP = {
-  pre_design: ["toolCleanXrefs"],
+  pre_design: ["toolRepairXrefPaths", "toolCleanXrefs"],
   design: ["toolLightingSchedule", "toolPanelScheduleManager", "toolCircuitBreaker"],
   preflight: ["toolManageLayers", "toolPublishDwgs"],
   post_permit: ["toolCreateNarrativeTemplate", "toolCreatePlanCheckTemplate"],
@@ -3887,6 +3891,16 @@ const SHARED_TOOL_LAUNCH_REGISTRY = Object.freeze([
     isReady: true,
   },
   {
+    id: "toolRepairXrefPaths",
+    label: "Repair XREF Paths",
+    menuLabel: "Repair XREF Paths",
+    launchType: "user-selects-files",
+    category: "general",
+    iconSvg:
+      '<path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1"></path><path d="M12 8v8"></path><path d="m9.5 13.5 2.5 2.5 2.5-2.5"></path>',
+    isReady: true,
+  },
+  {
     id: "toolCleanXrefs",
     label: "XREF",
     menuLabel: "XREF",
@@ -4020,6 +4034,7 @@ function getDeliverableToolMenuEntries() {
   const deliverableMenuOrder = [
     "toolPublishDwgs",
     "toolManageLayers",
+    "toolRepairXrefPaths",
     "toolCleanXrefs",
     "toolCreateNarrativeTemplate",
     "toolCreatePlanCheckTemplate",
@@ -8631,6 +8646,33 @@ function normalizeActivityTimestamp(value, fallback = 0) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : Number(fallback) || 0;
 }
 
+function normalizeDwgComparePairs(value) {
+  const pairs = Array.isArray(value) ? value : value ? [value] : [];
+  const seen = new Set();
+  return pairs.reduce((normalized, pair) => {
+    if (!pair || typeof pair !== "object") return normalized;
+    const newPath = String(pair.newPath || pair.new_path || "").trim();
+    const oldPath = String(pair.oldPath || pair.old_path || "").trim();
+    if (!newPath || !oldPath) return normalized;
+    const key = `${normalizeWindowsPath(newPath).toLowerCase()}|${normalizeWindowsPath(
+      oldPath
+    ).toLowerCase()}`;
+    if (seen.has(key)) return normalized;
+    seen.add(key);
+    const fallbackLabel = getWindowsPathLeaf(newPath).replace(/\.dwg$/i, "");
+    normalized.push({
+      newPath,
+      oldPath,
+      label: String(pair.label || fallbackLabel || "Drawing").trim(),
+    });
+    return normalized;
+  }, []);
+}
+
+function appendDwgComparePair(pairs, pair) {
+  return normalizeDwgComparePairs([...(Array.isArray(pairs) ? pairs : []), pair]);
+}
+
 function formatActivityDateTime(timestamp) {
   const normalized = normalizeActivityTimestamp(timestamp);
   if (!normalized) return "Unknown";
@@ -8920,6 +8962,7 @@ function enqueueActivityRerun(activityId) {
       cancelRequested: false,
       openFolderPath: "",
       combinedPdfPath: "",
+      dwgComparePairs: [],
     },
     { autoExpandReason: "update" }
   );
@@ -9021,7 +9064,7 @@ function renderActivityTray() {
   if (clearAll) clearAll.hidden = completedCount === 0;
   list.replaceChildren();
 
-  items.forEach((item, displayIndex) => {
+  items.forEach((item) => {
     const status = String(item.status || ACTIVITY_STATUS.RUNNING).trim().toLowerCase();
     const workflowTitle = String(item.workflowTitle || "").trim();
     const projectName = String(item.projectName || "").trim();
@@ -9204,6 +9247,31 @@ function renderActivityTray() {
         })
       );
     }
+    const dwgComparePairs = normalizeDwgComparePairs(item.dwgComparePairs);
+    if (isTerminal && dwgComparePairs.length) {
+      dwgComparePairs.forEach((pair, pairIndex) => {
+        const pairLabel = String(pair.label || `Drawing ${pairIndex + 1}`).trim();
+        actions.appendChild(
+          el("button", {
+            className: "activity-card-action compare",
+            type: "button",
+            textContent:
+              dwgComparePairs.length === 1
+                ? "Compare Old vs New"
+                : `Compare ${pairLabel}`,
+            title: `Open AutoCAD modelspace comparison for ${pairLabel}`,
+            "data-activity-action": "dwg-compare",
+            "data-activity-id": item.id,
+            "data-dwg-compare-index": String(pairIndex),
+            onclick: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void handleActivityTrayDwgCompare(item.id, pairIndex);
+            },
+          })
+        );
+      });
+    }
     if (isTerminal && item.openFolderPath) {
       actions.appendChild(
         el("button", {
@@ -9284,6 +9352,43 @@ async function handleActivityTrayOpenFolder(activityId) {
   } catch (error) {
     toast(error?.message || "Unable to open folder.");
     return false;
+  }
+}
+
+async function handleActivityTrayDwgCompare(activityId, pairIndex = 0) {
+  const activity = getActivityById(activityId);
+  const normalizedIndex = Number(pairIndex) || 0;
+  const pair = normalizeDwgComparePairs(activity?.dwgComparePairs)[normalizedIndex];
+  if (!pair) {
+    toast("The old and new XREF drawings are unavailable.");
+    return false;
+  }
+  if (!window.pywebview?.api?.launch_dwg_compare) {
+    toast("AutoCAD drawing comparison is unavailable.");
+    return false;
+  }
+
+  const launchKey = `${activityId}:${normalizedIndex}`;
+  if (activeDwgCompareLaunches.has(launchKey)) {
+    toast("That drawing comparison is already opening.");
+    return false;
+  }
+  activeDwgCompareLaunches.add(launchKey);
+  try {
+    const result = await window.pywebview.api.launch_dwg_compare(
+      pair.newPath,
+      pair.oldPath
+    );
+    if (String(result?.status || "").trim().toLowerCase() !== "success") {
+      throw new Error(result?.message || "Unable to open the AutoCAD comparison.");
+    }
+    toast(result?.message || "Opening the modelspace comparison in AutoCAD.");
+    return true;
+  } catch (error) {
+    toast(error?.message || "Unable to open the AutoCAD comparison.");
+    return false;
+  } finally {
+    activeDwgCompareLaunches.delete(launchKey);
   }
 }
 
@@ -9474,6 +9579,13 @@ function initActivityTray() {
       await handleActivityTrayOpenCombinedPdf(activityId);
       return;
     }
+    if (action === "dwg-compare") {
+      await handleActivityTrayDwgCompare(
+        activityId,
+        Number(button.dataset.dwgCompareIndex || 0)
+      );
+      return;
+    }
     if (action === "rerun") {
       await handleActivityTrayRerun(activityId);
     }
@@ -9501,6 +9613,13 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
   const mergedOpenFolderPath = String(
     incoming.openFolderPath || existing?.openFolderPath || ""
   ).trim();
+  const hasIncomingDwgComparePairs = Object.prototype.hasOwnProperty.call(
+    incoming,
+    "dwgComparePairs"
+  );
+  const mergedDwgComparePairs = normalizeDwgComparePairs(
+    hasIncomingDwgComparePairs ? incoming.dwgComparePairs : existing?.dwgComparePairs
+  );
   const mergedStatus = String(
     incoming.status || existing?.status || ACTIVITY_STATUS.RUNNING
   )
@@ -9543,6 +9662,7 @@ function upsertActivity(nextItem, { autoExpandReason = "update" } = {}) {
     combinedPdfPath: String(
       incoming.combinedPdfPath || existing?.combinedPdfPath || ""
     ).trim(),
+    dwgComparePairs: mergedDwgComparePairs,
     workflowTitle: String(
       incoming.workflowTitle || existing?.workflowTitle || ""
     ).trim(),
@@ -9616,6 +9736,7 @@ function beginActivity({
   openFolderPath = "",
   openFolderLabel = "Open Folder",
   combinedPdfPath = "",
+  dwgComparePairs = [],
   rerunDefaultPath = "",
   rerunLaunchContext = null,
   workflowTitle = "",
@@ -9651,6 +9772,7 @@ function beginActivity({
       openFolderPath,
       openFolderLabel,
       combinedPdfPath,
+      dwgComparePairs,
       rerunDefaultPath,
       rerunLaunchContext,
       workflowTitle,
@@ -9784,7 +9906,7 @@ function deriveToolActivityProgress(toolId, message, currentProgress = 5) {
     return 100;
   }
 
-  const fileMatch = text.match(/(?:Plotting|Processing)\s+(\d+)\s+of\s+(\d+)\s*:/i);
+  const fileMatch = text.match(/(?:Plotting|Processing|Updating)\s+(\d+)\s+of\s+(\d+)\s*:/i);
   if (fileMatch) {
     const completed = Number(fileMatch[1]);
     const total = Math.max(Number(fileMatch[2]), 1);
@@ -9802,10 +9924,14 @@ function deriveToolActivityProgress(toolId, message, currentProgress = 5) {
   }
 
   if (
-    ["toolManageLayers", "toolCleanXrefs"].includes(normalizedToolId)
+    ["toolManageLayers", "toolRepairXrefPaths", "toolCleanXrefs"].includes(
+      normalizedToolId
+    )
   ) {
-    if (/Waiting for layer selection|Waiting for user input/i.test(text)) return 15;
-    if (/Reading extracted data|Using \d+ DWG|ZIP source selected|Found \d+ DWG/i.test(text)) {
+    if (/Waiting for layer selection|Waiting for XREF path selections|Waiting for user input/i.test(text)) {
+      return 15;
+    }
+    if (/Reading extracted data|Scanning \d+ of \d+|Using \d+ (?:selected )?DWG|ZIP source selected|Found \d+ DWG/i.test(text)) {
       return 20;
     }
     if (/Successfully processed|Processing \d+ file\(s\)/i.test(text)) return 92;
@@ -9846,6 +9972,9 @@ function updateActivityStatusFromPayload(payload = {}) {
   let combinedPdfPath = String(
     payload?.combinedPdfPath || existing?.combinedPdfPath || ""
   ).trim();
+  let dwgComparePairs = normalizeDwgComparePairs(
+    payload?.dwgComparePairs || existing?.dwgComparePairs || []
+  );
   let rerunDefaultPath = String(
     payload?.rerunDefaultPath || existing?.rerunDefaultPath || ""
   ).trim();
@@ -9874,6 +10003,14 @@ function updateActivityStatusFromPayload(payload = {}) {
     nextMessage = existing?.message || "Working...";
   } else if (rawMessage.startsWith("INPUT_FOLDER:")) {
     rerunDefaultPath = rawMessage.substring("INPUT_FOLDER:".length).trim();
+    nextMessage = existing?.message || "Working...";
+  } else if (rawMessage.startsWith("DWG_COMPARE_PAIR:")) {
+    const pairJson = rawMessage.substring("DWG_COMPARE_PAIR:".length).trim();
+    try {
+      dwgComparePairs = appendDwgComparePair(dwgComparePairs, JSON.parse(pairJson));
+    } catch (error) {
+      console.warn("Ignoring invalid DWG compare activity metadata:", error);
+    }
     nextMessage = existing?.message || "Working...";
   } else if (rawMessage.startsWith("WARN:")) {
     nextMessage = rawMessage.substring(5).trim() || "Completed with warnings.";
@@ -9915,6 +10052,7 @@ function updateActivityStatusFromPayload(payload = {}) {
       openFolderPath,
       openFolderLabel: payload?.openFolderLabel || "Open Folder",
       combinedPdfPath,
+      dwgComparePairs,
       rerunDefaultPath,
       rerunLaunchContext,
       workflowTitle,
@@ -9938,6 +10076,7 @@ function updateActivityStatusFromPayload(payload = {}) {
       payload?.openFolderLabel || existing?.openFolderLabel || "Open Folder"
     ).trim(),
     combinedPdfPath,
+    dwgComparePairs,
     rerunDefaultPath,
     rerunLaunchContext,
     workflowTitle,
@@ -22491,6 +22630,9 @@ function positionDropdownMenuInCardView(dropdown, isOpen) {
     menu.style.left = "";
     menu.style.right = "";
     menu.style.bottom = "";
+    menu.style.maxHeight = "";
+    menu.style.overflowY = "";
+    menu.style.overscrollBehavior = "";
     return;
   }
 
@@ -22501,12 +22643,15 @@ function positionDropdownMenuInCardView(dropdown, isOpen) {
   );
   if (!trigger) return;
 
-  // Apply fixed positioning first so the measured rect reflects unclipped size.
+  // Apply fixed positioning and clear constraints first so measured rect reflects unclipped natural size.
   menu.style.position = "fixed";
   menu.style.top = "0px";
   menu.style.left = "0px";
   menu.style.right = "auto";
   menu.style.bottom = "auto";
+  menu.style.maxHeight = "";
+  menu.style.overflowY = "";
+  menu.style.overscrollBehavior = "";
 
   const menuRect = menu.getBoundingClientRect();
   const triggerRect = trigger.getBoundingClientRect();
@@ -22516,20 +22661,43 @@ function positionDropdownMenuInCardView(dropdown, isOpen) {
   const margin = 8;
   const isLeftAligned =
     menu.classList.contains("deliverable-status-menu") ||
-    dropdown.classList.contains("deliverable-card-tool-action");
+    dropdown.classList.contains("deliverable-card-tool-action") ||
+    dropdown.classList.contains("deliverable-card-quick-access-action");
 
   let left = isLeftAligned
     ? triggerRect.left
     : triggerRect.right - menuRect.width;
   left = Math.max(margin, Math.min(left, viewportW - menuRect.width - margin));
 
-  let top = triggerRect.bottom + gap;
-  if (top + menuRect.height > viewportH - margin) {
-    const topAbove = triggerRect.top - menuRect.height - gap;
-    top = topAbove >= margin
-      ? topAbove
-      : Math.max(margin, viewportH - menuRect.height - margin);
+  const minTop = margin;
+  const maxBottom = viewportH - margin;
+
+  const spaceBelow = Math.max(0, maxBottom - (triggerRect.bottom + gap));
+  const spaceAbove = Math.max(0, (triggerRect.top - gap) - minTop);
+
+  let top = 0;
+  let maxHeight = 0;
+
+  if (menuRect.height <= spaceBelow) {
+    // Fits comfortably below trigger
+    top = triggerRect.bottom + gap;
+    maxHeight = spaceBelow;
+  } else if (menuRect.height <= spaceAbove) {
+    // Fits comfortably above trigger
+    top = triggerRect.top - menuRect.height - gap;
+    maxHeight = spaceAbove;
+  } else if (spaceAbove >= spaceBelow) {
+    // Doesn't fit completely on either side, but there is more space above
+    maxHeight = spaceAbove;
+    top = triggerRect.top - maxHeight - gap;
+  } else {
+    // Doesn't fit completely on either side, but there is more space below
+    top = triggerRect.bottom + gap;
+    maxHeight = spaceBelow;
   }
+
+  top = Math.max(minTop, Math.min(top, maxBottom - 40));
+  maxHeight = Math.max(80, Math.floor(maxHeight));
 
   // An ancestor with backdrop-filter / transform / filter / etc. establishes a
   // containing block for our fixed menu. getBoundingClientRect returns viewport
@@ -22537,6 +22705,9 @@ function positionDropdownMenuInCardView(dropdown, isOpen) {
   const containerOffset = getFixedContainingBlockOffset(menu);
   menu.style.top = `${Math.round(top - containerOffset.top)}px`;
   menu.style.left = `${Math.round(left - containerOffset.left)}px`;
+  menu.style.maxHeight = `${maxHeight}px`;
+  menu.style.overflowY = "auto";
+  menu.style.overscrollBehavior = "contain";
   ensureCardViewDropdownScrollHandlers();
 }
 
@@ -22746,6 +22917,194 @@ function createDeliverableToolDropdown(deliverable, project, card) {
   return dropdown;
 }
 
+// Quick access sits beside the tools menu and jumps straight to published
+// files. Entries stay data-driven so more shortcuts can join the menu later.
+const DELIVERABLE_QUICK_ACCESS_ACTIONS = Object.freeze([
+  {
+    id: "openLatestPdf",
+    getLabel: () => `Open Latest ${getActiveWorkroomDiscipline()} Set`,
+    iconSvg:
+      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M9 14h6"></path><path d="M9 18h4"></path>',
+    run: (project, deliverable) => openLatestDeliverablePdf(project, deliverable),
+  },
+  {
+    id: "openLatestArchSet",
+    label: "Open Latest Arch Set",
+    iconSvg:
+      '<path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M10 21v-6h4v6"></path>',
+    run: (project) => openLatestArchSet(project),
+  },
+]);
+
+function getDeliverableQuickAccessActionLabel(action) {
+  return typeof action?.getLabel === "function" ? action.getLabel() : action?.label || "";
+}
+
+function createDeliverableQuickAccessTriggerIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.9");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("class", "deliverable-tool-trigger-icon");
+  svg.innerHTML = '<path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"></path>';
+  return svg;
+}
+
+function createDeliverableQuickAccessOptionIcon(action) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.9");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("class", "deliverable-tool-option-icon");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.innerHTML = action?.iconSvg || "";
+  return svg;
+}
+
+function buildDeliverablePdfLookupProject(project) {
+  return {
+    path: normalizeProjectPath(project?.path || ""),
+    localProjectPath: normalizeWindowsPath(project?.localProjectPath || ""),
+    id: String(project?.id || "").trim(),
+    name: String(project?.name || "").trim(),
+  };
+}
+
+// Every quick access entry resolves a file in the backend and opens it, so they
+// share the project payload, the missing-path guard, and the toast handling.
+async function runDeliverableQuickAccessOpen({
+  project,
+  methodName,
+  buildArgs = () => [],
+  fallbackLabel,
+}) {
+  const method = window.pywebview?.api?.[methodName];
+  if (typeof method !== "function") {
+    toast(`Opening the ${fallbackLabel} is unavailable.`);
+    return;
+  }
+
+  const lookupProject = buildDeliverablePdfLookupProject(project);
+  if (!lookupProject.path && !lookupProject.localProjectPath) {
+    toast("Add a project path before opening files.");
+    return;
+  }
+
+  try {
+    const result = await method(lookupProject, ...buildArgs());
+    if (String(result?.status || "").trim().toLowerCase() !== "success") {
+      throw new Error(result?.message || `No ${fallbackLabel} was found.`);
+    }
+    toast(`Opening ${result.fileName || fallbackLabel}.`);
+  } catch (error) {
+    console.warn(`Failed to open ${fallbackLabel}:`, error);
+    toast(error?.message || `Unable to open the ${fallbackLabel}.`);
+  }
+}
+
+// The published PDF is named for the discipline, so the active discipline
+// decides whether Electrical, Mechanical, or Plumbing opens.
+function openLatestDeliverablePdf(project, deliverable) {
+  const discipline = getActiveWorkroomDiscipline();
+  return runDeliverableQuickAccessOpen({
+    project,
+    methodName: "open_latest_deliverable_pdf",
+    buildArgs: () => [discipline, String(deliverable?.name || "").trim()],
+    fallbackLabel: `latest ${discipline} PDF`,
+  });
+}
+
+// The architect's set is whatever PDF sits newest under the project's Arch
+// folder, so it needs no discipline or deliverable context.
+function openLatestArchSet(project) {
+  return runDeliverableQuickAccessOpen({
+    project,
+    methodName: "open_latest_arch_set",
+    fallbackLabel: "latest Arch set",
+  });
+}
+
+// Shares the tool dropdown's classes and open/close state so the two menus
+// position identically and never stay open at the same time.
+function createDeliverableQuickAccessDropdown(deliverable, project, card) {
+  ensureDeliverableToolDropdownGlobalHandlers();
+
+  const dropdown = el("div", {
+    className: "deliverable-tool-dropdown deliverable-quick-access-dropdown",
+  });
+  const trigger = el("button", {
+    className: "deliverable-tool-trigger deliverable-quick-access-trigger",
+    type: "button",
+    title: "Quick access",
+    "aria-label": "Quick access",
+    "aria-expanded": "false",
+  });
+  trigger.appendChild(createDeliverableQuickAccessTriggerIcon());
+
+  const menu = el("div", {
+    className: "deliverable-tool-menu deliverable-quick-access-menu",
+  });
+  DELIVERABLE_QUICK_ACCESS_ACTIONS.forEach((action) => {
+    const option = el("button", {
+      className: "deliverable-tool-option",
+      type: "button",
+      "data-quick-access-id": action.id,
+    });
+    const label = el("span", {
+      className: "deliverable-tool-option-label",
+      textContent: getDeliverableQuickAccessActionLabel(action),
+    });
+    option.append(createDeliverableQuickAccessOptionIcon(action), label);
+    option.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDeliverableToolDropdownState(dropdown, false);
+      void action.run(project, deliverable);
+    });
+    menu.appendChild(option);
+  });
+
+  trigger.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const isOpen = !dropdown.classList.contains("open");
+
+    if (isOpen) {
+      menu.querySelectorAll("[data-quick-access-id]").forEach((option) => {
+        const action = DELIVERABLE_QUICK_ACCESS_ACTIONS.find(
+          (entry) => entry.id === option.dataset.quickAccessId
+        );
+        const label = option.querySelector(".deliverable-tool-option-label");
+        if (label && action) {
+          label.textContent = getDeliverableQuickAccessActionLabel(action);
+        }
+      });
+    }
+
+    closeOpenDeliverableToolDropdown({ except: dropdown });
+    closeOpenDeliverableStatusDropdowns();
+    closeOpenDeliverableActionsDropdown();
+    if (openAttachmentPanelContext) {
+      void requestAttachmentPanelClose();
+    }
+
+    setDeliverableToolDropdownState(dropdown, isOpen);
+  });
+
+  dropdown.append(trigger, menu);
+  card?.classList.remove("deliverable-menu-open");
+  return dropdown;
+}
+
 function createDeliverablePinButton(deliverable) {
   const button = createWorkItemPinButton({
     pinned: isDeliverablePinned(deliverable),
@@ -22905,13 +23264,20 @@ function createDeliverableCardTopActions(deliverable, project, card) {
   const toolDropdown = createDeliverableToolDropdown(deliverable, project, card);
   toolDropdown.classList.add("deliverable-card-tool-action");
 
+  const quickAccessDropdown = createDeliverableQuickAccessDropdown(
+    deliverable,
+    project,
+    card
+  );
+  quickAccessDropdown.classList.add("deliverable-card-quick-access-action");
+
   const pinBtn = createDeliverablePinButton(deliverable);
   pinBtn.classList.add(
     "deliverable-card-action-btn",
     "deliverable-card-pin-action"
   );
 
-  leftActions.append(pinBtn, statusDropdown, toolDropdown);
+  leftActions.append(pinBtn, statusDropdown, toolDropdown, quickAccessDropdown);
 
   const projectIndex = Array.isArray(db) ? db.indexOf(project) : -1;
   if (project && projectIndex >= 0) {
@@ -31486,7 +31852,7 @@ function renderCircuitBreakerFileList(
     return;
   }
 
-  items.forEach((item) => {
+  items.forEach((item, displayIndex) => {
     const fileItem = document.createElement("div");
     fileItem.className = "cb-file-item";
 
@@ -31977,7 +32343,10 @@ function appendCircuitBreakerFiles(kind, files) {
   return nextFiles.length;
 }
 
+let isSelectingCircuitBreakerImage = false;
+
 async function selectCircuitBreakerImage(kind) {
+  if (isSelectingCircuitBreakerImage) return;
   const panel = getActiveCircuitBreakerPanel();
   if (!panel) return;
   setCircuitBreakerPasteTarget(kind);
@@ -31985,6 +32354,7 @@ async function selectCircuitBreakerImage(kind) {
     toast("File picker is unavailable.");
     return;
   }
+  isSelectingCircuitBreakerImage = true;
   const defaultDirectory = getCircuitBreakerLaunchDefaultDirectory();
   try {
     const result = await window.pywebview.api.select_files({
@@ -31992,22 +32362,28 @@ async function selectCircuitBreakerImage(kind) {
       file_types: ["Image Files (*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tif;*.tiff;*.heic;*.heif)"],
       default_directory: defaultDirectory,
     });
-    if (result.status === "success" && result.paths?.length) {
+    if (result?.status === "success" && result.paths?.length) {
       setCircuitBreakerPaths(kind, result.paths);
     }
   } catch (e) {
     toast("Error selecting photos.");
+  } finally {
+    isSelectingCircuitBreakerImage = false;
   }
 }
 
+let isSelectingCircuitBreakerSchedule = false;
+
 async function selectCircuitBreakerSchedulePath(mode) {
+  if (isSelectingCircuitBreakerSchedule) return;
   if (!window.pywebview?.api) {
     toast("File picker is unavailable.");
     return;
   }
+  isSelectingCircuitBreakerSchedule = true;
   const defaultDirectory = getCircuitBreakerLaunchDefaultDirectory();
-  if (mode === "new") {
-    try {
+  try {
+    if (mode === "new") {
       const outputExtension = normalizeCircuitBreakerOutputExtension(
         circuitBreakerState.newOutputExtension
       );
@@ -32029,13 +32405,9 @@ async function selectCircuitBreakerSchedulePath(mode) {
         }
         updateCircuitBreakerUi();
       }
-    } catch (e) {
-      toast("Error selecting save location.");
+      return;
     }
-    return;
-  }
 
-  try {
     const selection = await window.pywebview.api.select_files({
       allow_multiple: false,
       file_types: ["Excel Files (*.xlsx;*.xls)"],
@@ -32047,6 +32419,8 @@ async function selectCircuitBreakerSchedulePath(mode) {
     }
   } catch (e) {
     toast("Error selecting panel schedule.");
+  } finally {
+    isSelectingCircuitBreakerSchedule = false;
   }
 }
 
@@ -38452,6 +38826,54 @@ function initEventListeners() {
     });
 
   document
+    .getElementById("toolRepairXrefPaths")
+    .addEventListener("click", async (e) => {
+      let launchContext = resolveCadLaunchContextForTool();
+      if (e.currentTarget.classList.contains("running")) return;
+      if (!(await ensureAutocadPathLoaded())) {
+        await showAutocadSelectModal();
+        return;
+      }
+      try {
+        launchContext = await resolveCadFilesBeforeLaunch(
+          launchContext,
+          "toolRepairXrefPaths"
+        );
+        if (!launchContext) return;
+      } catch (error) {
+        toast(error?.message || "Could not select DWG files.");
+        return;
+      }
+      console.debug("CAD launch context (repair XREF paths):", launchContext);
+      const activityId = beginActivity({
+        toolId: "toolRepairXrefPaths",
+        message: "Initializing...",
+        progress: 5,
+        rerunLaunchContext: launchContext,
+        rerunDefaultPath: getLaunchContextProjectRoot(launchContext),
+      });
+      try {
+        const result = launchContext
+          ? await window.pywebview.api.run_repair_xref_paths_script(
+              launchContext,
+              activityId
+            )
+          : await window.pywebview.api.run_repair_xref_paths_script(null, activityId);
+        if (result?.status === "error") {
+          failActivity(activityId, {
+            message: result.message || "Failed to start Repair XREF Paths.",
+          });
+        } else if (result?.status === "cancelled") {
+          acceptActivity(activityId);
+        }
+      } catch (error) {
+        failActivity(activityId, {
+          message: error?.message || "Failed to start Repair XREF Paths.",
+        });
+      }
+    });
+
+  document
     .getElementById("toolCleanXrefs")
     .addEventListener("click", async (e) => {
       const launchContext = resolveCadLaunchContextForTool();
@@ -38523,6 +38945,7 @@ function initEventListeners() {
     const generalToolOrder = [
       "toolPublishDwgs",
       "toolManageLayers",
+      "toolRepairXrefPaths",
       "toolCleanXrefs",
       "toolBackupDrawings",
     ];

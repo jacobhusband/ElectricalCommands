@@ -386,20 +386,10 @@ namespace ElectricalCommands
 
       if (selectedReceptacles.Length == 1)
       {
-        if (!TryPromptDedicatedEquipment(
-          ed,
-          out DedicatedEquipmentLoad equipment))
-        {
-          return;
-        }
-
-        AutomaticallyCircuitDedicatedReceptacle(
-          db,
-          ed,
+        TryShowDedicatedEquipmentPicker(
+          doc,
           selectedReceptacles[0],
-          scale.PaperInchesPerModelFoot,
-          panelName,
-          equipment);
+          scale.PaperInchesPerModelFoot);
         return;
       }
 
@@ -2075,11 +2065,6 @@ namespace ElectricalCommands
         using (Transaction transaction =
           database.TransactionManager.StartTransaction())
         {
-          BlockTableRecord currentSpace =
-            (BlockTableRecord)transaction.GetObject(
-              database.CurrentSpaceId,
-              OpenMode.ForWrite);
-
           foreach (ObjectId receptacleId in receptacleIds)
           {
             BlockReference blockReference = transaction.GetObject(
@@ -2087,8 +2072,17 @@ namespace ElectricalCommands
               OpenMode.ForRead,
               false) as BlockReference;
             if (blockReference == null ||
-                blockReference.OwnerId != database.CurrentSpaceId ||
                 !IsSupportedReceptacleBlock(transaction, blockReference))
+            {
+              skippedCount++;
+              continue;
+            }
+
+            BlockTableRecord receptacleSpace = transaction.GetObject(
+              blockReference.OwnerId,
+              OpenMode.ForWrite,
+              false) as BlockTableRecord;
+            if (receptacleSpace == null)
             {
               skippedCount++;
               continue;
@@ -2131,9 +2125,10 @@ namespace ElectricalCommands
               noteLayerId,
               textStyleId,
               noteAttachment);
-            currentSpace.AppendEntity(panelLabel);
+            receptacleSpace.AppendEntity(panelLabel);
             transaction.AddNewlyCreatedDBObject(panelLabel, true);
-            if (PlaceReceptPanelLabelWithoutOverlap(
+            if (blockReference.OwnerId == database.CurrentSpaceId &&
+              PlaceReceptPanelLabelWithoutOverlap(
               editor,
               transaction,
               blockReference,

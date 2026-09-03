@@ -621,6 +621,7 @@ Write-Host "PROGRESS: Processing $($sourceItems.Count) file(s)..."
 $disciplineShort = Get-DisciplineShort $DisciplineShort
 $failed = @()
 $processed = @()
+$comparisonPairs = @()
 $i = 0
 $sourceTempRoot = Join-Path $env:TEMP ("acies-clean-xrefs-sources-" + [guid]::NewGuid().ToString("N"))
 New-Item -Path $sourceTempRoot -ItemType Directory -Force | Out-Null
@@ -631,6 +632,7 @@ try {
     $displayPath = Get-SourceItemDisplayPath -SourceItem $sourceItem
     $name = if ($sourceItem.Kind -eq "zipEntry") { [IO.Path]::GetFileName([string]$sourceItem.EntryName) } else { [IO.Path]::GetFileName([string]$sourceItem.Path) }
     Write-Host "PROGRESS: Preparing $i of $($sourceItems.Count): $name"
+    $comparisonPairCandidate = $null
 
     try {
       $resolvedSource = Resolve-SourceItemToWorkingSource -SourceItem $sourceItem -TempRoot $sourceTempRoot
@@ -643,6 +645,7 @@ try {
       $stagedInXrefs = $false
       $archiveSelectedSource = [bool]$resolvedSource.ArchiveSelectedSource
       $stageLabel = [string]$resolvedSource.SourceLabel
+      $comparisonOldPath = ""
 
       if ($resolvedSource.ForceXrefsTarget) {
         $projectRoot = [string]$resolvedSource.ProjectRoot
@@ -710,7 +713,14 @@ try {
       if ($stagedInXrefs) {
         $workingPath = New-IncomingWorkingCopy -SourcePath $sourcePath -TargetDir $targetDir -SourceLabel $stageLabel
         if ($archiveSelectedSource) {
-          [void](Move-FileToArchive -FilePath $sourcePath -ArchiveRoot $targetDir -Message "Archived selected Xrefs source to")
+          $archivedSelectedSourcePath = Move-FileToArchive -FilePath $sourcePath -ArchiveRoot $targetDir -Message "Archived selected Xrefs source to"
+          if ([string]::Equals(
+              [IO.Path]::GetFullPath($sourcePath),
+              [IO.Path]::GetFullPath($targetPath),
+              [StringComparison]::OrdinalIgnoreCase
+            )) {
+            $comparisonOldPath = $archivedSelectedSourcePath
+          }
         }
         Write-Host "PROGRESS: Final target in Xrefs: $([IO.Path]::GetFileName($targetPath))"
       }
@@ -720,7 +730,12 @@ try {
       Write-Host "PROGRESS: Checking exact target-name collisions for '$targetName' in $targetDir"
       foreach ($item in $existing) {
         if ($item.FullName -ne $workingPath) {
-          [void](Move-FileToArchive -FilePath $item.FullName -ArchiveRoot $targetDir -Message "Archived existing file to")
+          $archivedCollisionPath = Move-FileToArchive -FilePath $item.FullName -ArchiveRoot $targetDir -Message "Archived existing file to"
+          if ($item.Extension -ieq ".dwg") {
+            # The exact-name DWG is the canonical XREF being replaced. Prefer it
+            # over an archived selected source when both paths are present.
+            $comparisonOldPath = $archivedCollisionPath
+          }
         }
       }
 
@@ -730,6 +745,18 @@ try {
       }
       if ([string]::IsNullOrWhiteSpace($outputFolder)) {
         $outputFolder = Split-Path -Parent ([IO.Path]::GetFullPath($workingPath))
+      }
+
+      if (
+        -not [string]::IsNullOrWhiteSpace($comparisonOldPath) -and
+        (Test-Path -LiteralPath $comparisonOldPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $workingPath -PathType Leaf)
+      ) {
+        $comparisonPairCandidate = [pscustomobject]@{
+          NewPath = [IO.Path]::GetFullPath($workingPath)
+          OldPath = [IO.Path]::GetFullPath($comparisonOldPath)
+          Label = $targetBase
+        }
       }
     }
     catch {
@@ -742,6 +769,9 @@ try {
 
     if ($SkipAcad) {
       Write-Host "PROGRESS: SkipAcad enabled. Skipping accoreconsole execution for $([IO.Path]::GetFileName($workingPath))."
+      if ($null -ne $comparisonPairCandidate) {
+        $comparisonPairs += $comparisonPairCandidate
+      }
       continue
     }
 
@@ -763,6 +793,9 @@ try {
     }
     else {
       $processed += $workingPath
+      if ($null -ne $comparisonPairCandidate) {
+        $comparisonPairs += $comparisonPairCandidate
+      }
     }
   }
 }
@@ -802,6 +835,15 @@ if ($failed.Count) {
 }
 else {
   Write-Host "PROGRESS: Successfully processed $($sourceItems.Count) drawing(s)."
+}
+
+foreach ($pair in @($comparisonPairs | Where-Object { $failed -notcontains ([string]$_.NewPath) })) {
+  $pairJson = [ordered]@{
+    newPath = [string]$pair.NewPath
+    oldPath = [string]$pair.OldPath
+    label = [string]$pair.Label
+  } | ConvertTo-Json -Compress
+  Write-Host "PROGRESS: DWG_COMPARE_PAIR: $pairJson"
 }
 
 if (-not [string]::IsNullOrWhiteSpace($outputFolder)) {

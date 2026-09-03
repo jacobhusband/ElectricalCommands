@@ -740,7 +740,7 @@ class DeliverableAiPromptContractTests(unittest.TestCase):
             result["important"],
         )
 
-    def test_email_intake_uses_gemini_3_7_flash(self):
+    def test_email_intake_uses_gemini_3_8_flash(self):
         generate_content_calls = []
 
         class FakeModels:
@@ -762,7 +762,7 @@ class DeliverableAiPromptContractTests(unittest.TestCase):
             main_module.EMAIL_INTAKE_GEMINI_MODEL,
             generate_content_calls[0]["model"],
         )
-        self.assertEqual("gemini-3.7-flash", generate_content_calls[0]["model"])
+        self.assertEqual("gemini-3.8-flash", generate_content_calls[0]["model"])
         self.assertEqual(
             {"disable": True},
             generate_content_calls[0]["config"]["automatic_function_calling"],
@@ -818,7 +818,7 @@ class DeliverableAiPromptContractTests(unittest.TestCase):
         with patch("main.time.sleep") as sleep_mock:
             with self.assertRaisesRegex(
                 RuntimeError,
-                "Gemini 3.7 Flash is temporarily at capacity",
+                "Gemini 3.8 Flash is temporarily at capacity",
             ) as error_context:
                 self._run_email_extraction_with_models(FakeModels())
 
@@ -836,7 +836,7 @@ class DeliverableAiPromptContractTests(unittest.TestCase):
         with patch("main.time.sleep") as sleep_mock:
             with self.assertRaisesRegex(
                 RuntimeError,
-                "Gemini 3.7 Flash timed out after automatic retries",
+                "Gemini 3.8 Flash timed out after automatic retries",
             ) as error_context:
                 self._run_email_extraction_with_models(FakeModels())
 

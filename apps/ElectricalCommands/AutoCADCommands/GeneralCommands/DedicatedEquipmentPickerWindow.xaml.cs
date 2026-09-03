@@ -10,6 +10,17 @@ using System.Windows.Media;
 
 namespace ElectricalCommands
 {
+  internal sealed class DedicatedEquipmentSelectedEventArgs : EventArgs
+  {
+    internal DedicatedEquipmentSelectedEventArgs(
+      DedicatedEquipmentLoad equipment)
+    {
+      Equipment = equipment;
+    }
+
+    internal DedicatedEquipmentLoad Equipment { get; }
+  }
+
   internal sealed class DedicatedEquipmentPresetItem
   {
     internal DedicatedEquipmentPresetItem(DedicatedEquipmentLoad equipment)
@@ -54,6 +65,9 @@ namespace ElectricalCommands
     private bool _suppressSelectionChange;
 
     internal DedicatedEquipmentLoad SelectedEquipment { get; private set; }
+
+    internal event EventHandler<DedicatedEquipmentSelectedEventArgs>
+      CircuitAccepted;
 
     internal DedicatedEquipmentPickerWindow()
     {
@@ -380,7 +394,9 @@ namespace ElectricalCommands
       }
 
       SelectedEquipment = equipment;
-      DialogResult = true;
+      CircuitAccepted?.Invoke(
+        this,
+        new DedicatedEquipmentSelectedEventArgs(equipment));
       Close();
     }
 
@@ -570,7 +586,6 @@ namespace ElectricalCommands
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
-      DialogResult = false;
       Close();
     }
   }

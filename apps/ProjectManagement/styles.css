@@ -8352,6 +8352,11 @@ dialog::backdrop {
   color: #60a5fa;
 }
 
+.activity-card-action.compare {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--glass-border));
+  color: var(--accent);
+}
+
 .activity-card-action.cancel {
   border-color: rgba(244, 63, 94, 0.38);
   color: var(--danger);
@@ -8924,7 +8929,7 @@ dialog::backdrop {
 
 .deliverable-card-new.deliverable-menu-open {
   position: relative;
-  z-index: 210;
+  z-index: 1000;
 }
 
 .deliverable-card-new.deliverable-menu-open,
@@ -9365,13 +9370,15 @@ dialog::backdrop {
   top: 100%;
   left: 0;
   min-width: 180px;
+  max-height: min(380px, calc(100vh - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin-top: 0.25rem;
   background: var(--bg-secondary);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
   z-index: 1000;
-  overflow: hidden;
 }
 
 .deliverable-status-menu.open {
@@ -10241,6 +10248,9 @@ dialog::backdrop {
   right: 0;
   min-width: 240px;
   max-width: min(320px, calc(100vw - 24px));
+  max-height: min(480px, calc(100vh - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: none;
   flex-direction: column;
   gap: 0.2rem;
@@ -10293,6 +10303,36 @@ dialog::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Quick access reuses the tool dropdown chrome with a shorter menu */
+.deliverable-quick-access-menu {
+  min-width: 190px;
+}
+
+.deliverable-tool-menu::-webkit-scrollbar,
+.deliverable-actions-menu::-webkit-scrollbar,
+.deliverable-status-menu::-webkit-scrollbar {
+  width: 5px;
+}
+
+.deliverable-tool-menu::-webkit-scrollbar-track,
+.deliverable-actions-menu::-webkit-scrollbar-track,
+.deliverable-status-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.deliverable-tool-menu::-webkit-scrollbar-thumb,
+.deliverable-actions-menu::-webkit-scrollbar-thumb,
+.deliverable-status-menu::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: var(--radius-pill);
+}
+
+.deliverable-tool-menu::-webkit-scrollbar-thumb:hover,
+.deliverable-actions-menu::-webkit-scrollbar-thumb:hover,
+.deliverable-status-menu::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }
 
 /* Consolidated deliverable actions dropdown (single-button menu with submenus) */
@@ -10365,6 +10405,9 @@ dialog::backdrop {
   right: 0;
   min-width: 220px;
   max-width: min(280px, calc(100vw - 24px));
+  max-height: min(480px, calc(100vh - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: none;
   flex-direction: column;
   gap: 0.15rem;
@@ -13821,6 +13864,8 @@ body[data-active-tab="projects"][data-projects-view-mode="card"] .projects-card-
 
 .kanban-column__cards.dropdown-open {
   overflow: visible;
+  position: relative;
+  z-index: 10;
 }
 
 .kanban-column.dropdown-open {

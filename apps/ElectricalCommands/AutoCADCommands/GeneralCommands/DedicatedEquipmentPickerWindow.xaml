@@ -39,7 +39,7 @@
                  FontSize="18"
                  FontWeight="SemiBold"
                  Foreground="#1F2933"/>
-      <TextBlock Text="Filter and use a preset, maintain the preset list, or enter a one-time circuit without saving it."
+      <TextBlock Text="Filter and use a preset, maintain the preset list, or enter a one-time circuit without saving it. You can pan, zoom, and switch views in AutoCAD while this window remains open."
                  Margin="0,4,0,0"
                  Foreground="#52606D"
                  TextWrapping="Wrap"/>

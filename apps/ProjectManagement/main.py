@@ -472,6 +472,21 @@ LABEL_TO_KEY = {
 }
 KEY_TO_LABEL = {v: k for k, v in LABEL_TO_KEY.items()}
 
+# Deliverable PDF quick access: <project>\PDF\<date + deliverable>\<project> <Discipline>.pdf
+DELIVERABLE_PDF_FOLDER_NAME = "PDF"
+DELIVERABLE_PDF_DISCIPLINES = ("Electrical", "Mechanical", "Plumbing")
+DELIVERABLE_PDF_ISSUE_DATE_RE = re.compile(
+    r"^(\d{4})[.\-_ ](\d{1,2})[.\-_ ](\d{1,2})(?!\d)"
+)
+# Arch sets land in <project>\Arch\ with no fixed naming, so the date stamp can
+# sit anywhere in the file name rather than only at the front of a folder name.
+DELIVERABLE_PDF_ISSUE_DATE_SEARCH_RE = re.compile(
+    r"(?<!\d)(\d{4})[.\-_ ](\d{1,2})[.\-_ ](\d{1,2})(?!\d)"
+)
+ARCH_SET_FOLDER_NAME = "Arch"
+ISSUE_DATE_MIN_YEAR = 1990
+ISSUE_DATE_MAX_YEAR = 2100
+
 APP_UPDATE_REPO = "jacobhusband/ACIES-Multi-Tool"
 APP_INSTALLER_NAME = "acies-scheduler-setup.exe"
 GITHUB_API_BASE = "https://api.github.com"
@@ -537,7 +552,16 @@ OUTLOOK_SCAN_RETRY_SKIP_REASON = (
 )
 EMAIL_INTAKE_PROJECT_CONTEXT_MAX_PROJECTS = 200
 EMAIL_INTAKE_PROJECT_CONTEXT_BUDGET_CHARS = 25000
-EMAIL_INTAKE_GEMINI_MODEL = "gemini-3.7-flash"
+EMAIL_INTAKE_GEMINI_MODEL = "gemini-3.8-flash"
+DEFAULT_GEMINI_FALLBACK_MODELS = (
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-2.5-flash",
+)
+PANEL_SCHEDULE_GEMINI_MODELS = DEFAULT_GEMINI_FALLBACK_MODELS
+DELIVERABLE_SUMMARY_GEMINI_MODELS = DEFAULT_GEMINI_FALLBACK_MODELS
+AI_ASSISTANT_GEMINI_MODELS = DEFAULT_GEMINI_FALLBACK_MODELS
 EMAIL_INTAKE_CAPACITY_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 EMAIL_INTAKE_REQUEST_TIMEOUT_MS = 240000
 FIREBASE_API_KEY_ENV = "FIREBASE_API_KEY"
@@ -6250,7 +6274,7 @@ CURRENT_DELIVERABLES_IN_PERIOD:
                 )
             if "model" in lower and ("not found" in lower or "does not exist" in lower):
                 raise RuntimeError(
-                    "AI model not available. The Gemini 3.7 Flash model may not be accessible with your API key."
+                    "AI model not available. The Gemini 3.8 Flash model may not be accessible with your API key."
                 )
             if "quota" in lower or "rate limit" in lower:
                 raise RuntimeError("API rate limit exceeded. Please wait a moment and try again.")
@@ -6759,7 +6783,6 @@ CURRENT_DELIVERABLES_IN_PERIOD:
 
             self._ensure_aiohttp()
             client = genai.Client(api_key=api_key)
-            model = "gemini-3-flash-preview"
 
             # Convert JavaScript chat history to Gemini API format
             contents = []
@@ -6802,8 +6825,9 @@ CURRENT_DELIVERABLES_IN_PERIOD:
                 tools=tools,
             )
 
-            response = client.models.generate_content(
-                model=model,
+            response, used_model = self._generate_content_with_model_fallback(
+                client,
+                AI_ASSISTANT_GEMINI_MODELS,
                 contents=contents,
                 config=generate_content_config,
             )
@@ -6867,12 +6891,12 @@ CURRENT_DELIVERABLES_IN_PERIOD:
     def _email_intake_transient_error_message(self, error):
         if self._is_email_intake_deadline_error(error):
             return (
-                "Gemini 3.7 Flash timed out after automatic retries. Google may "
+                "Gemini 3.8 Flash timed out after automatic retries. Google may "
                 "still be experiencing high demand. Please wait a minute and try "
                 "again; no project data was changed."
             )
         return (
-            "Gemini 3.7 Flash is temporarily at capacity. Email Intake retried "
+            "Gemini 3.8 Flash is temporarily at capacity. Email Intake retried "
             "automatically, but Google is still unavailable. Please wait a minute "
             "and try again; no project data was changed."
         )
@@ -6894,6 +6918,65 @@ CURRENT_DELIVERABLES_IN_PERIOD:
                     exc,
                 )
                 time.sleep(delay)
+
+    def _generate_content_with_model_fallback(
+        self,
+        client,
+        models,
+        **request_kwargs,
+    ):
+        """Attempts generate_content across a fallback ladder of models in priority order.
+
+        Tries each model in order. If a model encounters a transient error, timeout,
+        capacity spike, or unavailability, it immediately attempts the next model in the ladder.
+        Returns (response, used_model).
+        Raises the last exception if all models in the ladder fail.
+        """
+        model_list = list(models) if isinstance(models, (list, tuple)) else [models]
+        if not model_list:
+            model_list = list(DEFAULT_GEMINI_FALLBACK_MODELS)
+
+        last_exc = None
+        attempted = []
+
+        for idx, model_name in enumerate(model_list):
+            attempted.append(model_name)
+            try:
+                logging.info(f"Generating content with model: {model_name}")
+                response = client.models.generate_content(
+                    model=model_name,
+                    **request_kwargs,
+                )
+                if idx > 0:
+                    logging.info(
+                        f"Model fallback succeeded using '{model_name}' "
+                        f"(after {', '.join(attempted[:-1])} failed)."
+                    )
+                return response, model_name
+            except Exception as exc:
+                last_exc = exc
+                msg = str(exc).lower()
+                if (
+                    "api key expired" in msg
+                    or "invalid api key" in msg
+                    or "api_key_invalid" in msg
+                    or ("api key" in msg and "not configured" in msg)
+                ):
+                    raise
+                if idx < len(model_list) - 1:
+                    next_model = model_list[idx + 1]
+                    logging.warning(
+                        f"Model '{model_name}' failed with {type(exc).__name__}: {exc}. "
+                        f"Attempting fallback model '{next_model}'..."
+                    )
+                else:
+                    logging.error(
+                        f"All fallback models failed ({', '.join(attempted)}): {exc}"
+                    )
+
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("No models available.")
 
     def _build_email_analysis_prompt(self, email_text, user_name, discipline, project_context=None):
         current_date = datetime.date.today().strftime("%m/%d/%Y")
@@ -7113,7 +7196,7 @@ Return ONLY the JSON object.
                 )
             if "model" in lower and ("not found" in lower or "does not exist" in lower):
                 raise RuntimeError(
-                    'AI model not available. The Gemini 3.7 Flash model may not be accessible with your API key.'
+                    'AI model not available. The Gemini 3.8 Flash model may not be accessible with your API key.'
                 )
             if "quota" in lower or "rate limit" in lower:
                 raise RuntimeError('API rate limit exceeded. Please wait a moment and try again.')
@@ -8284,6 +8367,67 @@ Return ONLY the JSON object.
         if dialog_type is None:
             raise RuntimeError(f'pywebview does not provide {name} dialogs.')
         return dialog_type
+
+    def _show_open_file_dialog_sta(self, directory=None, allow_multiple=False, file_types=None):
+        """Displays an OpenFileDialog on a dedicated STA thread on Windows.
+
+        pywebview dispatches JS API calls on background MTA threads. Calling
+        WinForms OpenFileDialog.ShowDialog(owner) from an MTA thread with an
+        owner window created on the STA GUI thread causes an inter-thread COM
+        deadlock ('python is not responding' / MoAppHang). Running on a dedicated
+        STA thread without an inter-thread owner avoids this deadlock completely.
+        """
+        if not sys.platform.startswith('win'):
+            return None
+        try:
+            import clr
+            clr.AddReference('System.Windows.Forms')
+            clr.AddReference('System.Threading')
+            import System.Windows.Forms as WinForms
+            from System.Threading import Thread, ThreadStart, ApartmentState
+        except Exception as exc:
+            logging.debug("WinForms STA dialog unavailable: %s", exc)
+            return None
+
+        result = []
+        exception = []
+
+        def target():
+            try:
+                dialog = WinForms.OpenFileDialog()
+                dialog.Multiselect = bool(allow_multiple)
+                dialog.RestoreDirectory = True
+                if directory and os.path.isdir(directory):
+                    dialog.InitialDirectory = os.path.abspath(directory)
+                if file_types:
+                    filters = []
+                    for f in file_types:
+                        try:
+                            from webview.util import parse_file_type
+                            desc, exts = parse_file_type(f)
+                            filters.append(f"{desc} ({exts})|{exts}")
+                        except Exception:
+                            filters.append(f if "|" in f else f"{f}|*.*")
+                    filters.append("All Files (*.*)|*.*")
+                    dialog.Filter = "|".join(filters)
+                else:
+                    dialog.Filter = "All Files (*.*)|*.*"
+
+                res = dialog.ShowDialog()
+                if res == WinForms.DialogResult.OK:
+                    result.extend(list(dialog.FileNames))
+            except Exception as e:
+                exception.append(e)
+
+        t = Thread(ThreadStart(target))
+        t.SetApartmentState(ApartmentState.STA)
+        t.Start()
+        t.Join()
+
+        if exception:
+            logging.warning("STA OpenFileDialog encountered error: %s", exception[0])
+            return None
+        return tuple(result)
 
     def _create_file_dialog(self, dialog_type, **kwargs):
         dialog_lock = getattr(self, '_dialog_lock', None)
@@ -10625,7 +10769,7 @@ RULES
         if "api key" in lower and "not configured" in lower:
             return message
         if "model" in lower and ("not found" in lower or "does not exist" in lower):
-            return ('AI model not available. The Gemini 3 Flash model may not be '
+            return ('AI model not available. The requested Gemini model may not be '
                     'accessible with your API key.')
         if "quota" in lower or "rate limit" in lower:
             return 'API rate limit exceeded. Please wait a moment and try again.'
@@ -10665,8 +10809,9 @@ RULES
                 api_key=final_api_key,
                 http_options=types.HttpOptions(timeout=120000),
             )
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
+            response, used_model = self._generate_content_with_model_fallback(
+                client,
+                DELIVERABLE_SUMMARY_GEMINI_MODELS,
                 contents=[
                     types.Content(
                         role="user",
@@ -10854,6 +10999,118 @@ RULES
             return {'status': 'success'}
         except Exception as e:
             logging.error(f"Error opening path: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    @staticmethod
+    def _schedule_temp_file_cleanup(path, delay_seconds=120):
+        """Removes a startup script after AutoCAD has had time to consume it."""
+        def cleanup():
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+            except OSError as exc:
+                logging.debug("Could not remove temporary AutoCAD script %s: %s", path, exc)
+
+        timer = threading.Timer(max(float(delay_seconds or 0), 1), cleanup)
+        timer.daemon = True
+        timer.start()
+
+    @staticmethod
+    def _resolve_autocad_desktop_executable(configured_path):
+        """Finds acad.exe beside the configured Core Console executable."""
+        raw_path = str(configured_path or '').strip()
+        if not raw_path:
+            return ''
+        normalized = os.path.abspath(os.path.normpath(raw_path))
+        if os.path.basename(normalized).lower() == 'acad.exe' and os.path.isfile(normalized):
+            return normalized
+        candidate = os.path.join(os.path.dirname(normalized), 'acad.exe')
+        return candidate if os.path.isfile(candidate) else ''
+
+    def launch_dwg_compare(self, new_path, old_path):
+        """Opens a native AutoCAD modelspace comparison for an XREF replacement pair."""
+        script_path = ''
+        try:
+            raw_current_dwg = str(new_path or '').strip()
+            raw_archived_dwg = str(old_path or '').strip()
+            if not raw_current_dwg or not raw_archived_dwg:
+                return {
+                    'status': 'error',
+                    'message': 'Both the new and archived DWG paths are required.',
+                }
+            current_dwg = os.path.abspath(os.path.normpath(raw_current_dwg))
+            archived_dwg = os.path.abspath(os.path.normpath(raw_archived_dwg))
+            if os.path.normcase(current_dwg) == os.path.normcase(archived_dwg):
+                return {
+                    'status': 'error',
+                    'message': 'The new and archived drawings must be different files.',
+                }
+            for label, path in (('New', current_dwg), ('Archived', archived_dwg)):
+                if os.path.splitext(path)[1].lower() != '.dwg':
+                    return {
+                        'status': 'error',
+                        'message': f'{label} comparison file must be a DWG.',
+                    }
+                if not os.path.isfile(path):
+                    return {
+                        'status': 'error',
+                        'message': f'{label} comparison drawing was not found: {path}',
+                    }
+
+            settings = self.get_user_settings()
+            configured_path = str((settings or {}).get('autocadPath') or '').strip()
+            acad_executable = self._resolve_autocad_desktop_executable(configured_path)
+            if not acad_executable:
+                return {
+                    'status': 'error',
+                    'message': (
+                        'Full AutoCAD (acad.exe) was not found beside the selected '
+                        'AutoCAD Core Console. Select an installed AutoCAD version in Settings.'
+                    ),
+                }
+
+            # -COMPARE accepts a path at the command prompt. Opening the new DWG
+            # as the current drawing makes green objects "new/current" and red
+            # objects "old/archived" in AutoCAD's native comparison view.
+            archived_script_path = archived_dwg.replace('\\', '/')
+            script_contents = f'_.-COMPARE\n"{archived_script_path}"\n'
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                prefix='acies_dwg_compare_',
+                suffix='.scr',
+                delete=False,
+                encoding='utf-8',
+                newline='\r\n',
+            ) as script_file:
+                script_file.write(script_contents)
+                script_path = script_file.name
+
+            command = [
+                acad_executable,
+                current_dwg,
+                '/nologo',
+                '/b',
+                script_path,
+            ]
+            process = subprocess.Popen(
+                command,
+                cwd=os.path.dirname(acad_executable),
+            )
+            self._schedule_temp_file_cleanup(script_path)
+            return {
+                'status': 'success',
+                'message': 'Opening the modelspace comparison in AutoCAD.',
+                'newPath': current_dwg,
+                'oldPath': archived_dwg,
+                'processId': process.pid,
+            }
+        except Exception as e:
+            if script_path:
+                try:
+                    os.remove(script_path)
+                except OSError:
+                    pass
+            logging.error(f"Error launching AutoCAD DWG comparison: {e}")
             return {'status': 'error', 'message': str(e)}
 
     def copy_file_to_clipboard(self, path):
@@ -11054,6 +11311,373 @@ RULES
         except Exception as e:
             logging.error(f"Error opening {mode} project directory: {e}")
             return {'status': 'error', 'mode': mode, 'message': str(e)}
+
+    def _normalize_deliverable_pdf_discipline(self, discipline):
+        """Maps a user's discipline/role onto the published PDF naming."""
+        requested = str(discipline or '').strip()
+        for known in DELIVERABLE_PDF_DISCIPLINES:
+            if known.lower() == requested.lower():
+                return known
+        return ''
+
+    def _get_deliverable_pdf_root_candidates(self, project_info):
+        """Project folders that may hold the published PDF tree, best first."""
+        info = project_info if isinstance(project_info, dict) else {}
+        candidates = []
+        seen = set()
+
+        def _add(path_value):
+            raw = str(path_value or '').strip()
+            if not raw:
+                return
+            normalized = os.path.normpath(raw)
+            if normalized in ('', '.'):
+                return
+            key = os.path.normcase(normalized)
+            if key in seen:
+                return
+            seen.add(key)
+            candidates.append(normalized)
+
+        for raw_path in (info.get('path'), info.get('localProjectPath')):
+            _add(raw_path)
+            _add(self._find_project_root_by_id(raw_path))
+
+        return candidates
+
+    def _resolve_deliverable_pdf_folder(self, project_info):
+        """Finds the project's PDF folder, matching the name case-insensitively."""
+        target_name = DELIVERABLE_PDF_FOLDER_NAME.lower()
+        for root in self._get_deliverable_pdf_root_candidates(project_info):
+            extended_root = self._to_windows_extended_path(root)
+            if not os.path.isdir(extended_root):
+                continue
+            if os.path.basename(root.rstrip('\\/')).strip().lower() == target_name:
+                return root
+            try:
+                entries = os.listdir(extended_root)
+            except OSError as exc:
+                logging.warning("Could not list %s: %s", root, exc)
+                continue
+            for entry_name in entries:
+                if entry_name.strip().lower() != target_name:
+                    continue
+                candidate = os.path.join(root, entry_name)
+                if os.path.isdir(self._to_windows_extended_path(candidate)):
+                    return candidate
+        return ''
+
+    def _coerce_issue_date(self, match):
+        """Builds a date from a YYYY/MM/DD regex match, rejecting nonsense years."""
+        if not match:
+            return None
+        year, month, day = (int(part) for part in match.groups())
+        if not ISSUE_DATE_MIN_YEAR <= year <= ISSUE_DATE_MAX_YEAR:
+            return None
+        try:
+            return datetime.date(year, month, day)
+        except ValueError:
+            return None
+
+    def _parse_deliverable_pdf_issue_date(self, folder_name):
+        """Reads the leading YYYY.MM.DD stamp off an issue folder name."""
+        return self._coerce_issue_date(
+            DELIVERABLE_PDF_ISSUE_DATE_RE.match(str(folder_name or '').strip())
+        )
+
+    def _search_issue_date(self, value):
+        """Reads a YYYY.MM.DD stamp from anywhere inside a name."""
+        return self._coerce_issue_date(
+            DELIVERABLE_PDF_ISSUE_DATE_SEARCH_RE.search(str(value or '').strip())
+        )
+
+    def _deliverable_pdf_match_tokens(self, value):
+        """Comparable tokens for a deliverable name or issue folder name.
+
+        Drops the leading date stamp and normalizes numbers so "RFI #3" lines up
+        with an "RFI 03" folder.
+        """
+        text = str(value or '').strip()
+        text = DELIVERABLE_PDF_ISSUE_DATE_RE.sub('', text)
+        tokens = set()
+        for raw_token in re.findall(r'[A-Za-z0-9]+', text):
+            token = raw_token.upper()
+            if token.isdigit():
+                token = str(int(token))
+            tokens.add(token)
+        return tokens
+
+    def _list_deliverable_pdf_issue_folders(self, pdf_folder, deliverable_name=''):
+        """Issue folders under the PDF folder, newest first.
+
+        Folders whose name carries the deliverable's tokens sort ahead of the
+        rest so a deliverable-specific set wins over a newer unrelated one.
+        """
+        try:
+            entry_names = os.listdir(self._to_windows_extended_path(pdf_folder))
+        except OSError as exc:
+            logging.warning("Could not list %s: %s", pdf_folder, exc)
+            return []
+
+        wanted_tokens = self._deliverable_pdf_match_tokens(deliverable_name)
+        folders = []
+        for entry_name in entry_names:
+            folder_path = os.path.join(pdf_folder, entry_name)
+            if not os.path.isdir(self._to_windows_extended_path(folder_path)):
+                continue
+            issued_on = self._parse_deliverable_pdf_issue_date(entry_name)
+            try:
+                modified = os.path.getmtime(self._to_windows_extended_path(folder_path))
+            except OSError:
+                modified = 0.0
+            matches_deliverable = bool(wanted_tokens) and wanted_tokens.issubset(
+                self._deliverable_pdf_match_tokens(entry_name)
+            )
+            folders.append({
+                'name': entry_name,
+                'path': folder_path,
+                'issuedOn': issued_on.isoformat() if issued_on else '',
+                'matchesDeliverable': matches_deliverable,
+                '_sortKey': (
+                    1 if matches_deliverable else 0,
+                    1 if issued_on else 0,
+                    issued_on.toordinal() if issued_on else 0,
+                    modified,
+                ),
+            })
+
+        folders.sort(key=lambda folder: folder['_sortKey'], reverse=True)
+        for folder in folders:
+            folder.pop('_sortKey', None)
+        return folders
+
+    def _find_deliverable_pdf_in_folder(self, folder_path, discipline):
+        """Newest PDF in the folder whose file name carries the discipline."""
+        try:
+            entry_names = os.listdir(self._to_windows_extended_path(folder_path))
+        except OSError as exc:
+            logging.warning("Could not list %s: %s", folder_path, exc)
+            return ''
+
+        discipline_token = discipline.upper()
+        matches = []
+        for entry_name in entry_names:
+            stem, extension = os.path.splitext(entry_name)
+            if extension.lower() != '.pdf':
+                continue
+            if discipline_token not in self._deliverable_pdf_match_tokens(stem):
+                continue
+            file_path = os.path.join(folder_path, entry_name)
+            if not os.path.isfile(self._to_windows_extended_path(file_path)):
+                continue
+            try:
+                modified = os.path.getmtime(self._to_windows_extended_path(file_path))
+            except OSError:
+                modified = 0.0
+            matches.append((modified, entry_name, file_path))
+
+        if not matches:
+            return ''
+        matches.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return matches[0][2]
+
+    def find_latest_deliverable_pdf(self, project=None, discipline='', deliverable_name=''):
+        """Locates the newest published PDF for the caller's discipline.
+
+        Walks <project>\\PDF\\<date + deliverable>\\ newest first and returns the
+        first issue folder that actually holds a PDF for the discipline, so an
+        issue that skipped the discipline falls through to the previous one.
+        """
+        try:
+            resolved_discipline = self._normalize_deliverable_pdf_discipline(discipline)
+            if not resolved_discipline:
+                return {
+                    'status': 'error',
+                    'message': 'Set your discipline to Electrical, Mechanical, or Plumbing to open PDFs.',
+                }
+
+            pdf_folder = self._resolve_deliverable_pdf_folder(project)
+            if not pdf_folder:
+                return {
+                    'status': 'error',
+                    'discipline': resolved_discipline,
+                    'message': f'No {DELIVERABLE_PDF_FOLDER_NAME} folder was found for this project.',
+                }
+
+            issue_folders = self._list_deliverable_pdf_issue_folders(
+                pdf_folder, deliverable_name)
+            if not issue_folders:
+                return {
+                    'status': 'error',
+                    'discipline': resolved_discipline,
+                    'pdfFolder': pdf_folder,
+                    'message': f'The {DELIVERABLE_PDF_FOLDER_NAME} folder has no issue folders yet.',
+                }
+
+            for folder in issue_folders:
+                file_path = self._find_deliverable_pdf_in_folder(
+                    folder['path'], resolved_discipline)
+                if not file_path:
+                    continue
+                return {
+                    'status': 'success',
+                    'discipline': resolved_discipline,
+                    'path': file_path,
+                    'fileName': os.path.basename(file_path),
+                    'folderName': folder['name'],
+                    'folderPath': folder['path'],
+                    'issuedOn': folder['issuedOn'],
+                    'matchedDeliverable': folder['matchesDeliverable'],
+                    'pdfFolder': pdf_folder,
+                }
+
+            return {
+                'status': 'error',
+                'discipline': resolved_discipline,
+                'pdfFolder': pdf_folder,
+                'message': f'No {resolved_discipline} PDF was found under {os.path.basename(pdf_folder)}.',
+            }
+        except Exception as e:
+            logging.error(f"Error finding latest deliverable PDF: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def open_latest_deliverable_pdf(self, project=None, discipline='', deliverable_name=''):
+        """Opens the newest published PDF for the caller's discipline."""
+        result = self.find_latest_deliverable_pdf(
+            project=project, discipline=discipline, deliverable_name=deliverable_name)
+        if result.get('status') != 'success':
+            return result
+
+        opened = self.open_path(result['path'])
+        if str(opened.get('status') or '').strip().lower() != 'success':
+            return {
+                'status': 'error',
+                'discipline': result.get('discipline', ''),
+                'path': result['path'],
+                'message': opened.get('message') or 'Unable to open the PDF.',
+            }
+        return result
+
+    def _resolve_project_arch_folder(self, project_info):
+        """Finds the project's Arch folder, reusing the CAD tools' resolution."""
+        for root in self._get_deliverable_pdf_root_candidates(project_info):
+            resolution = self._resolve_workroom_discipline_folder(
+                root, ARCH_SET_FOLDER_NAME)
+            arch_folder = resolution.get('resolved_folder') or ''
+            if arch_folder and os.path.isdir(self._to_windows_extended_path(arch_folder)):
+                return arch_folder
+        return ''
+
+    def _extract_arch_set_issue_date(self, file_path, arch_folder):
+        """Issue date for an Arch PDF, from its own name or its nearest folder.
+
+        Arch drops carry no fixed naming, so the file name is checked first and
+        then each folder between the file and Arch, innermost first.
+        """
+        names = [os.path.splitext(os.path.basename(file_path))[0]]
+        try:
+            relative = os.path.relpath(os.path.dirname(file_path), arch_folder)
+        except ValueError:
+            relative = ''
+        if relative and relative not in ('.', os.pardir):
+            names.extend(reversed(relative.split(os.sep)))
+        for name in names:
+            issued = self._search_issue_date(name)
+            if issued:
+                return issued
+        return None
+
+    def _list_arch_set_pdfs(self, arch_folder):
+        """Every PDF under Arch, newest first, skipping archived subtrees.
+
+        A dated name wins over an undated one because folder copies reset mtimes
+        while the architect's date stamp survives them.
+        """
+        entries = []
+        for root, dirs, files in os.walk(arch_folder):
+            dirs[:] = [
+                name for name in dirs
+                if not self._path_has_archive_part(os.path.join(root, name))
+            ]
+            if self._path_has_archive_part(root):
+                continue
+            for filename in files:
+                if not filename.lower().endswith('.pdf'):
+                    continue
+                file_path = os.path.join(root, filename)
+                try:
+                    modified = os.path.getmtime(file_path)
+                except OSError:
+                    modified = 0.0
+                issued_on = self._extract_arch_set_issue_date(file_path, arch_folder)
+                entries.append({
+                    'path': os.path.normpath(file_path),
+                    'fileName': filename,
+                    'issuedOn': issued_on.isoformat() if issued_on else '',
+                    '_sortKey': (
+                        1 if issued_on else 0,
+                        issued_on.toordinal() if issued_on else 0,
+                        modified,
+                        filename.lower(),
+                    ),
+                })
+
+        entries.sort(key=lambda entry: entry['_sortKey'], reverse=True)
+        for entry in entries:
+            entry.pop('_sortKey', None)
+        return entries
+
+    def find_latest_arch_set(self, project=None):
+        """Locates the newest architectural PDF set under <project>\\Arch."""
+        try:
+            arch_folder = self._resolve_project_arch_folder(project)
+            if not arch_folder:
+                return {
+                    'status': 'error',
+                    'message': f'No {ARCH_SET_FOLDER_NAME} folder was found for this project.',
+                }
+
+            entries = self._list_arch_set_pdfs(arch_folder)
+            if not entries:
+                return {
+                    'status': 'error',
+                    'archFolder': arch_folder,
+                    'message': f'No PDF was found in the {ARCH_SET_FOLDER_NAME} folder.',
+                }
+
+            latest = entries[0]
+            folder_path = os.path.dirname(latest['path'])
+            try:
+                relative_folder = os.path.relpath(folder_path, arch_folder)
+            except ValueError:
+                relative_folder = ''
+            return {
+                'status': 'success',
+                'path': latest['path'],
+                'fileName': latest['fileName'],
+                'folderPath': folder_path,
+                'folderName': '' if relative_folder in ('.', '') else relative_folder,
+                'issuedOn': latest['issuedOn'],
+                'archFolder': arch_folder,
+            }
+        except Exception as e:
+            logging.error(f"Error finding latest Arch set: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def open_latest_arch_set(self, project=None):
+        """Opens the newest architectural PDF set for a project."""
+        result = self.find_latest_arch_set(project=project)
+        if result.get('status') != 'success':
+            return result
+
+        opened = self.open_path(result['path'])
+        if str(opened.get('status') or '').strip().lower() != 'success':
+            return {
+                'status': 'error',
+                'path': result['path'],
+                'message': opened.get('message') or 'Unable to open the Arch set.',
+            }
+        return result
 
     def get_local_project_copy_info(self, server_project_path):
         """Returns the expected local copy path for a server project and whether it exists."""
@@ -14698,7 +15322,7 @@ RULES
                     'images are very large. Click Rerun to try again, or split the '
                     'panel into smaller image groups (one breaker section per run).')
         if "model" in lower and ("not found" in lower or "does not exist" in lower):
-            return 'AI model not available. The Gemini 3.6 Flash model may not be accessible with your API key.'
+            return 'AI model not available. The requested Gemini model may not be accessible with your API key.'
         if "quota" in lower or "rate limit" in lower:
             return 'API rate limit exceeded. Please wait a moment and try again.'
         return msg
@@ -14970,29 +15594,15 @@ TASK 3: LOAD TYPES
 
             cb_enforce_rate_limit()
 
-            response = None
-            for attempt in range(3):
-                try:
-                    response = client.models.generate_content(
-                        model="gemini-3.6-flash",
-                        contents=[prompt, *gemini_images],
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            response_schema=PanelData
-                        ),
-                    )
-                    break
-                except Exception as exc:
-                    msg = str(exc).lower()
-                    transient = (
-                        "unavailable" in msg
-                        or "deadline" in msg
-                        or "503" in msg
-                        or "504" in msg
-                    )
-                    if not transient or attempt == 2:
-                        raise
-                    time.sleep(5 * (3 ** attempt))
+            response, used_model = self._generate_content_with_model_fallback(
+                client,
+                PANEL_SCHEDULE_GEMINI_MODELS,
+                contents=[prompt, *gemini_images],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=PanelData
+                ),
+            )
         finally:
             for img in gemini_images:
                 try:
@@ -15187,29 +15797,15 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
 
             prompt = self._build_canvas_panel_classification_prompt(len(loaded), notes)
 
-            response = None
-            for attempt in range(3):
-                try:
-                    response = client.models.generate_content(
-                        model="gemini-3.6-flash",
-                        contents=[prompt, *gemini_images],
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            response_schema=CanvasPanelClassification
-                        ),
-                    )
-                    break
-                except Exception as exc:
-                    msg = str(exc).lower()
-                    transient = (
-                        "unavailable" in msg
-                        or "deadline" in msg
-                        or "503" in msg
-                        or "504" in msg
-                    )
-                    if not transient or attempt == 2:
-                        raise
-                    time.sleep(5 * (3 ** attempt))
+            response, used_model = self._generate_content_with_model_fallback(
+                client,
+                PANEL_SCHEDULE_GEMINI_MODELS,
+                contents=[prompt, *gemini_images],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=CanvasPanelClassification
+                ),
+            )
         finally:
             for img in gemini_images:
                 try:
@@ -18327,42 +18923,69 @@ Return JSON matching the provided schema exactly, with image_index values 0 thro
 
     def select_files(self, options):
         """Shows a file dialog and returns selected paths."""
-        try:
-            options = options or {}
-            window = webview.windows[0]
-            default_directory = options.get('default_directory')
-            if default_directory in (None, ''):
-                default_directory = options.get('default_dir')
-            if default_directory in (None, ''):
-                default_directory = options.get('defaultDirectory')
-            directory = self._resolve_dialog_directory(default_directory)
-            file_paths = window.create_file_dialog(
-                webview.FileDialog.OPEN,  # DEPRECATION FIX
-                allow_multiple=options.get('allow_multiple', False),
-                file_types=tuple(options.get('file_types', ())),
-                directory=directory,
-            )
-            if not file_paths:
-                return {'status': 'cancelled', 'paths': []}
-            return {'status': 'success', 'paths': file_paths}
-        except TypeError:
+        dialog_lock = getattr(self, '_dialog_lock', None)
+        if dialog_lock is None:
+            dialog_lock = threading.RLock()
+            self._dialog_lock = dialog_lock
+
+        with dialog_lock:
             try:
                 options = options or {}
-                window = webview.windows[0]
+                window = webview.windows[0] if (getattr(webview, 'windows', None) and len(webview.windows) > 0) else None
+                default_directory = options.get('default_directory')
+                if default_directory in (None, ''):
+                    default_directory = options.get('default_dir')
+                if default_directory in (None, ''):
+                    default_directory = options.get('defaultDirectory')
+                directory = self._resolve_dialog_directory(default_directory)
+                allow_multiple = options.get('allow_multiple', False)
+                file_types = tuple(options.get('file_types', ()))
+
+                # In real GUI on Windows (where window.native is a WinForms Form),
+                # run on dedicated STA thread to prevent MTA cross-thread message loop deadlock
+                if window is not None and getattr(window, 'native', None) is not None:
+                    file_paths = self._show_open_file_dialog_sta(
+                        directory=directory,
+                        allow_multiple=allow_multiple,
+                        file_types=file_types,
+                    )
+                    if file_paths is not None:
+                        if not file_paths:
+                            return {'status': 'cancelled', 'paths': []}
+                        return {'status': 'success', 'paths': list(file_paths)}
+
+                # Standard pywebview window.create_file_dialog (used in tests or non-Windows)
+                if window is None:
+                    return {'status': 'error', 'message': 'No window available'}
+
                 file_paths = window.create_file_dialog(
-                    webview.FileDialog.OPEN,  # DEPRECATION FIX
-                    allow_multiple=options.get('allow_multiple', False),
-                    file_types=tuple(options.get('file_types', ()))
+                    webview.FileDialog.OPEN,
+                    allow_multiple=allow_multiple,
+                    file_types=file_types,
+                    directory=directory,
                 )
                 if not file_paths:
                     return {'status': 'cancelled', 'paths': []}
-                return {'status': 'success', 'paths': file_paths}
+                return {'status': 'success', 'paths': list(file_paths)}
+            except TypeError:
+                try:
+                    window = webview.windows[0] if (getattr(webview, 'windows', None) and len(webview.windows) > 0) else None
+                    if window is None:
+                        return {'status': 'error', 'message': 'No window available'}
+                    file_paths = window.create_file_dialog(
+                        webview.FileDialog.OPEN,
+                        allow_multiple=options.get('allow_multiple', False),
+                        file_types=tuple(options.get('file_types', ()))
+                    )
+                    if not file_paths:
+                        return {'status': 'cancelled', 'paths': []}
+                    return {'status': 'success', 'paths': list(file_paths)}
+                except Exception as e:
+                    logging.error(f"Error in file dialog fallback: {e}")
+                    return {'status': 'error', 'message': str(e)}
             except Exception as e:
-                logging.error(f"Error in file dialog fallback: {e}")
+                logging.error(f"Error in file dialog: {e}")
                 return {'status': 'error', 'message': str(e)}
-        except Exception as e:
-            logging.error(f"Error in file dialog: {e}")
-            return {'status': 'error', 'message': str(e)}
 
 
 

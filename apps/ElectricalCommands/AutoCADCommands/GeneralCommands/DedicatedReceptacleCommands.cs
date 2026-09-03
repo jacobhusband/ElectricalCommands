@@ -1,14 +1,20 @@
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.Runtime;
 using System;
 using System.Globalization;
 using System.Text;
+using AcApplication = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 
 namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
+    private const string CompleteDedicatedCircuitCommand =
+      "-RCCOMPLETEDEDICATED";
+
     private static readonly int[] StandardDedicatedBreakerSizes =
     {
       15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100,
@@ -16,30 +22,253 @@ namespace ElectricalCommands
       500, 600, 700, 800, 1000, 1200,
     };
 
-    private static bool TryPromptDedicatedEquipment(
-      Editor editor,
-      out DedicatedEquipmentLoad equipment)
+    private static DedicatedEquipmentPickerWindow
+      _activeDedicatedEquipmentPicker;
+    private static PendingDedicatedCircuit _pendingDedicatedCircuit;
+
+    private sealed class PendingDedicatedCircuit
     {
-      equipment = null;
+      internal Document Document { get; set; }
+
+      internal ObjectId ReceptacleId { get; set; }
+
+      internal double PaperInchesPerModelFoot { get; set; }
+
+      internal DedicatedEquipmentLoad Equipment { get; set; }
+
+      internal bool CompletionQueued { get; set; }
+    }
+
+    private static bool TryShowDedicatedEquipmentPicker(
+      Document document,
+      ObjectId receptacleId,
+      double paperInchesPerModelFoot)
+    {
+      Editor editor = document.Editor;
+      if (_activeDedicatedEquipmentPicker != null)
+      {
+        try
+        {
+          _activeDedicatedEquipmentPicker.Activate();
+        }
+        catch
+        {
+        }
+
+        editor.WriteMessage(
+          "\nA dedicated-circuit picker is already open. Complete or " +
+          "cancel it before starting another dedicated circuit.");
+        return false;
+      }
+
       try
       {
         var window = new DedicatedEquipmentPickerWindow();
-        bool? accepted =
-          Autodesk.AutoCAD.ApplicationServices.Application.ShowModalWindow(
-            window);
-        if (accepted != true || window.SelectedEquipment == null)
+        _pendingDedicatedCircuit = new PendingDedicatedCircuit
         {
-          editor.WriteMessage("\nDedicated circuiting canceled.");
-          return false;
-        }
+          Document = document,
+          ReceptacleId = receptacleId,
+          PaperInchesPerModelFoot = paperInchesPerModelFoot,
+        };
+        _activeDedicatedEquipmentPicker = window;
+        window.CircuitAccepted += DedicatedEquipmentPicker_CircuitAccepted;
+        window.Closed += DedicatedEquipmentPicker_Closed;
+        AcApplication.ShowModelessWindow(window);
 
-        equipment = window.SelectedEquipment;
+        editor.WriteMessage(
+          "\nDedicated-circuit picker opened. You can continue moving " +
+          "around AutoCAD; choose Use Circuit when the equipment details " +
+          "are ready.");
         return true;
       }
       catch (System.Exception ex)
       {
+        ClearDedicatedEquipmentPickerState();
         editor.WriteMessage(
           $"\nUnable to open the dedicated-equipment picker: {ex.Message}");
+        return false;
+      }
+    }
+
+    private static void DedicatedEquipmentPicker_CircuitAccepted(
+      object sender,
+      DedicatedEquipmentSelectedEventArgs e)
+    {
+      if (!(sender is DedicatedEquipmentPickerWindow window) ||
+          window != _activeDedicatedEquipmentPicker ||
+          _pendingDedicatedCircuit == null ||
+          e?.Equipment == null)
+      {
+        return;
+      }
+
+      PendingDedicatedCircuit pending = _pendingDedicatedCircuit;
+      pending.Equipment = e.Equipment;
+      try
+      {
+        pending.Document.SendStringToExecute(
+          CompleteDedicatedCircuitCommand + " ",
+          true,
+          false,
+          false);
+        pending.CompletionQueued = true;
+      }
+      catch (System.Exception ex)
+      {
+        pending.CompletionQueued = false;
+        try
+        {
+          pending.Document.Editor.WriteMessage(
+            $"\nUnable to queue the dedicated circuit: {ex.Message}");
+        }
+        catch
+        {
+        }
+      }
+    }
+
+    private static void DedicatedEquipmentPicker_Closed(
+      object sender,
+      EventArgs e)
+    {
+      if (sender is DedicatedEquipmentPickerWindow window)
+      {
+        window.CircuitAccepted -= DedicatedEquipmentPicker_CircuitAccepted;
+        window.Closed -= DedicatedEquipmentPicker_Closed;
+      }
+
+      _activeDedicatedEquipmentPicker = null;
+      if (_pendingDedicatedCircuit == null ||
+          _pendingDedicatedCircuit.CompletionQueued)
+      {
+        return;
+      }
+
+      try
+      {
+        _pendingDedicatedCircuit.Document.Editor.WriteMessage(
+          "\nDedicated circuiting canceled.");
+      }
+      catch
+      {
+      }
+      _pendingDedicatedCircuit = null;
+    }
+
+    private static void ClearDedicatedEquipmentPickerState()
+    {
+      if (_activeDedicatedEquipmentPicker != null)
+      {
+        _activeDedicatedEquipmentPicker.CircuitAccepted -=
+          DedicatedEquipmentPicker_CircuitAccepted;
+        _activeDedicatedEquipmentPicker.Closed -=
+          DedicatedEquipmentPicker_Closed;
+      }
+      _activeDedicatedEquipmentPicker = null;
+      _pendingDedicatedCircuit = null;
+    }
+
+    [CommandMethod(
+      CompleteDedicatedCircuitCommand,
+      CommandFlags.Modal | CommandFlags.NoHistory)]
+    public static void CompleteDedicatedReceptacleCircuit()
+    {
+      PendingDedicatedCircuit pending = _pendingDedicatedCircuit;
+      _pendingDedicatedCircuit = null;
+      if (pending?.Equipment == null)
+      {
+        return;
+      }
+
+      Document document = AcApplication.DocumentManager.MdiActiveDocument;
+      if (document == null)
+      {
+        return;
+      }
+
+      Editor editor = document.Editor;
+      if (pending.Document != document)
+      {
+        editor.WriteMessage(
+          "\nDedicated circuiting canceled because the source drawing " +
+          "is no longer active.");
+        return;
+      }
+
+      Database database = document.Database;
+      if (!TryValidatePendingDedicatedReceptacle(
+        database,
+        pending.ReceptacleId))
+      {
+        editor.WriteMessage(
+          "\nDedicated circuiting canceled because the selected " +
+          "receptacle is no longer available.");
+        return;
+      }
+
+      if (!ElectricalDrawingSettingsStore.TryReadPanelName(
+        database,
+        out string panelName))
+      {
+        editor.WriteMessage(
+          "\nDedicated circuiting requires a panel name. " +
+          "Run SETPANELNAME (SPN) first.");
+        return;
+      }
+
+      if (!ElectricalDrawingSettingsStore.TryReadPanelSchedule(
+          database,
+          out var panelSchedule) ||
+        !System.IO.File.Exists(panelSchedule.WorkbookPath))
+      {
+        editor.WriteMessage(
+          "\nDedicated circuiting requires a linked panel schedule. " +
+          "Run SETPANELSCHEDULE (SPS) first.");
+        return;
+      }
+
+      if (!TryVerifyPanelScheduleWorkbookClosed(
+        panelSchedule.WorkbookPath,
+        out string workbookAvailabilityError))
+      {
+        editor.WriteMessage(
+          $"\nDedicated circuiting canceled: {workbookAvailabilityError}");
+        return;
+      }
+
+      AutomaticallyCircuitDedicatedReceptacle(
+        database,
+        editor,
+        pending.ReceptacleId,
+        pending.PaperInchesPerModelFoot,
+        panelName,
+        pending.Equipment);
+    }
+
+    private static bool TryValidatePendingDedicatedReceptacle(
+      Database database,
+      ObjectId receptacleId)
+    {
+      if (receptacleId.IsNull || receptacleId.IsErased)
+      {
+        return false;
+      }
+
+      try
+      {
+        using (Transaction transaction =
+          database.TransactionManager.StartOpenCloseTransaction())
+        {
+          BlockReference blockReference = transaction.GetObject(
+            receptacleId,
+            OpenMode.ForRead,
+            false) as BlockReference;
+          return blockReference != null &&
+            IsSupportedReceptacleBlock(transaction, blockReference);
+        }
+      }
+      catch
+      {
         return false;
       }
     }
