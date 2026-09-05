@@ -56,7 +56,7 @@ class ProjectDeliverablePinnedWorkItemsUiTests(unittest.TestCase):
             current_card_block,
         )
         self.assertIn("const statusSection = createDeliverableStatusSection(", current_card_block)
-        self.assertIn("card.append(actionRow, header, statusSection);", current_card_block)
+        self.assertIn("card.append(header, statusSection, actionRow);", current_card_block)
         self.assertNotIn("notesSection", current_card_block)
 
     def test_status_change_rerenders_projects_while_restoring_expanded_cards(self):
@@ -130,7 +130,7 @@ class ProjectDeliverablePinnedWorkItemsUiTests(unittest.TestCase):
 
         action_row_block = self._css_block(css, ".deliverable-card-action-row {")
         self.assertIn("gap: 0.3rem;", action_row_block)
-        self.assertIn("margin-bottom: 0.2rem;", action_row_block)
+        self.assertIn("margin-top: 0.4rem;", action_row_block)
 
         card_block = self._css_block(css, ".deliverable-card-new {")
         self.assertIn("padding: 0.5rem 0.6rem;", card_block)

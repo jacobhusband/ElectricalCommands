@@ -30,7 +30,7 @@ class ProjectDeliverableTaskCountUiTests(unittest.TestCase):
         self.assertNotIn("leftSection.appendChild(taskCountBadge);", header_block)
         self.assertNotIn("createProgressSection(deliverable)", card_block)
         self.assertNotIn("createTasksPreview(deliverable", card_block)
-        self.assertIn("card.append(actionRow, header, statusSection);", card_block)
+        self.assertIn("card.append(header, statusSection, actionRow);", card_block)
 
 
 if __name__ == "__main__":

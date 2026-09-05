@@ -186,11 +186,11 @@ class PageImportantItemsUiTests(unittest.TestCase):
             "importantBtn.dataset.importantCount = String(importantItems.length);",
             actions_block,
         )
-        # The existing notes button must stay intact and last in the right group.
+        # Notes stays explicit; important alerts remain before More.
         self.assertIn('className: "deliverable-card-open-page-action"', actions_block)
         self.assertLess(
             actions_block.index('className: "deliverable-card-important-action"'),
-            actions_block.index('className: "deliverable-card-open-page-action"'),
+            actions_block.index("rightActions.appendChild(createDeliverableActionsDropdown("),
         )
 
     def test_scroll_to_first_important_is_threaded_through_editor_context(self):

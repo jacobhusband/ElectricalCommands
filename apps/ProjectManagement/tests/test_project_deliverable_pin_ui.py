@@ -41,11 +41,11 @@ class ProjectDeliverablePinUiTests(unittest.TestCase):
             self.assertIn(expected, pin_button_block)
 
         self.assertIn(
-            "const pinBtn = createDeliverablePinButton(deliverable);",
+            'label: isDeliverablePinned(deliverable) ? "Unpin deliverable" : "Pin deliverable"',
             script,
         )
         self.assertIn(
-            '"deliverable-card-pin-action"',
+            "setDeliverablePinnedState(deliverable, !isDeliverablePinned(deliverable));",
             script,
         )
         self.assertIn(
@@ -53,7 +53,7 @@ class ProjectDeliverablePinUiTests(unittest.TestCase):
             script,
         )
         self.assertIn(
-            "card.append(actionRow, header, statusSection);",
+            "card.append(header, statusSection, actionRow);",
             script,
         )
         self.assertIn("isDeliverablePinned(deliverable) ? \"is-pinned-deliverable\" : \"\"", script)

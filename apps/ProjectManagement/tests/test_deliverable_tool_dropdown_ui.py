@@ -61,9 +61,8 @@ class DeliverableToolDropdownUiTests(unittest.TestCase):
             'statusDropdown.classList.add("deliverable-card-status-action");',
             "const toolDropdown = createDeliverableToolDropdown(deliverable, project, card);",
             'toolDropdown.classList.add("deliverable-card-tool-action");',
-            "const pinBtn = createDeliverablePinButton(deliverable);",
-            "leftActions.append(pinBtn, statusDropdown, toolDropdown, quickAccessDropdown);",
-            "rightActions.append(",
+            "leftActions.append(statusDropdown, toolDropdown, quickAccessDropdown);",
+            "rightActions.appendChild(createDeliverableActionsDropdown(deliverable, project, card));",
             "actions.append(leftActions, rightActions);",
             "openEdit(projectIndex)",
             "removeDeliverable(project, deliverable)",
@@ -73,23 +72,23 @@ class DeliverableToolDropdownUiTests(unittest.TestCase):
             "updateAttachmentTriggerState(button, getAttachments());",
             "isSupportedEmailFile",
             "const actionRow = createDeliverableCardTopActions(deliverable, project, card);",
-            "card.append(actionRow, header, statusSection);",
-            'const actionRow = card.querySelector(":scope > .deliverable-card-action-row");',
-            "card.insertBefore(projectMeta, actionRow?.nextSibling || card.firstChild);",
+            "card.append(header, statusSection, actionRow);",
+            "card.insertBefore(projectMeta, card.firstChild);",
         ):
             self.assertIn(expected, text)
 
         top_actions_start = text.index("function createDeliverableCardTopActions(")
         top_actions_end = text.index("let openDeliverableActionsDropdown = null;", top_actions_start)
         top_actions_block = text[top_actions_start:top_actions_end]
-        self.assertIn("leftActions.append(pinBtn, statusDropdown, toolDropdown, quickAccessDropdown);", top_actions_block)
-        delete_index = top_actions_block.index('className: "deliverable-card-delete-action"')
-        edit_index = top_actions_block.index('className: "deliverable-card-edit-action"')
-        self.assertLess(delete_index, edit_index)
-        # The card delete action removes the deliverable, not the whole project.
-        self.assertIn('title: "Delete deliverable"', top_actions_block)
-        self.assertIn("removeDeliverable(project, deliverable)", top_actions_block)
-        self.assertNotIn("removeProject(projectIndex)", top_actions_block)
+        self.assertIn("leftActions.append(statusDropdown, toolDropdown, quickAccessDropdown);", top_actions_block)
+        more_start = text.index("function createDeliverableActionsDropdown(")
+        more_end = text.index("function createCardHeader(", more_start)
+        more_block = text[more_start:more_end]
+        self.assertIn('label: "Delete deliverable"', more_block)
+        self.assertIn("removeDeliverable(project, deliverable)", more_block)
+        self.assertIn('label: "Edit Project"', more_block)
+        self.assertNotIn("removeProject(projectIndex)", more_block)
+        self.assertNotIn("removeDeliverable(", top_actions_block)
         # The inline attachment and open-project-page buttons have been removed.
         self.assertNotIn("attachmentBtn", top_actions_block)
         self.assertNotIn("createDeliverableAttachmentAction", top_actions_block)
@@ -152,7 +151,6 @@ class DeliverableToolDropdownUiTests(unittest.TestCase):
             "const icon = createSharedToolIcon(entry, 14);",
             'className: "deliverable-tool-option-label"',
             "option.append(icon, label);",
-            "iconElement: createSharedToolIcon(entry, 14),",
         ):
             self.assertIn(expected, text)
 

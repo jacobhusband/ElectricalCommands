@@ -3805,6 +3805,65 @@ dialog.panel-schedule-manager-dialog {
   text-transform: uppercase;
 }
 
+.psm-project-picker {
+  position: relative;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.psm-project-picker summary {
+  padding: 0.6rem;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.psm-project-picker summary:focus-visible,
+.psm-project-options input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.psm-project-options {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1100;
+  width: min(480px, 75vw);
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: var(--menu-bg);
+  box-shadow: var(--shadow-lg);
+  display: grid;
+  gap: 8px;
+}
+
+.psm-project-options input {
+  width: 100%;
+  padding: 9px;
+  font: inherit;
+}
+
+.psm-project-options select {
+  height: auto;
+  padding: 0;
+  background: var(--menu-bg);
+}
+
+.psm-project-options option {
+  padding: 9px;
+  white-space: normal;
+}
+
+.psm-project-options [role="status"] {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
 .psm-project-field select,
 .psm-header-grid input,
 .psm-header-grid select,
@@ -10026,12 +10085,12 @@ dialog::backdrop {
   flex: 0 0 100%;
   max-width: 100%;
   min-width: 0;
-  margin-bottom: 0.2rem;
-  padding: 2px 4px;
+  margin-top: 0.4rem;
+  padding: 4px 0 0;
   border-radius: var(--radius-xs);
-  background: color-mix(in srgb, var(--surface) 85%, var(--bg-primary));
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-xs);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   transition: opacity 0.15s ease, background 0.15s ease;
 }
 
@@ -10042,11 +10101,11 @@ dialog::backdrop {
 }
 
 .deliverable-card-new:not(:hover):not(:focus-within):not(.deliverable-menu-open) .deliverable-card-action-row {
-  opacity: 0.7;
+  opacity: 1;
 }
 
 .deliverable-card-new:not(:hover):not(:focus-within):not(.deliverable-menu-open) .deliverable-card-action-btn:not(.is-pinned):not(.deliverable-card-important-action) {
-  opacity: 0.6;
+  opacity: 1;
 }
 
 .deliverable-card-new:not(:hover):not(:focus-within):not(.deliverable-menu-open) .deliverable-card-action-btn.is-pinned,
@@ -10074,9 +10133,9 @@ dialog::backdrop {
 
 .deliverable-card-action-btn,
 .deliverable-card-action-btn.deliverable-expand-toggle {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
   border-radius: 5px;
   border: 1px solid var(--glass-border);
   background: var(--bg-tertiary);
@@ -10182,8 +10241,13 @@ dialog::backdrop {
 
 .deliverable-card-action-row .deliverable-status-trigger,
 .deliverable-card-action-row .deliverable-tool-trigger {
-  width: 22px;
-  height: 22px;
+  width: auto;
+  height: 32px;
+  min-width: 32px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   border-radius: 5px;
   transform: none;
 }
@@ -10197,6 +10261,36 @@ dialog::backdrop {
 .deliverable-card-action-row .deliverable-tool-menu {
   left: 0;
   right: auto;
+}
+
+.deliverable-card-action-btn.deliverable-card-open-page-action,
+.deliverable-card-action-row .deliverable-actions-trigger {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  height: 32px;
+  padding: 0 8px;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.deliverable-due-badge.finished {
+  color: var(--text-secondary);
+  border-color: var(--glass-border);
+  background: var(--bg-tertiary);
+  box-shadow: none;
+}
+
+.projects-attention-btn.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-dim);
+}
+
+.projects-attention-hint {
+  margin: 0.25rem 1.6rem 0.8rem;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .deliverable-tool-dropdown {
@@ -10679,7 +10773,9 @@ dialog::backdrop {
 
 /* Timesheet Table Container */
 .timesheet-grid-container {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: min(62vh, 680px);
+  scrollbar-gutter: stable;
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   background: var(--bg-secondary);
@@ -10688,7 +10784,8 @@ dialog::backdrop {
 
 .timesheet-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   min-width: 1100px;
 }
 

@@ -73,7 +73,7 @@ class DeliverableHardDueUiTests(unittest.TestCase):
             # Sorting
             "function compareDeliverablesByDue(a, b) {\n  const da = parseDueStr(getEffectiveDueStr(a));",
             # Timeframe filter
-            "function matchesDueFilter(deliverable, filter) {\n  if (filter === \"all\") return true;\n  const d = parseDueStr(getEffectiveDueStr(deliverable));",
+            "function matchesDueFilter(deliverable, filter) {\n  if (filter === \"all\") return true;\n  if (filter === \"attention\") return deliverableNeedsAttention(deliverable);\n  const d = parseDueStr(getEffectiveDueStr(deliverable));",
             # Week / kanban view
             "function deliverableDueInWeek(deliverable, weekStart) {\n  const d = parseDueStr(getEffectiveDueStr(deliverable));",
             "function deliverableIsOverdueIncomplete(deliverable, weekStart) {\n  const d = parseDueStr(getEffectiveDueStr(deliverable));",

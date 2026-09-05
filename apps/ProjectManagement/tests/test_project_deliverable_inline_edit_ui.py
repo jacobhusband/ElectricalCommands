@@ -54,7 +54,7 @@ class ProjectDeliverableInlineEditUiTests(unittest.TestCase):
 
         self.assertNotIn("function createNotesSection(", script)
         self.assertNotIn("const notesSection", card_block)
-        self.assertIn("card.append(actionRow, header, statusSection);", card_block)
+        self.assertIn("card.append(header, statusSection, actionRow);", card_block)
         self.assertNotIn("createTasksPreview(", card_block)
         self.assertNotIn("createProgressSection(", card_block)
 

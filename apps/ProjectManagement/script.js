@@ -10222,6 +10222,7 @@ let pinnedProjectDragState = null;
 let projectPinHandleSuppressClickUntil = 0;
 let statusFilter = "all";
 let dueFilter = "all";
+let projectAttentionPreviousFilters = null;
 let pendingCadLaunchContext = null;
 let modalEmailSession = {
   active: false,
@@ -10397,7 +10398,7 @@ const DEFAULT_CLOUD_SYNC_STATE = {
 
 const DEFAULT_PROJECT_CARD_COLUMNS = [
   { key: "pinned", label: "Pinned", hidden: false },
-  { key: "none", label: "None", hidden: false },
+  { key: "none", label: "No status", hidden: false },
   { key: "Waiting", label: "Waiting", hidden: false },
   { key: "On hold", label: "On hold", hidden: false },
   { key: "Pending Review", label: "Pending Review", hidden: false },
@@ -10672,6 +10673,7 @@ function getDefaultProjectCardColumn(key) {
 }
 
 function getProjectCardColumnLabel(column) {
+  if (column?.key === "none" && (!column.label || column.label === "None")) return "No status";
   const fallback = getDefaultProjectCardColumn(column?.key);
   const label =
     typeof column?.label === "string" ? column.label.trim() : "";
@@ -20308,6 +20310,7 @@ function matchesProjectDeliverablesFilter(deliverable, filter) {
 
 function matchesDueFilter(deliverable, filter) {
   if (filter === "all") return true;
+  if (filter === "attention") return deliverableNeedsAttention(deliverable);
   const d = parseDueStr(getEffectiveDueStr(deliverable));
   if (!d) return false;
   const today = new Date();
@@ -20331,7 +20334,46 @@ function matchesDueFilter(deliverable, filter) {
   return true;
 }
 
+function deliverableNeedsAttention(deliverable, now = new Date()) {
+  if (isFinished(deliverable)) return false;
+  const endOfWeek = getWeekStartDate(now);
+  endOfWeek.setDate(endOfWeek.getDate() + 6);
+  endOfWeek.setHours(23, 59, 59, 999);
+  return [getEffectiveDueStr(deliverable), getHardDueStr(deliverable)]
+    .some((value) => {
+      const due = parseDueStr(value);
+      return due !== null && due <= endOfWeek;
+    });
+}
+
+function toggleProjectAttentionView() {
+  if (dueFilter === "attention") {
+    const previous = projectAttentionPreviousFilters;
+    dueFilter = previous?.dueFilter || "all";
+    statusFilter = previous?.statusFilter || "all";
+    deliverablesFilter = previous?.deliverablesFilter || "all";
+    if (previous) {
+      currentSort = previous.currentSort;
+      projectCardWeek = previous.projectCardWeek;
+    }
+    projectAttentionPreviousFilters = null;
+  } else {
+    projectAttentionPreviousFilters = {
+      dueFilter, statusFilter, deliverablesFilter,
+      currentSort: { ...currentSort }, projectCardWeek: new Date(projectCardWeek),
+    };
+    dueFilter = "attention";
+    statusFilter = "all";
+    deliverablesFilter = "all";
+    currentSort = { key: "due", dir: "asc" };
+    projectCardWeek = getWeekStartDate(new Date());
+  }
+  resetProjectsListPagination();
+  render();
+}
+
 function getTimeframeFilterLabel(filter) {
+  if (filter === "attention") return "unfinished work due this week or overdue";
   if (filter === "lastWeek") return "last week";
   if (filter === "soon") return "this week";
   if (filter === "future") return "upcoming weeks";
@@ -20467,6 +20509,10 @@ function getProjectsFilterValue(filterKey) {
 function setProjectsFilterValue(filterKey, value) {
   resetProjectsListPagination();
   if (filterKey === "timeframe") {
+    if (value === "attention" && dueFilter !== "attention") {
+      toggleProjectAttentionView();
+      return;
+    }
     dueFilter = value;
     if (currentSort.key === "due") {
       currentSort.dir = value === "all" ? "asc" : "desc";
@@ -23295,40 +23341,23 @@ function createDeliverableCardTopActions(deliverable, project, card) {
   );
   quickAccessDropdown.classList.add("deliverable-card-quick-access-action");
 
-  const pinBtn = createDeliverablePinButton(deliverable);
-  pinBtn.classList.add(
-    "deliverable-card-action-btn",
-    "deliverable-card-pin-action"
-  );
-
-  leftActions.append(pinBtn, statusDropdown, toolDropdown, quickAccessDropdown);
-
-  const projectIndex = Array.isArray(db) ? db.indexOf(project) : -1;
-  if (project && projectIndex >= 0) {
-    rightActions.append(
-      createDeliverableCardActionButton({
-        className: "deliverable-card-delete-action",
-        title: "Delete deliverable",
-        ariaLabel: "Delete deliverable",
-        iconPath: TRASH_ICON_PATH,
-        danger: true,
-        onClick: () => {
-          closeDeliverableCardActionOverlays();
-          removeDeliverable(project, deliverable);
-        },
-      }),
-      createDeliverableCardActionButton({
-        className: "deliverable-card-edit-action",
-        title: "Edit project",
-        ariaLabel: "Edit project",
-        iconPath: PENCIL_ICON_PATH,
-        onClick: () => {
-          closeDeliverableCardActionOverlays();
-          openEdit(projectIndex);
-        },
-      })
-    );
+  if (project) {
+    const openButton = createDeliverableCardActionButton({
+      className: "deliverable-card-open-page-action",
+      title: "Open project notes",
+      ariaLabel: "Open project notes",
+      iconPath: NOTE_ICON_PATH,
+      onClick: () => {
+        closeDeliverableCardActionOverlays();
+        openProjectPage(project);
+      },
+    });
+    openButton.appendChild(el("span", { textContent: "Notes" }));
+    leftActions.appendChild(openButton);
   }
+  leftActions.append(statusDropdown, toolDropdown, quickAccessDropdown);
+  statusDropdown.querySelector("button")?.appendChild(el("span", { textContent: "Status" }));
+  toolDropdown.querySelector("button")?.appendChild(el("span", { textContent: "Tools" }));
   // Important-line alert -> jumps to the page carrying the first flag
   if (project) {
     const importantItems = getProjectImportantItems(project);
@@ -23354,21 +23383,7 @@ function createDeliverableCardTopActions(deliverable, project, card) {
       rightActions.append(importantBtn);
     }
   }
-  // Notion-style project notes entry point
-  if (project) {
-    rightActions.append(
-      createDeliverableCardActionButton({
-        className: "deliverable-card-open-page-action",
-        title: "Open project notes",
-        ariaLabel: "Open project notes",
-        iconPath: NOTE_ICON_PATH,
-        onClick: () => {
-          closeDeliverableCardActionOverlays();
-          openProjectPage(project);
-        },
-      })
-    );
-  }
+  rightActions.appendChild(createDeliverableActionsDropdown(deliverable, project, card));
   actions.append(leftActions, rightActions);
 
   return actions;
@@ -23680,12 +23695,13 @@ function createDeliverableActionsDropdown(deliverable, project, card) {
   const trigger = el("button", {
     className: "deliverable-actions-trigger",
     type: "button",
-    title: "Deliverable actions",
-    "aria-label": "Deliverable actions",
+    title: "More deliverable actions",
+    "aria-label": "More deliverable actions",
     "aria-haspopup": "true",
     "aria-expanded": "false",
   });
   trigger.appendChild(createDeliverableActionsTriggerIcon());
+  trigger.appendChild(el("span", { textContent: "More" }));
 
   const menu = el("div", { className: "deliverable-actions-menu", role: "menu" });
 
@@ -23723,76 +23739,6 @@ function createDeliverableActionsDropdown(deliverable, project, card) {
     },
   });
   menu.appendChild(pinItem);
-
-  const statusSubmenu = buildDeliverableActionsSubmenu("Status", (submenu) => {
-    const availableStatuses = [
-      "Waiting",
-      "On hold",
-      "Pending Review",
-      "Complete",
-      "Delivered",
-    ];
-    availableStatuses.forEach((status) => {
-      const isActive = hasStatus(deliverable, status);
-      const item = buildDeliverableActionsItem({
-        label: isActive ? `${status} ✓` : status,
-        onClick: async () => {
-          setDeliverableActionsDropdownState(dropdown, false);
-          setSingleStatus(deliverable, status);
-          await save();
-          renderProjectsPreservingExpandedDeliverables();
-        },
-      });
-      submenu.appendChild(item);
-    });
-    const clearItem = buildDeliverableActionsItem({
-      label: "Clear status",
-      onClick: async () => {
-        setDeliverableActionsDropdownState(dropdown, false);
-        setSingleStatus(deliverable, "");
-        await save();
-        renderProjectsPreservingExpandedDeliverables();
-      },
-    });
-    submenu.appendChild(clearItem);
-  }, { iconPath: STATUS_ICON_PATH });
-  menu.appendChild(statusSubmenu);
-
-  const toolsSubmenu = buildDeliverableActionsSubmenu("Tools", (submenu) => {
-    const categories = getDeliverableToolMenuEntriesByCategory();
-    if (categories.length === 0) {
-      submenu.appendChild(
-        el("div", {
-          className: "deliverable-actions-empty",
-          textContent: "No tools available",
-        })
-      );
-      return;
-    }
-    categories.forEach((cat) => {
-      const catWrapper = buildDeliverableActionsSubmenu(cat.label, (catSubmenu) => {
-        cat.entries.forEach((entry) => {
-          const toolItem = buildDeliverableActionsItem({
-            label: entry.menuLabel || entry.label,
-            iconElement: createSharedToolIcon(entry, 14),
-            onClick: () => {
-              setDeliverableActionsDropdownState(dropdown, false);
-              const launchContext = buildProjectsTabToolLaunchContext(project, deliverable);
-              launchSharedToolCard(entry.id, launchContext);
-            },
-          });
-          toolItem.setAttribute("data-shared-tool-id", entry.id);
-          toolItem.setAttribute("data-launch-type", entry.launchType);
-          catSubmenu.appendChild(toolItem);
-        });
-      });
-      catWrapper
-        .querySelector(":scope > .deliverable-actions-item")
-        ?.setAttribute("data-tool-category", cat.key);
-      submenu.appendChild(catWrapper);
-    });
-  }, { iconPath: TOOLS_ICON_PATH });
-  menu.appendChild(toolsSubmenu);
 
   const attachmentItem = buildDeliverableActionsItem({
     label: "Attachments",
@@ -23849,12 +23795,12 @@ function createDeliverableActionsDropdown(deliverable, project, card) {
 
     menu.appendChild(
       buildDeliverableActionsItem({
-        label: "Delete Project",
+        label: "Delete deliverable",
         danger: true,
         iconPath: TRASH_ICON_PATH,
         onClick: () => {
           setDeliverableActionsDropdownState(dropdown, false);
-          removeProject(projectIndex);
+          removeDeliverable(project, deliverable);
         },
       })
     );
@@ -23983,7 +23929,7 @@ function createCardHeader(deliverable, card, project) {
 
 function createDeliverableDueBadge(deliverable, project, { field, stateClass, text, label }) {
   const badge = el("div", {
-    className: `deliverable-due-badge ${stateClass} is-clickable`,
+    className: `deliverable-due-badge ${isFinished(deliverable) ? "finished" : stateClass} is-clickable`,
     textContent: text,
   });
   badge.setAttribute("role", "button");
@@ -23994,7 +23940,9 @@ function createDeliverableDueBadge(deliverable, project, { field, stateClass, te
       ? "Hard deadline – must finish. Click to change."
       : "Click to change due date"
   );
-  badge.setAttribute("aria-label", label);
+  badge.setAttribute("aria-label", isFinished(deliverable)
+    ? `${field === "hardDue" ? "Hard deadline" : "Target date"} ${text}. Finished deliverable. Click to change.`
+    : label);
   const handleOpen = (e) => {
     e.stopPropagation();
     showCalendarForDeliverableBadge(badge, deliverable, project, field);
@@ -24543,7 +24491,7 @@ function renderDeliverableCardLegacy(deliverable, project) {
   // Tasks preview (2-3 tasks, now clickable)
   const tasksPreview = createTasksPreviewLegacy(deliverable, card);
 
-  card.append(actionRow, header, progress, statusSection, tasksPreview);
+  card.append(header, progress, statusSection, actionRow, tasksPreview);
   updateDeliverableTaskStats(card, deliverable);
   return card;
 }
@@ -24920,7 +24868,7 @@ function renderDeliverableCard(deliverable, project) {
     card
   );
 
-  card.append(actionRow, header, statusSection);
+  card.append(header, statusSection, actionRow);
   updateDeliverableWorkItemUi(card, deliverable);
   return card;
 }
@@ -26691,7 +26639,9 @@ function renderCardView(items = db, projectListContextMap = null) {
   const currentWeekStart = getWeekStartDate(new Date());
   const isCurrentWeek = weekStart.getTime() === currentWeekStart.getTime();
 
-  const visibleColumns = projectCardColumns.filter((c) => !c.hidden);
+  const visibleColumns = dueFilter === "attention"
+    ? projectCardColumns.filter((c) => !["Complete", "Delivered", "nodate"].includes(c.key))
+    : projectCardColumns.filter((c) => !c.hidden);
   const pinnedShown = visibleColumns.some((c) => c.key === "pinned");
   const nodateShown = visibleColumns.some((c) => c.key === "nodate");
 
@@ -26730,7 +26680,7 @@ function renderCardView(items = db, projectListContextMap = null) {
     const overduePull =
       isCurrentWeek &&
       deliverableIsOverdueIncomplete(deliverable, weekStart);
-    if (!inWeek && !overduePull) continue;
+    if (dueFilter !== "attention" && !inWeek && !overduePull) continue;
 
     const primary =
       STATUS_PRIORITY.find((s) => hasStatus(deliverable, s)) || "none";
@@ -26745,7 +26695,7 @@ function renderCardView(items = db, projectListContextMap = null) {
   }
 
   const renderColumns =
-    hideEmptyProjectColumns === true
+    hideEmptyProjectColumns === true || dueFilter === "attention"
       ? visibleColumns.filter(
           (column) => (buckets.get(column.key) || []).length > 0
         )
@@ -26802,8 +26752,7 @@ function renderCardView(items = db, projectListContextMap = null) {
         card.draggable = true;
         const projectMeta = buildCardProjectMeta(project, db.indexOf(project), deliverable);
         if (projectMeta) {
-          const actionRow = card.querySelector(":scope > .deliverable-card-action-row");
-          card.insertBefore(projectMeta, actionRow?.nextSibling || card.firstChild);
+          card.insertBefore(projectMeta, card.firstChild);
         }
         cardsHost.appendChild(card);
       }
@@ -26961,6 +26910,7 @@ function setupProjectsViewModeControls() {
     "projectsHideEmptyColumnsToggle"
   );
   if (listBtn) listBtn.addEventListener("click", () => setProjectsViewMode("list"));
+  document.getElementById("projectsAttentionBtn")?.addEventListener("click", toggleProjectAttentionView);
   if (cardBtn) cardBtn.addEventListener("click", () => setProjectsViewMode("card"));
   if (widthBtn) {
     widthBtn.addEventListener("click", () =>
@@ -27366,6 +27316,16 @@ function attachKanbanDragHandlers(host) {
 }
 
 function render() {
+  const attentionButton = document.getElementById("projectsAttentionBtn");
+  const attentionActive = dueFilter === "attention";
+  attentionButton?.setAttribute("aria-pressed", String(attentionActive));
+  attentionButton?.classList.toggle("is-active", attentionActive);
+  const attentionHint = document.getElementById("projectsAttentionHint");
+  if (attentionHint) attentionHint.hidden = !attentionActive;
+  for (const id of ["weekNavPrev", "weekNavNext"]) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = attentionActive;
+  }
   const tbody = document.getElementById("tbody");
   const emptyState = document.getElementById("emptyState");
   syncProjectsFilterDropdowns();
@@ -30729,6 +30689,14 @@ function getPanelScheduleManagerProjectOptions() {
     .filter((entry) => entry.id);
 }
 
+function filterPanelScheduleProjects(options, query) {
+  const terms = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return options.filter((entry) => {
+    const text = [entry.id, entry.label, entry.project?.name, entry.project?.nick].join(" ").toLowerCase();
+    return terms.every((term) => text.includes(term));
+  });
+}
+
 function getSelectedPanelScheduleManagerProject() {
   return (
     getPanelScheduleManagerProjectOptions().find(
@@ -30786,20 +30754,23 @@ function renderPanelScheduleManagerProjects() {
   const select = document.getElementById("psmProjectSelect");
   if (!select) return;
   const options = getPanelScheduleManagerProjectOptions();
+  const search = document.getElementById("psmProjectSearch");
+  const matches = filterPanelScheduleProjects(options, search?.value);
+  const selected = options.find((entry) => entry.id === panelScheduleManagerState.projectId);
+  const label = document.getElementById("psmProjectLabel");
+  if (label) label.textContent = selected ? `${selected.id} · ${selected.label}` : "Choose project";
+  const count = document.getElementById("psmProjectResultCount");
+  if (count) count.textContent = `${matches.length} matching project${matches.length === 1 ? "" : "s"}`;
   select.replaceChildren();
-  if (!options.length) {
-    select.appendChild(el("option", { value: "", textContent: "No projects available" }));
+  if (!matches.length) {
+    select.appendChild(el("option", { value: "", textContent: options.length ? "No matching projects" : "No projects available" }));
     select.disabled = true;
     return;
   }
   select.disabled = false;
-  options.forEach((entry) => {
-    select.appendChild(el("option", { value: entry.id, textContent: entry.label }));
+  matches.forEach((entry) => {
+    select.appendChild(el("option", { value: entry.id, textContent: `${entry.id} · ${entry.label}` }));
   });
-  if (!options.some((entry) => entry.id === panelScheduleManagerState.projectId)) {
-    panelScheduleManagerState.projectId = options[0].id;
-    panelScheduleManagerState.projectPath = options[0].path;
-  }
   select.value = panelScheduleManagerState.projectId;
 }
 
@@ -31079,6 +31050,22 @@ function formatPanelScheduleManagerSyncTime(value) {
 }
 
 function updatePanelScheduleManagerControls() {
+  const hasProject = Boolean(panelScheduleManagerState.projectId);
+  const chooseButton = document.getElementById("psmChooseWorkbookBtn");
+  if (chooseButton) chooseButton.disabled = !hasProject || panelScheduleManagerState.loading;
+  const emptyButton = document.getElementById("psmEmptyChooseBtn");
+  if (emptyButton) {
+    emptyButton.disabled = panelScheduleManagerState.loading;
+    emptyButton.textContent = hasProject ? "Choose Excel file" : "Choose project";
+  }
+  const emptyTitle = document.querySelector("#psmEmpty h3");
+  const emptyDescription = document.querySelector("#psmEmpty p");
+  if (emptyTitle) emptyTitle.textContent = hasProject
+    ? "Link this project's panel schedule workbook"
+    : "Choose a project to get started";
+  if (emptyDescription) emptyDescription.textContent = hasProject
+    ? "Select the existing .xls or .xlsx file used by the AutoCAD OLE objects."
+    : "Search by project number, client or address, then link its Excel workbook.";
   const reloadButton = document.getElementById("psmReloadBtn");
   const saveButton = document.getElementById("psmSaveBtn");
   const footer = document.getElementById("psmFooterMessage");
@@ -31114,7 +31101,9 @@ function updatePanelScheduleManagerControls() {
     }
   } else {
     setPanelScheduleManagerSyncStatus("Not connected");
-    if (footer) footer.textContent = "Choose a project workbook to begin.";
+    if (footer) footer.textContent = panelScheduleManagerState.projectId
+      ? "Choose a project workbook to begin."
+      : "Choose a project above, then link its panel schedule workbook.";
   }
 }
 
@@ -31204,6 +31193,11 @@ async function connectPanelScheduleManager(workbookPath = "") {
 }
 
 async function choosePanelScheduleManagerWorkbook() {
+  if (!panelScheduleManagerState.projectId) {
+    const picker = document.getElementById("psmProjectPicker");
+    if (picker) picker.open = true;
+    return;
+  }
   if (!window.pywebview?.api?.select_files) {
     toast("The Excel file picker is unavailable.");
     return;
@@ -31391,7 +31385,11 @@ async function openPanelScheduleManager() {
   const contextProjectId = getLaunchContextProjectId(launchContext);
   const projects = getPanelScheduleManagerProjectOptions();
   const contextProject = projects.find((entry) => entry.id === contextProjectId);
-  const selected = contextProject || projects[0] || null;
+  const selected = contextProject || projects.find((entry) => entry.id === panelScheduleManagerState.projectId) || null;
+  const search = document.getElementById("psmProjectSearch");
+  if (search) search.value = "";
+  const picker = document.getElementById("psmProjectPicker");
+  if (picker) picker.open = false;
   panelScheduleManagerState.projectId = selected?.id || contextProjectId || "";
   panelScheduleManagerState.projectPath =
     selected?.path || getLaunchContextProjectRoot(launchContext) || "";
@@ -39253,8 +39251,30 @@ function initEventListeners() {
   );
 
   const psmProjectSelect = document.getElementById("psmProjectSelect");
+  document.getElementById("psmProjectSearch")?.addEventListener("input", renderPanelScheduleManagerProjects);
+  const projectPicker = document.getElementById("psmProjectPicker");
+  projectPicker?.addEventListener("toggle", () => {
+    if (projectPicker.open) document.getElementById("psmProjectSearch")?.focus();
+  });
+  projectPicker?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && projectPicker.open) {
+      event.preventDefault();
+      event.stopPropagation();
+      projectPicker.open = false;
+      document.getElementById("psmProjectLabel")?.focus();
+    }
+    if (event.key === "ArrowDown" && event.target.id === "psmProjectSearch") {
+      event.preventDefault();
+      psmProjectSelect?.focus();
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (projectPicker?.open && !projectPicker.contains(event.target) &&
+        !event.target.closest("#psmEmptyChooseBtn")) projectPicker.open = false;
+  });
   if (psmProjectSelect) {
     psmProjectSelect.addEventListener("change", async (e) => {
+      if (!e.target.value) return;
       const previousProjectId = panelScheduleManagerState.projectId;
       if (
         panelScheduleManagerState.dirty &&
@@ -39266,6 +39286,8 @@ function initEventListeners() {
       panelScheduleManagerState.projectId = String(e.target.value || "").trim();
       const selected = getSelectedPanelScheduleManagerProject();
       panelScheduleManagerState.projectPath = selected?.path || "";
+      if (projectPicker) projectPicker.open = false;
+      document.getElementById("psmProjectLabel")?.focus();
       await connectPanelScheduleManager();
     });
   }

@@ -16,10 +16,10 @@ class ProjectCardNoneColumnUiTests(unittest.TestCase):
 
         self.assertLess(
             block.index('{ key: "pinned", label: "Pinned", hidden: false }'),
-            block.index('{ key: "none", label: "None", hidden: false }'),
+            block.index('{ key: "none", label: "No status", hidden: false }'),
         )
         self.assertLess(
-            block.index('{ key: "none", label: "None", hidden: false }'),
+            block.index('{ key: "none", label: "No status", hidden: false }'),
             block.index('{ key: "Waiting", label: "Waiting", hidden: false }'),
         )
 
