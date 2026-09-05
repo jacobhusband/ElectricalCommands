@@ -72,11 +72,12 @@ ElectricalCommands.GeneralCommands
 AutoCADCleanupTool.CleanCADCommands
 - -FINALIZE-CLEANUP / FinalizeCleanupCommand (AutoCADCommands\CleanCADCommands\FinalizeCleanupCommand.cs:16)
 - -FINALIZE-PURGEDEFS / FinalizePurgeDefsCommand (AutoCADCommands\CleanCADCommands\FinalizePurgeDefsCommand.cs:15)
-- CLEANCAD / RunCleanSheet (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:71)
+- CLEANCAD / RunCleanSheet (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:85)
+- CLEANCAD2 / RunCleanSheetHeadless (AutoCADCommands\CleanCADCommands\CleanCadHeadlessCommand.cs:22)
 - CLEANPS / ListPaperSpaceXrefs (AutoCADCommands\CleanCADCommands\DetectPaperSpaceXrefsCommand.cs:16)
 - CLEANTBLK / RunCleanTitleBlock (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:16)
 - DETACHREMAININGXREFS / RemoveRemainingXrefs (AutoCADCommands\CleanCADCommands\DetachSpecialXrefsCommand.cs:14)
-- EMBEDIMAGES / EmbedImages (AutoCADCommands\CleanCADCommands\EmbedFromXrefsCommand.cs:178)
+- EMBEDIMAGES / EmbedImages (AutoCADCommands\CleanCADCommands\EmbedFromXrefsCommand.cs:403)
 - EMBEDPDFS / EmbedPdfs (AutoCADCommands\CleanCADCommands\EmbedFromPdfCommand.cs:15)
 - FINALIZE / FinalizeDrawingCommand (AutoCADCommands\CleanCADCommands\FinalizeDrawingCommand.cs:16)
 - KEEPONLYTITLEBLOCKMS / KeepOnlyTitleBlockInModelSpace (AutoCADCommands\CleanCADCommands\KeepOnlyTitleBlockCommand.cs:16)
@@ -84,7 +85,8 @@ AutoCADCleanupTool.CleanCADCommands
 - SETTITLEBLOCK / SetProjectTitleBlockBoundary (AutoCADCommands\CleanCADCommands\ProjectTitleBlockSettingsCommand.cs:9)
 - STB / SetProjectTitleBlockBoundary (AutoCADCommands\CleanCADCommands\ProjectTitleBlockSettingsCommand.cs:10)
 - VP2PL / ViewportToPolyline_AllLayouts (AutoCADCommands\CleanCADCommands\ViewportToPolyline.cs:14)
-- ZOOMTOLASTTB / ZoomToLastTitleBlock (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:246)
+- VP2PLHEADLESS / ViewportToPolyline_AllLayoutsHeadlessCommand (AutoCADCommands\CleanCADCommands\ViewportToPolyline.cs:160)
+- ZOOMTOLASTTB / ZoomToLastTitleBlock (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:260)
 
 ElectricalCommands.LFSCommands
 - LFS / LightingFixtureSchedule (AutoCADCommands\T24Commands\LightingFixtureSchedule.cs:19)

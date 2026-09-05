@@ -1,479 +1,141 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Settings,
-  Zap,
-  ArrowRight,
-  Cable,
-  AlertTriangle,
-  Info,
-  Ruler,
-  Activity,
-  Copy,
-  CheckCircle2,
-} from 'lucide-react';
-import { AppState, CalculationResult } from './types';
-import { calculateEverything, formatFeederSpec, isThreePhaseAllowed } from './utils/electricalMath';
-import { InputGroup } from './components/InputGroup';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { MIN_RECOMMENDED_CONDUCTOR_SIZE, WIRE_DATA } from './constants';
+import React, { useMemo, useState } from 'react';
+import { Zap, Copy, CheckCircle2, AlertTriangle, Info } from 'lucide-react';
+import { AppState } from './types';
+import { calculateEverything, formatFeederSpec, formatWireSize, getHotCount, isThreePhaseAllowed, neutralMustCarryCurrent, validateInputs } from './utils/electricalMath';
+import { WIRE_DATA, MIN_RECOMMENDED_CONDUCTOR_SIZE } from './constants';
 
-const inputClass =
-  'w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-all text-gray-800 font-medium';
-const selectClass =
-  'w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-all text-gray-800 font-medium';
-const minRecommendedWireIndex = WIRE_DATA.findIndex(
-  ({ size }) => size === MIN_RECOMMENDED_CONDUCTOR_SIZE
-);
-const selectableWireSizes =
-  minRecommendedWireIndex === -1 ? WIRE_DATA : WIRE_DATA.slice(minRecommendedWireIndex);
+const inputClass = 'w-full p-2.5 border border-gray-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400';
+const sizes = WIRE_DATA.filter(w => w.circularMils >= WIRE_DATA.find(w => w.size === MIN_RECOMMENDED_CONDUCTOR_SIZE)!.circularMils);
+const initialState: AppState = {
+  voltage: 208, phase: 3, amperage: 20, continuousAmperage: 0, breakerAmperage: 20,
+  distance: 100, material: 'Copper', groundMaterial: 'Copper', maxVoltageDrop: 3,
+  sets: 1, forceSets: false, forceWireSize: false, forcedWireSize: '12',
+  terminalRating: 60, ambientTemperature: 30, neutralMode: 'full', neutralSize: '12',
+  neutralDesignAmperage: 20, neutralCurrentCarrying: true, oversizeConduit: false,
+};
 
-function App() {
-  const [state, setState] = useState<AppState>({
-    voltage: 208,
-    amperage: 20,
-    distance: 100,
-    phase: 3,
-    material: 'Copper',
-    maxVoltageDrop: 3,
-    sets: 1,
-    forceSets: false,
-    forceWireSize: false,
-    forcedWireSize: MIN_RECOMMENDED_CONDUCTOR_SIZE,
-    powerFactor: 0.9,
-    oversizeConduit: false,
-    groundingTable: 'EGC',
-  });
-
-  const [results, setResults] = useState<CalculationResult | null>(null);
-  const [copyFeedback, setCopyFeedback] = useState(false);
-
-  useEffect(() => {
-    const res = calculateEverything(state);
-    setResults(res);
-  }, [state]);
-
-  const handleChange = (field: keyof AppState, value: AppState[keyof AppState]) => {
-    setState((prev) => {
-      if (field === 'voltage' && typeof value === 'number') {
-        const nextPhase = isThreePhaseAllowed(value) ? prev.phase : 1;
-        return { ...prev, voltage: value, phase: nextPhase };
-      }
-      if (field === 'phase' && typeof value === 'number') {
-        if (value === 3 && !isThreePhaseAllowed(prev.voltage)) {
-          return { ...prev, phase: 1 };
-        }
-        return { ...prev, phase: value as 1 | 3 };
-      }
-      return { ...prev, [field]: value };
-    });
-  };
-
-  const handleNumChange = (field: keyof AppState, value: string) => {
-    if (value === '') {
-      handleChange(field, '');
-      return;
-    }
-    handleChange(field, Number(value));
-  };
-
-  const handleForceWireSizeToggle = (checked: boolean) => {
-    setState((prev) => ({
-      ...prev,
-      forceWireSize: checked,
-      forcedWireSize: checked ? results?.selectedSize ?? prev.forcedWireSize : prev.forcedWireSize,
-    }));
-  };
-
-  const copySpecToClipboard = () => {
-    if (!results) return;
-
-    const spec = formatFeederSpec(state, results);
-    navigator.clipboard.writeText(spec).then(() => {
-      setCopyFeedback(true);
-      setTimeout(() => setCopyFeedback(false), 2000);
-    });
-  };
-
-  const getVoltageStatusColor = (percent: number) => {
-    if (percent <= 3) return 'text-green-600';
-    if (percent <= 5) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
-  const displayedWireSizeOption = state.forceWireSize
-    ? selectableWireSizes.some(({ size }) => size === state.forcedWireSize)
-      ? state.forcedWireSize
-      : MIN_RECOMMENDED_CONDUCTOR_SIZE
-    : results?.selectedSize ?? MIN_RECOMMENDED_CONDUCTOR_SIZE;
-
-  return (
-    <div className="min-h-screen bg-slate-50 font-sans pb-12 text-slate-900">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Zap className="text-white w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-slate-900 leading-tight">ACIES Wire Sizer</h1>
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
-                Engineering Utility
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={copySpecToClipboard}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-all shadow-sm active:scale-95"
-            >
-              {copyFeedback ? <CheckCircle2 size={16} className="text-green-600" /> : <Copy size={16} />}
-              {copyFeedback ? 'Copied!' : 'Copy Spec'}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-4 space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-              <div className="bg-slate-50 px-5 py-3 border-b border-gray-200 flex items-center gap-2">
-                <Settings className="w-4 h-4 text-gray-500" />
-                <h2 className="font-bold text-sm text-gray-700">Circuit Configuration</h2>
-              </div>
-
-              <div className="p-5 space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <InputGroup label="Phase">
-                    <select
-                      value={state.phase}
-                      onChange={(e) => handleChange('phase', Number(e.target.value))}
-                      className={selectClass}
-                    >
-                      <option value={1}>1 Phase</option>
-                      <option value={3} disabled={!isThreePhaseAllowed(state.voltage)}>
-                        3 Phase
-                      </option>
-                    </select>
-                  </InputGroup>
-                  <InputGroup label="Voltage">
-                    <select
-                      value={state.voltage}
-                      onChange={(e) => handleChange('voltage', Number(e.target.value))}
-                      className={selectClass}
-                    >
-                      {[120, 208, 240, 277, 480].map((voltage) => (
-                        <option key={voltage} value={voltage}>
-                          {voltage}V
-                        </option>
-                      ))}
-                    </select>
-                  </InputGroup>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <InputGroup label="Load (Amps)">
-                    <input
-                      type="number"
-                      value={state.amperage}
-                      onChange={(e) => handleNumChange('amperage', e.target.value)}
-                      className={inputClass}
-                    />
-                  </InputGroup>
-                  <InputGroup label="Dist. (ft)">
-                    <input
-                      type="number"
-                      value={state.distance}
-                      onChange={(e) => handleNumChange('distance', e.target.value)}
-                      className={inputClass}
-                    />
-                  </InputGroup>
-                </div>
-
-                <InputGroup label="Conductor">
-                  <div className="grid grid-cols-2 bg-gray-100 p-1 rounded-lg">
-                    {['Copper', 'Aluminum'].map((material) => (
-                      <button
-                        key={material}
-                        onClick={() => handleChange('material', material as AppState['material'])}
-                        className={`py-2 text-sm font-bold rounded-md transition-all ${
-                          state.material === material
-                            ? 'bg-white shadow-sm text-blue-600'
-                            : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        {material}
-                      </button>
-                    ))}
-                  </div>
-                </InputGroup>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <InputGroup label="V.D. Max %">
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={state.maxVoltageDrop}
-                      onChange={(e) => handleNumChange('maxVoltageDrop', e.target.value)}
-                      className={inputClass}
-                    />
-                  </InputGroup>
-                  <InputGroup label="Number of Parallel Sets">
-                    <input
-                      type="number"
-                      min="1"
-                      value={state.sets}
-                      onChange={(e) => handleNumChange('sets', e.target.value)}
-                      className={inputClass}
-                    />
-                    {results && state.sets !== '' && state.sets !== results.recommendedSets && (
-                      <p className="mt-2 text-xs font-semibold text-red-600">
-                        Note: Recommended Number of Parallel Sets is {results.recommendedSets}
-                      </p>
-                    )}
-                    <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={state.forceSets}
-                        onChange={(e) => handleChange('forceSets', e.target.checked)}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      Force parallel sets (override recommended)
-                    </label>
-                  </InputGroup>
-                </div>
-
-                <div className="pt-2">
-                  <label className="flex items-center gap-3 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={state.oversizeConduit}
-                      onChange={(e) => handleChange('oversizeConduit', e.target.checked)}
-                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                    />
-                    <span className="text-sm font-semibold text-gray-700 group-hover:text-blue-600 transition-colors">
-                      Oversize conduit for safety
-                    </span>
-                  </label>
-                </div>
-
-                <InputGroup
-                  label="Wire Size Override"
-                  subLabel="Force a specific conductor size to see the actual voltage drop and conduit fill for that wire."
-                >
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={state.forceWireSize}
-                        onChange={(e) => handleForceWireSizeToggle(e.target.checked)}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      Force wire size (override recommended)
-                    </label>
-
-                    <select
-                      value={displayedWireSizeOption}
-                      onChange={(e) => handleChange('forcedWireSize', e.target.value)}
-                      disabled={!state.forceWireSize}
-                      className={`${selectClass} ${
-                        !state.forceWireSize
-                          ? 'opacity-60 cursor-not-allowed bg-gray-50 text-gray-400'
-                          : ''
-                      }`}
-                    >
-                      {selectableWireSizes.map(({ size }) => (
-                        <option key={size} value={size}>
-                          #{size}
-                        </option>
-                      ))}
-                    </select>
-
-                    {results &&
-                      state.forceWireSize &&
-                      results.selectedSize !== results.recommendedSize && (
-                        <p className="text-xs font-semibold text-blue-600">
-                          Recommended for {results.sets} set{results.sets === 1 ? '' : 's'}: #
-                          {results.recommendedSize}
-                        </p>
-                      )}
-                  </div>
-                </InputGroup>
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-8 space-y-6">
-            {results && (
-              <>
-                <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-                  <div className="p-6">
-                    <div className="flex flex-col md:flex-row justify-between gap-6 mb-6">
-                      <div>
-                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">
-                          Feeder Specification
-                        </span>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-4xl font-black text-slate-900">
-                            {results.sets > 1 ? `${results.sets}x ` : ''}
-                            {results.selectedSize}
-                          </span>
-                          <span className="text-lg text-slate-500 font-bold">AWG</span>
-                        </div>
-                        <p className="text-sm text-slate-500 font-medium mt-1">
-                          {state.material} THHN - {state.phase === 3 ? '3PH+N' : '1PH+N'} -{' '}
-                          {results.tempRatingUsed}C
-                        </p>
-                        {results.isWireSizeForced && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800">
-                              Forced Size
-                            </span>
-                            {results.selectedSize !== results.recommendedSize && (
-                              <span className="text-xs font-semibold text-blue-600">
-                                Recommended: #{results.recommendedSize}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex gap-4">
-                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 text-center min-w-[100px]">
-                          <span className="text-[10px] font-bold text-slate-400 block mb-1 uppercase">
-                            Ground
-                          </span>
-                          <span className="text-lg font-bold text-slate-700">
-                            #{results.groundWireSize}
-                          </span>
-                          <span className="text-[9px] text-slate-400 block">
-                            {state.groundingTable === 'EGC' ? 'T. 250.122' : 'T. 250.66'}
-                          </span>
-                          <div className="grid grid-cols-2 bg-gray-100 p-0.5 rounded-md mt-2">
-                            {(['EGC', 'GEC'] as const).map((groundingTable) => (
-                              <button
-                                key={groundingTable}
-                                onClick={() => handleChange('groundingTable', groundingTable)}
-                                className={`py-1 text-[10px] font-bold rounded transition-all ${
-                                  state.groundingTable === groundingTable
-                                    ? 'bg-white shadow-sm text-blue-600'
-                                    : 'text-gray-400 hover:text-gray-600'
-                                }`}
-                              >
-                                {groundingTable}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="bg-blue-50 rounded-lg p-3 border border-blue-100 text-center min-w-[100px]">
-                          <span className="text-[10px] font-bold text-blue-400 block mb-1 uppercase">
-                            Conduit
-                          </span>
-                          <span className="text-lg font-bold text-blue-700">
-                            {results.conduitSize}"
-                          </span>
-                          {results.sets > 1 && (
-                            <span className="text-[9px] text-blue-400 block">per set</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {results.warnings.length > 0 && (
-                      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                        <div className="flex gap-3">
-                          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
-                          <div className="space-y-1">
-                            <p className="text-xs font-bold uppercase tracking-wide text-amber-900">
-                              Check forced wire size
-                            </p>
-                            {results.warnings.map((warning) => (
-                              <p key={warning} className="text-sm font-medium text-amber-900">
-                                {warning}
-                              </p>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/50">
-                        <div className="flex justify-between items-center mb-3">
-                          <h4 className="text-xs font-bold text-slate-500 uppercase">
-                            Voltage Drop
-                          </h4>
-                          <span
-                            className={`text-xs font-bold ${getVoltageStatusColor(
-                              results.voltageDropPercentage
-                            )}`}
-                          >
-                            {results.voltageDropPercentage.toFixed(2)}%
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-200 rounded-full h-1.5 mb-2">
-                          <div
-                            className={`h-1.5 rounded-full transition-all duration-500 ${
-                              results.voltageDropPercentage > (state.maxVoltageDrop || 3)
-                                ? 'bg-red-500'
-                                : 'bg-green-500'
-                            }`}
-                            style={{
-                              width: `${Math.min(
-                                100,
-                                (results.voltageDropPercentage / (state.maxVoltageDrop || 3)) * 100
-                              )}%`,
-                            }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-400">
-                          Limit: {state.maxVoltageDrop || 3}% - At Load:{' '}
-                          {results.voltageAtLoad.toFixed(1)}V
-                        </p>
-                      </div>
-
-                      <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/50">
-                        <div className="flex justify-between items-center mb-3">
-                          <h4 className="text-xs font-bold text-slate-500 uppercase">
-                            Conduit Fill
-                          </h4>
-                          <span className="text-xs font-bold text-blue-600">
-                            {results.conduitFillPercentage.toFixed(1)}% Total
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-200 rounded-full h-1.5 mb-2">
-                          <div
-                            className="h-1.5 bg-blue-500 rounded-full transition-all duration-500"
-                            style={{
-                              width: `${Math.min(100, (results.conduitFillPercentage / 40) * 100)}%`,
-                            }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-400">
-                          NEC Limit: 40% - Fill Area: {results.wireAreaTotal.toFixed(3)} sq.in
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-                  <div className="flex gap-3 text-xs text-gray-500">
-                    <Info size={14} className="text-blue-500 flex-shrink-0" />
-                    <p>
-                      Calculations adhere to <strong>NEC 2023</strong> standards. Terminals assumed
-                      at 60C for loads &lt;=100A or wires &lt;=1 AWG, and 75C for loads &gt;100A or wires
-                      &gt;=1/0 AWG. Bars show 100% at code-defined limits (3% V.D. and 40% Fill).
-                    </p>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </main>
-    </div>
-  );
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="block text-sm text-slate-700"><span className="block mb-1.5 font-medium">{label}</span>{children}</label>;
 }
 
-export default App;
+export default function App() {
+  const [state, setState] = useState<AppState>(initialState);
+  const [copyFeedback, setCopyFeedback] = useState('');
+  const errors = useMemo(() => validateInputs(state), [state]);
+  // Derive synchronously so the copy button never sees results from a previous input state.
+  const result = useMemo(() => errors.length ? null : calculateEverything(state), [state, errors]);
+  const change = <K extends keyof AppState>(key: K, value: AppState[K]) => {
+    setCopyFeedback('');
+    setState(prev => {
+      const next = { ...prev, [key]: value };
+      if (!isThreePhaseAllowed(next.voltage)) {
+        next.phase = 1;
+        if (next.neutralMode === 'none') next.neutralMode = 'full';
+      }
+      return next;
+    });
+  };
+  const numeric = (key: 'amperage' | 'continuousAmperage' | 'breakerAmperage' | 'distance' | 'maxVoltageDrop' | 'sets' | 'ambientTemperature' | 'neutralDesignAmperage', label: string, min: number, max: number, step = 'any') =>
+    <Field label={label}><input type="number" className={inputClass} value={state[key]} min={min} max={max} step={step} onChange={e => change(key, e.target.value === '' ? '' : Number(e.target.value))} /></Field>;
+  const wireOptions = sizes.map(w => <option key={w.size} value={w.size}>{formatWireSize(w.size)}</option>);
+  const copy = async () => {
+    if (!result?.valid) return;
+    try {
+      await navigator.clipboard.writeText(formatFeederSpec(state, result));
+      setCopyFeedback('Copied!');
+    } catch {
+      setCopyFeedback('Clipboard unavailable. Select and copy the specification below.');
+    }
+  };
+  const fmt = (value: number, digits = 1) => Number.isFinite(value) ? value.toFixed(digits) : 'Unresolved';
+  const hotCount = getHotCount(state.phase, state.voltage);
+
+  return <div className="min-h-screen bg-slate-50 text-slate-900 pb-8">
+    <header className="bg-white border-b sticky top-0 z-10">
+      <div className="max-w-7xl mx-auto px-5 py-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3"><div className="bg-blue-600 rounded-lg p-2"><Zap className="text-white" size={22} /></div><div><h1 className="text-lg font-bold">ACIES Wire Sizer</h1><p className="text-xs text-slate-500">Feeder sizing & voltage drop</p></div></div>
+        <button onClick={copy} disabled={!result?.valid} className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-semibold bg-white disabled:opacity-40 disabled:cursor-not-allowed">{copyFeedback === 'Copied!' ? <CheckCircle2 size={16} /> : <Copy size={16} />}{copyFeedback === 'Copied!' ? 'Copied!' : 'Copy Spec'}</button>
+      </div>
+    </header>
+    <main className="max-w-7xl mx-auto p-5 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+      <section aria-label="Circuit configuration" className="lg:col-span-5 bg-white border rounded-xl p-5 space-y-5">
+        <h2 className="font-semibold">Circuit configuration</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Phase"><select className={inputClass} value={state.phase} onChange={e => change('phase', Number(e.target.value) as 1 | 3)}><option value={1}>1 phase</option><option value={3} disabled={!isThreePhaseAllowed(state.voltage)}>3 phase</option></select></Field>
+          <Field label="Voltage"><select className={inputClass} value={state.voltage} onChange={e => change('voltage', Number(e.target.value))}>{[120, 208, 240, 277, 480].map(v => <option key={v} value={v}>{v} V</option>)}</select></Field>
+          {numeric('amperage', 'Total operating load (A)', 0.01, 100000)}
+          {numeric('continuousAmperage', 'Continuous portion (A)', 0, 100000)}
+          {numeric('breakerAmperage', 'Breaker / fuse rating (A)', 1, 100000, '1')}
+          {numeric('distance', 'One-way length (ft)', 0, 1000000)}
+        </div>
+        <p className="text-xs text-slate-500">Design load = operating load + 25% of its continuous portion. Voltage drop uses operating load. Enter the actual protective-device rating.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Phase / neutral material"><select className={inputClass} value={state.material} onChange={e => change('material', e.target.value as AppState['material'])}><option>Copper</option><option>Aluminum</option></select></Field>
+          <Field label="Lowest terminal rating"><select className={inputClass} value={state.terminalRating} onChange={e => change('terminalRating', Number(e.target.value) as 60 | 75)}><option value={60}>60°C</option><option value={75}>75°C (marked equipment)</option></select></Field>
+          {numeric('maxVoltageDrop', 'Voltage-drop target (%)', 0.1, 100)}
+          {numeric('ambientTemperature', 'Ambient temperature (°C)', 10, 80)}
+        </div>
+        <div className="border-t pt-4 space-y-3">
+          <h3 className="text-sm font-semibold">Neutral & grounding</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Neutral"><select className={inputClass} value={state.neutralMode} onChange={e => change('neutralMode', e.target.value as AppState['neutralMode'])}><option value="none" disabled={hotCount === 1}>None (line-to-line load)</option><option value="full">Full size</option><option value="custom">Specified size</option></select></Field>
+            <Field label="Equipment ground material"><select className={inputClass} value={state.groundMaterial} onChange={e => change('groundMaterial', e.target.value as AppState['groundMaterial'])}><option>Copper</option><option>Aluminum</option></select></Field>
+            {state.neutralMode === 'custom' && <><Field label="Neutral size"><select className={inputClass} value={state.neutralSize} onChange={e => change('neutralSize', e.target.value)}>{wireOptions}</select></Field>{numeric('neutralDesignAmperage', 'Calculated neutral load (A)', 0, 100000)}</>}
+          </div>
+          {state.neutralMode === 'custom' && <p className="text-xs text-slate-500">Neutral load must include continuous-load allowance and applicable imbalance / harmonics. L-N circuits are also checked against the full circuit requirement.</p>}
+          {state.neutralMode !== 'none' && <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={neutralMustCarryCurrent(state) || state.neutralCurrentCarrying} disabled={neutralMustCarryCurrent(state)} onChange={e => change('neutralCurrentCarrying', e.target.checked)} /><span>Count neutral as current carrying<span className="block text-xs text-slate-500">Required for L-N and two phases of a wye system. Leave checked for nonlinear loads; exclude only an eligible imbalance-only neutral.</span></span></label>}
+        </div>
+        <details className="border-t pt-4">
+          <summary className="cursor-pointer text-sm font-semibold">Parallel sets & overrides</summary>
+          <div className="mt-4 space-y-3">
+            {numeric('sets', 'Minimum parallel sets (separate raceways)', 1, 10, '1')}
+            <label className="flex gap-2 text-sm"><input type="checkbox" checked={state.forceSets} onChange={e => change('forceSets', e.target.checked)} />Use exactly this many sets</label>
+            <p className="text-xs text-slate-500">One complete circuit and one EGC per raceway. General parallel minimum: 1/0 AWG. Automatic sizing caps at 600 kcmil Cu / 750 kcmil Al; exact sets permit up to 2000 kcmil.</p>
+            <label className="flex gap-2 text-sm"><input type="checkbox" checked={state.forceWireSize} onChange={e => { const checked = e.target.checked; setCopyFeedback(''); setState(prev => ({ ...prev, forceWireSize: checked, forcedWireSize: checked ? result?.selectedSize ?? prev.forcedWireSize : prev.forcedWireSize })); }} />Check a specified phase wire size</label>
+            <Field label="Phase wire override"><select className={inputClass} disabled={!state.forceWireSize} value={state.forceWireSize ? state.forcedWireSize : result?.selectedSize ?? state.forcedWireSize} onChange={e => change('forcedWireSize', e.target.value)}>{wireOptions}</select></Field>
+            <label className="flex gap-2 text-sm"><input type="checkbox" checked={state.oversizeConduit} onChange={e => change('oversizeConduit', e.target.checked)} />Increase EMT by one trade size when available</label>
+          </div>
+        </details>
+      </section>
+      <section aria-label="Sizing results" className="lg:col-span-7 space-y-4 lg:sticky lg:top-24">
+        {errors.length > 0 && <div role="alert" className="bg-amber-50 border border-amber-300 p-5 rounded-xl"><h2 className="font-semibold mb-2">Complete the inputs</h2><ul className="list-disc pl-5 text-sm space-y-1">{errors.map(e => <li key={e}>{e}</li>)}</ul></div>}
+        {result && <>
+          <div className="bg-white border rounded-xl p-5 shadow-sm space-y-5">
+            <div className="flex flex-wrap justify-between items-start gap-3">
+              <div><p className="text-xs uppercase tracking-wide text-slate-500">{result.valid ? 'Feeder specification' : 'Candidate — corrections required'}</p><h2 className="text-3xl font-bold mt-1">{result.sets > 1 ? `${result.sets} × ` : ''}{formatWireSize(result.selectedSize)}</h2><p className="text-sm text-slate-500 mt-1">{state.material} THHN/THWN-2 · {state.terminalRating}°C terminals</p></div>
+              <span className={`text-xs rounded-full px-3 py-1 font-semibold ${result.valid ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-900'}`}>{result.valid ? 'Within modeled limits' : 'Spec unavailable'}</span>
+            </div>
+            {result.warnings.length > 0 && <div role="alert" className="bg-amber-50 border border-amber-200 rounded-lg p-3"><div className="flex gap-2 items-center font-semibold text-sm text-amber-900"><AlertTriangle size={18} />Resolve before use</div><ul className="list-disc pl-5 mt-2 space-y-1 text-sm text-amber-900">{result.warnings.map(w => <li key={w}>{w}</li>)}</ul></div>}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+              <div className="bg-slate-50 p-3 rounded-lg"><p className="text-xs text-slate-500 mb-1">EGC · {state.groundMaterial}</p><strong>{result.groundWireSize === 'Unresolved' ? 'Unresolved' : formatWireSize(result.groundWireSize)}</strong><p className="text-xs text-slate-500">One per raceway</p></div>
+              <div className="bg-slate-50 p-3 rounded-lg"><p className="text-xs text-slate-500 mb-1">Neutral</p><strong>{result.neutralSize ? formatWireSize(result.neutralSize) : 'None'}</strong></div>
+              <div className="bg-blue-50 p-3 rounded-lg"><p className="text-xs text-slate-500 mb-1">EMT · per raceway</p><strong>{result.conduitSize ? `${result.conduitSize}″` : 'No valid size'}</strong></div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div><div className="flex justify-between text-sm mb-2"><span>Voltage drop</span><strong className={result.voltageDropPercentage <= Number(state.maxVoltageDrop) ? 'text-green-700' : 'text-red-700'}>{fmt(result.voltageDropPercentage, 2)}%</strong></div><div className="h-1.5 bg-slate-100 rounded-full"><div className={`h-1.5 rounded-full ${result.voltageDropPercentage <= Number(state.maxVoltageDrop) ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${Math.min(100, result.voltageDropPercentage / Number(state.maxVoltageDrop) * 100)}%` }} /></div><p className="text-xs text-slate-500 mt-2">Target {state.maxVoltageDrop}% · At load {fmt(result.voltageAtLoad)} V<br />{hotCount === 1 ? 'L-N with actual neutral resistance' : 'Balanced L-L approximation'}</p></div>
+              <div><div className="flex justify-between text-sm mb-2"><span>Conduit fill</span><strong className={result.conduitFillPercentage <= 40 ? 'text-blue-700' : 'text-red-700'}>{fmt(result.conduitFillPercentage)}{Number.isFinite(result.conduitFillPercentage) ? '%' : ''}</strong></div><div className="h-1.5 bg-slate-100 rounded-full"><div className={`h-1.5 rounded-full ${result.conduitFillPercentage <= 40 ? 'bg-blue-500' : 'bg-red-500'}`} style={{ width: `${Number.isFinite(result.conduitFillPercentage) ? Math.min(100, result.conduitFillPercentage / 40 * 100) : 0}%` }} /></div><p className="text-xs text-slate-500 mt-2">40% limit · {fmt(result.wireAreaTotal, 3)} sq.in<br />{result.conduitSize ? 'Per raceway, including insulated EGC' : 'Largest supported EMT checked: 4″'}</p></div>
+            </div>
+          </div>
+          <div className="bg-white border rounded-xl p-5">
+            <h3 className="font-semibold text-sm mb-3">Calculation breakdown</h3>
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+              <dt className="text-slate-500">Operating / design load</dt><dd>{fmt(result.operatingAmps)} / {fmt(result.designAmps)} A</dd>
+              <dt className="text-slate-500">Available total ampacity</dt><dd>{fmt(result.actualAmpacity)} A</dd>
+              <dt className="text-slate-500">Minimum for load & breaker</dt><dd>{result.ampacityMinimum ? formatWireSize(result.ampacityMinimum) : 'No supported size'}</dd>
+              <dt className="text-slate-500">Minimum for voltage drop</dt><dd>{result.voltageDropMinimum ? formatWireSize(result.voltageDropMinimum) : 'No supported size'}</dd>
+              <dt className="text-slate-500">Temperature × count factors</dt><dd>{result.temperatureFactor} × {result.adjustmentFactor} ({result.currentCarryingCount} CCC)</dd>
+              <dt className="text-slate-500">EGC circular-mil multiplier</dt><dd>{fmt(result.groundUpsizeRatio, 2)} ×</dd>
+              <dt className="text-slate-500">Maximum length at target</dt><dd>{fmt(result.maxDistanceAtTarget, 0)} ft</dd>
+              <dt className="text-slate-500">Suggested automatic sets</dt><dd>{result.recommendedSets || 'No supported solution'}</dd>
+            </dl>
+            <p className="text-xs text-slate-500 mt-3">Minimum sizes are per set. Selection meets both ampacity and voltage drop, subject to overrides. Ampacity is limited by the terminal rating, adjusted 90°C insulation ampacity, and small-conductor protection rules.</p>
+          </div>
+          <details className="bg-white border rounded-xl p-4 text-sm"><summary className="cursor-pointer font-semibold">Grounding electrode reference — separate from feeder EGC</summary><p className="text-slate-600 mt-2">Table 250.66 reference: {formatWireSize(result.gecWireSize)} {state.groundMaterial}, based on the equivalent phase conductor area across all sets. This is not included in the feeder specification or conduit fill. Electrode-specific limits, service bonding and installation requirements need separate selection.</p></details>
+          {result.valid && <details className="bg-white border rounded-xl p-4"><summary className="cursor-pointer text-sm font-semibold">Specification preview</summary><pre className="whitespace-pre-wrap text-xs mt-3 select-text">{formatFeederSpec(state, result)}</pre></details>}
+        </>}
+        <p role="status" className="text-sm text-blue-700">{copyFeedback}</p>
+        <div className="flex gap-2 text-xs text-slate-500 bg-white border rounded-xl p-4"><Info size={16} className="shrink-0" /><p>NEC 2023 table-based general-purpose model: THHN/THWN-2, one complete circuit per EMT raceway, no additional circuits or bundled raceways. 3% voltage drop is a design target, not a universal code limit. The resistance approximation excludes reactance and load imbalance. No next-size OCPD, motor, transformer, service or other special exceptions are applied.</p></div>
+      </section>
+    </main>
+  </div>;
+}

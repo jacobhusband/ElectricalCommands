@@ -168,6 +168,34 @@ namespace ElectricalCommands
       }
     }
 
+    internal static void Remove(
+      Polyline polyline,
+      Transaction transaction)
+    {
+      if (polyline == null ||
+          transaction == null ||
+          polyline.ExtensionDictionary.IsNull)
+      {
+        return;
+      }
+
+      try
+      {
+        DBDictionary dictionary = transaction.GetObject(
+          polyline.ExtensionDictionary,
+          OpenMode.ForWrite,
+          false) as DBDictionary;
+        if (dictionary != null && dictionary.Contains(RecordKey))
+        {
+          dictionary.Remove(RecordKey);
+        }
+      }
+      catch
+      {
+        // Ignore dictionary remove errors
+      }
+    }
+
     private static bool IsFinite(double value)
     {
       return !double.IsNaN(value) && !double.IsInfinity(value);

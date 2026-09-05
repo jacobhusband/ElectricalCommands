@@ -1,414 +1,187 @@
 import {
-  WIRE_DATA,
-  GROUND_DATA,
-  GEC_DATA,
-  CONDUIT_EMT_40_PERCENT,
-  K_FACTOR_CU,
-  K_FACTOR_AL,
-  MAX_WIRE_SIZE_CU,
-  MAX_WIRE_SIZE_AL,
-  MAX_WIRE_SIZE_FORCED,
-  MIN_RECOMMENDED_CONDUCTOR_SIZE,
+  WIRE_DATA, GROUND_DATA, GEC_DATA, CONDUIT_EMT_40_PERCENT,
+  K_FACTOR_CU, K_FACTOR_AL, MAX_WIRE_SIZE_CU, MAX_WIRE_SIZE_AL,
+  MAX_WIRE_SIZE_FORCED, MIN_RECOMMENDED_CONDUCTOR_SIZE, AMPACITY_90, AMBIENT_FACTORS_90,
 } from '../constants';
-import { AppState, CalculationResult, WireSizeData, ConductorMaterial } from '../types';
+import { AppState, CalculationResult, WireSizeData } from '../types';
 
 export const isThreePhaseAllowed = (voltage: number) => voltage !== 120 && voltage !== 277;
+export const getHotCount = (phase: number, voltage: number) => phase === 3 ? 3 : (voltage === 120 || voltage === 277 ? 1 : 2);
+export const formatWireSize = (size: string) => Number(size) >= 250 ? `${size} kcmil` : `#${size} AWG`;
+const wireBySize = (size: string) => WIRE_DATA.find(w => w.size === size);
+const minCM = wireBySize(MIN_RECOMMENDED_CONDUCTOR_SIZE)!.circularMils;
+const parallelCM = wireBySize('1/0')!.circularMils;
+const MAX_SETS = 10;
+const EPS = 1e-9;
 
-const getHotCount = (phase: number, voltage: number) => {
-  if (phase === 3) return 3;
-  if (phase === 1) {
-    if (voltage === 120 || voltage === 277) return 1;
-    if (voltage === 208 || voltage === 240 || voltage === 480) return 2;
-  }
-  return phase === 3 ? 3 : 2;
-};
+export const neutralMustCarryCurrent = (state: AppState) =>
+  getHotCount(state.phase, state.voltage) === 1 ||
+  (state.phase === 1 && (state.voltage === 208 || state.voltage === 480));
 
-const indexOf1_0 = WIRE_DATA.findIndex((wire) => wire.size === '1/0');
-const indexOfMinRecommendedConductor = WIRE_DATA.findIndex(
-  (wire) => wire.size === MIN_RECOMMENDED_CONDUCTOR_SIZE
-);
-
-function getWireTableForMaterial(material: ConductorMaterial, maxSizeOverride?: string): WireSizeData[] {
-  const maxSize = maxSizeOverride ?? (material === 'Copper' ? MAX_WIRE_SIZE_CU : MAX_WIRE_SIZE_AL);
-  const maxIndex = WIRE_DATA.findIndex((wire) => wire.size === maxSize);
-  return maxIndex === -1 ? WIRE_DATA : WIRE_DATA.slice(0, maxIndex + 1);
-}
-
-function getRecommendedWireTable(material: ConductorMaterial, maxSizeOverride?: string): WireSizeData[] {
-  const wireTable = getWireTableForMaterial(material, maxSizeOverride);
-  if (indexOfMinRecommendedConductor === -1) {
-    return wireTable;
-  }
-
-  const minWire = WIRE_DATA[indexOfMinRecommendedConductor];
-  const minWireIndexInTable = wireTable.findIndex((wire) => wire.size === minWire.size);
-
-  if (minWireIndexInTable === -1) {
-    return wireTable;
-  }
-
-  return wireTable.slice(minWireIndexInTable);
-}
-
-function getAmpacity(wire: WireSizeData, material: ConductorMaterial, wireIndex: number): number {
-  const isSmallWire = wireIndex < indexOf1_0;
-  if (material === 'Copper') {
-    return isSmallWire ? wire.ampacity60Cu : wire.ampacity75Cu;
-  }
-  return isSmallWire ? wire.ampacity60Al : wire.ampacity75Al;
-}
-
-function getWireIndex(size: string) {
-  return WIRE_DATA.findIndex((wire) => wire.size === size);
-}
-
-function getWireBySize(size: string) {
-  return WIRE_DATA.find((wire) => wire.size === size);
-}
-
-function getMinimumRecommendedWire() {
-  if (indexOfMinRecommendedConductor === -1) {
-    return undefined;
-  }
-  return WIRE_DATA[indexOfMinRecommendedConductor];
-}
-
-function isBelowMinimumRecommendedWire(size: string) {
-  const wireIndex = getWireIndex(size);
-  return (
-    wireIndex !== -1 &&
-    indexOfMinRecommendedConductor !== -1 &&
-    wireIndex < indexOfMinRecommendedConductor
-  );
-}
-
-function getTempRatingForWire(wire: WireSizeData): 60 | 75 {
-  const wireIndex = getWireIndex(wire.size);
-  if (wireIndex === -1) {
-    return 60;
-  }
-  return wireIndex < indexOf1_0 ? 60 : 75;
-}
-
-function getTotalAmpacityForWire(
-  wire: WireSizeData,
-  material: ConductorMaterial,
-  sets: number
-): number {
-  const wireIndex = getWireIndex(wire.size);
-  if (wireIndex === -1) {
-    return 0;
-  }
-  return getAmpacity(wire, material, wireIndex) * sets;
-}
-
-type FeederSpecResult = Pick<
-  CalculationResult,
-  'conduitSize' | 'selectedSize' | 'groundWireSize' | 'voltageDropPercentage' | 'sets'
->;
-
-export const formatFeederSpec = (state: AppState, results: FeederSpecResult) => {
-  const conduit = `${results.conduitSize}"C.`;
-  const effectivePhase = isThreePhaseAllowed(state.voltage) ? state.phase : 1;
-  const numHots = getHotCount(effectivePhase, state.voltage);
-  const gndLabel = state.groundingTable === 'GEC' ? 'GEC' : 'G';
-  const setsPrefix = results.sets > 1 ? `(${results.sets} sets) ` : '';
-  const line1 = `${setsPrefix}${conduit}, ${numHots}#${results.selectedSize} H, 1#${results.selectedSize} N, 1#${results.groundWireSize} ${gndLabel}`;
-  const line2 = `LENGTH ~= ${state.distance}'`;
-  const line3 = `VOLTAGE DROP ~= ${results.voltageDropPercentage.toFixed(2)}%`;
-
-  return `${line1}\n${line2}\n${line3}`;
-};
-
-interface WireSelection {
-  wire: WireSizeData;
-  sets: number;
-  tempRating: 60 | 75;
-}
-
-function findOptimalWireAndSets(
-  amperage: number,
-  distance: number,
-  voltage: number,
-  maxVoltageDrop: number,
-  material: ConductorMaterial,
-  phaseFactor: number,
-  kFactor: number,
-  maxSizeOverride?: string
-): WireSelection {
-  const wireTable = getRecommendedWireTable(material, maxSizeOverride);
-  const maxDropVolts = voltage * (maxVoltageDrop / 100);
-  const MAX_SETS = 10;
-
-  for (let sets = 1; sets <= MAX_SETS; sets++) {
-    const ampsPerSet = amperage / sets;
-
-    let ampacityWire: WireSizeData | undefined;
-    for (let i = 0; i < wireTable.length; i++) {
-      const globalIndex = getWireIndex(wireTable[i].size);
-      const ampacity = getAmpacity(wireTable[i], material, globalIndex);
-      if (ampacity >= ampsPerSet) {
-        ampacityWire = wireTable[i];
-        break;
-      }
+export function validateInputs(state: AppState): string[] {
+  const errors: string[] = [];
+  const numberInRange = (value: number | '', min: number, max: number, label: string, integer = false) => {
+    if (value === '' || !Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) {
+      errors.push(`${label} must be ${integer ? 'a whole number' : 'a number'} from ${min} to ${max}.`);
     }
-
-    if (!ampacityWire) {
-      continue;
-    }
-
-    let selectedWire = ampacityWire;
-
-    if (maxDropVolts > 0 && distance > 0) {
-      const requiredCM = (kFactor * ampsPerSet * distance * phaseFactor) / maxDropVolts;
-
-      if (selectedWire.circularMils < requiredCM) {
-        const upsized = wireTable.find((wire) => wire.circularMils >= requiredCM);
-        if (upsized) {
-          selectedWire = upsized;
-        } else {
-          continue;
-        }
-      }
-    }
-
-    return { wire: selectedWire, sets, tempRating: getTempRatingForWire(selectedWire) };
-  }
-
-  const fallbackWire = wireTable[wireTable.length - 1];
-  return {
-    wire: fallbackWire,
-    sets: MAX_SETS,
-    tempRating: getTempRatingForWire(fallbackWire),
   };
+  numberInRange(state.amperage, 0.01, 100000, 'Operating load');
+  numberInRange(state.continuousAmperage, 0, 100000, 'Continuous portion');
+  if (Number(state.continuousAmperage) > Number(state.amperage)) errors.push('Continuous portion cannot exceed the total operating load.');
+  numberInRange(state.breakerAmperage, 1, 100000, 'Breaker / fuse rating', true);
+  numberInRange(state.distance, 0, 1000000, 'One-way length');
+  numberInRange(state.maxVoltageDrop, 0.1, 100, 'Voltage-drop target');
+  numberInRange(state.sets, 1, MAX_SETS, 'Parallel sets', true);
+  numberInRange(state.ambientTemperature, 10, 80, 'Ambient temperature');
+  if (![120, 208, 240, 277, 480].includes(state.voltage)) errors.push('Select a supported voltage.');
+  if (![1, 3].includes(state.phase) || (state.phase === 3 && !isThreePhaseAllowed(state.voltage))) errors.push('Select a valid phase and voltage combination.');
+  if (![60, 75].includes(state.terminalRating)) errors.push('Select a 60°C or 75°C terminal rating.');
+  if (!['Copper', 'Aluminum'].includes(state.material) || !['Copper', 'Aluminum'].includes(state.groundMaterial)) errors.push('Select a supported conductor material.');
+  if (!['none', 'full', 'custom'].includes(state.neutralMode)) errors.push('Select a neutral configuration.');
+  if (state.neutralMode === 'none' && getHotCount(state.phase, state.voltage) === 1) errors.push('120 V and 277 V line-to-neutral circuits require a neutral.');
+  if (state.neutralMode === 'custom') {
+    if (!wireBySize(state.neutralSize)) errors.push('Select an available neutral size.');
+    numberInRange(state.neutralDesignAmperage, 0, 100000, 'Neutral design load');
+  }
+  if (state.forceWireSize && !wireBySize(state.forcedWireSize)) errors.push('Select an available forced wire size.');
+  return errors;
 }
 
-function selectWireForSets(
-  amperage: number,
-  distance: number,
-  voltage: number,
-  maxVoltageDrop: number,
-  material: ConductorMaterial,
-  phaseFactor: number,
-  kFactor: number,
-  sets: number,
-  maxSizeOverride?: string
-): WireSelection {
-  const wireTable = getRecommendedWireTable(material, maxSizeOverride);
-  const ampsPerSet = amperage / sets;
+// Table 310.15(C)(1). One complete circuit is installed in each separate raceway.
+export const adjustmentForCount = (count: number) => count <= 3 ? 1 : count <= 6 ? 0.8 : count <= 9 ? 0.7 : count <= 20 ? 0.5 : count <= 30 ? 0.45 : count <= 40 ? 0.4 : 0.35;
 
-  let foundWire: WireSizeData | undefined;
-  for (let i = 0; i < wireTable.length; i++) {
-    const globalIndex = getWireIndex(wireTable[i].size);
-    const ampacity = getAmpacity(wireTable[i], material, globalIndex);
-    if (ampacity >= ampsPerSet) {
-      foundWire = wireTable[i];
-      break;
-    }
-  }
+export function calculateEverything(state: AppState): CalculationResult {
+  const inputErrors = validateInputs(state);
+  if (inputErrors.length) throw new RangeError(inputErrors.join(' '));
+  const operatingAmps = Number(state.amperage);
+  const designAmps = operatingAmps + 0.25 * Number(state.continuousAmperage);
+  const breaker = Number(state.breakerAmperage);
+  // Conservative general-purpose sizing: no next-standard-breaker or equipment-specific exceptions.
+  const requiredAmps = Math.max(designAmps, breaker);
+  const distance = Number(state.distance);
+  const target = Number(state.maxVoltageDrop);
+  const hotCount = getHotCount(state.phase, state.voltage);
+  const hasNeutral = state.neutralMode !== 'none';
+  const currentCarryingCount = hotCount + (hasNeutral && (neutralMustCarryCurrent(state) || state.neutralCurrentCarrying) ? 1 : 0);
+  const temperatureFactor = AMBIENT_FACTORS_90.find(([upper]) => Number(state.ambientTemperature) <= upper)![1];
+  const adjustmentFactor = adjustmentForCount(currentCarryingCount);
+  const k = state.material === 'Copper' ? K_FACTOR_CU : K_FACTOR_AL;
+  const phaseFactor = state.phase === 3 ? Math.sqrt(3) : 2;
 
-  if (!foundWire) {
-    foundWire = wireTable[wireTable.length - 1];
-  }
-
-  const maxDropVolts = voltage * (maxVoltageDrop / 100);
-  if (maxDropVolts > 0 && distance > 0) {
-    const requiredCM = (kFactor * ampsPerSet * distance * phaseFactor) / maxDropVolts;
-    if (foundWire.circularMils < requiredCM) {
-      const upsized = wireTable.find((wire) => wire.circularMils >= requiredCM);
-      if (upsized) {
-        foundWire = upsized;
-      }
-    }
-  }
-
-  return { wire: foundWire, sets, tempRating: getTempRatingForWire(foundWire) };
-}
-
-export const calculateEverything = (state: AppState): CalculationResult => {
-  const {
-    voltage,
-    phase,
-    material,
-    oversizeConduit,
-    forceWireSize,
-    forcedWireSize,
-  } = state;
-  const effectivePhase = isThreePhaseAllowed(voltage) ? phase : 1;
-
-  const amperage = state.amperage === '' ? 0 : state.amperage;
-  const distance = state.distance === '' ? 0 : state.distance;
-  const maxVoltageDrop = state.maxVoltageDrop === '' ? 3 : state.maxVoltageDrop;
-
-  const userSets = state.sets === '' || state.sets === 0 ? 1 : state.sets;
-  const forceSets = state.forceSets;
-
-  const kFactor = material === 'Copper' ? K_FACTOR_CU : K_FACTOR_AL;
-  const phaseFactor = effectivePhase === 3 ? 1.732 : 2;
-
-  const autoResult = findOptimalWireAndSets(
-    amperage,
-    distance,
-    voltage,
-    maxVoltageDrop,
-    material,
-    phaseFactor,
-    kFactor
-  );
-
-  const effectiveSets = forceSets ? userSets : Math.max(userSets, autoResult.sets);
-
-  let recommendedWire: WireSizeData;
-  let recommendedTempRating: 60 | 75;
-
-  if (forceSets) {
-    const forcedResult = selectWireForSets(
-      amperage,
-      distance,
-      voltage,
-      maxVoltageDrop,
-      material,
-      phaseFactor,
-      kFactor,
-      effectiveSets,
-      MAX_WIRE_SIZE_FORCED
-    );
-    recommendedWire = forcedResult.wire;
-    recommendedTempRating = forcedResult.tempRating;
-  } else if (effectiveSets > autoResult.sets) {
-    const overrideResult = selectWireForSets(
-      amperage,
-      distance,
-      voltage,
-      maxVoltageDrop,
-      material,
-      phaseFactor,
-      kFactor,
-      effectiveSets
-    );
-    recommendedWire = overrideResult.wire;
-    recommendedTempRating = overrideResult.tempRating;
-  } else {
-    recommendedWire = autoResult.wire;
-    recommendedTempRating = autoResult.tempRating;
-  }
-
-  let selectedWire = recommendedWire;
-  let finalTempRating = recommendedTempRating;
+  const ampacity = (wire: WireSizeData) => {
+    const terminal = state.material === 'Copper'
+      ? (state.terminalRating === 60 ? wire.ampacity60Cu : wire.ampacity75Cu)
+      : (state.terminalRating === 60 ? wire.ampacity60Al : wire.ampacity75Al);
+    const adjusted = AMPACITY_90[wire.size][state.material] * temperatureFactor * adjustmentFactor;
+    const smallCap = wire.size === '14' ? 15 : wire.size === '12' ? (state.material === 'Copper' ? 20 : 15) : wire.size === '10' ? (state.material === 'Copper' ? 30 : 25) : Infinity;
+    return Math.min(terminal, adjusted, smallCap);
+  };
+  const neutralFor = (wire: WireSizeData) => !hasNeutral ? undefined : state.neutralMode === 'custom' ? wireBySize(state.neutralSize)! : wire;
+  const drop = (wire: WireSizeData, sets: number) => {
+    const neutral = neutralFor(wire);
+    // For L-N, include the actual neutral resistance. Other cases report balanced L-L drop.
+    const resistanceCM = hotCount === 1 && neutral
+      ? 1 / wire.circularMils + 1 / neutral.circularMils
+      : phaseFactor / wire.circularMils;
+    return k * operatingAmps / sets * distance * resistanceCM;
+  };
+  const candidates = (sets: number, forcedSets = false) => {
+    const max = Number(forcedSets ? MAX_WIRE_SIZE_FORCED : state.material === 'Copper' ? MAX_WIRE_SIZE_CU : MAX_WIRE_SIZE_AL);
+    return WIRE_DATA.filter(w => w.circularMils >= (sets > 1 ? parallelCM : minCM) && w.circularMils <= max * 1000);
+  };
+  const select = (sets: number, forcedSets = false) => candidates(sets, forcedSets).find(w =>
+    ampacity(w) * sets + EPS >= requiredAmps && drop(w, sets) / state.voltage * 100 <= target + EPS);
+  let recommendedSets = 1;
+  while (recommendedSets <= MAX_SETS && !select(recommendedSets)) recommendedSets++;
+  const sets = state.forceSets ? Number(state.sets) : Math.max(Number(state.sets), Math.min(recommendedSets, MAX_SETS));
+  const table = candidates(sets, state.forceSets);
+  const recommended = select(sets, state.forceSets);
+  const selected = state.forceWireSize ? wireBySize(state.forcedWireSize)! : recommended ?? table[table.length - 1];
   const warnings: string[] = [];
-  const forcedWire = forceWireSize ? getWireBySize(forcedWireSize) : undefined;
-  const minimumRecommendedWire = getMinimumRecommendedWire();
-  const isWireSizeForced = Boolean(forceWireSize && forcedWire);
+  const actualAmpacity = ampacity(selected) * sets;
+  const actualVD = drop(selected, sets);
+  const voltageDropPercentage = actualVD / state.voltage * 100;
+  if (breaker + EPS < designAmps) warnings.push(`Breaker / fuse rating ${breaker} A is below the ${designAmps.toFixed(1)} A design load.`);
+  if (actualAmpacity + EPS < requiredAmps) warnings.push(`Selected conductor ampacity is ${actualAmpacity.toFixed(1)} A; at least ${requiredAmps.toFixed(1)} A is required for the load and breaker.`);
+  if (voltageDropPercentage > target + EPS) warnings.push(`Voltage drop is ${voltageDropPercentage.toFixed(2)}%, above the ${target}% target.`);
+  if (!recommended && !state.forceWireSize) warnings.push('No valid conductor solution exists within the supported wire sizes and set count. The largest candidate is shown for diagnosis only.');
+  if (selected.circularMils < minCM) warnings.push(`Selected wire is below the ACIES ${formatWireSize(MIN_RECOMMENDED_CONDUCTOR_SIZE)} minimum.`);
+  if (sets > 1 && selected.circularMils < parallelCM) warnings.push('Parallel phase conductors must be at least 1/0 AWG. Special exceptions are not modeled.');
 
-  if (forceWireSize) {
-    if (forcedWire) {
-      if (minimumRecommendedWire && isBelowMinimumRecommendedWire(forcedWire.size)) {
-        selectedWire = minimumRecommendedWire;
-        finalTempRating = getTempRatingForWire(minimumRecommendedWire);
-        warnings.push(
-          `Forced wire size #${forcedWire.size} is below the #${MIN_RECOMMENDED_CONDUCTOR_SIZE} minimum. Using #${minimumRecommendedWire.size} instead.`
-        );
-      } else {
-        selectedWire = forcedWire;
-        finalTempRating = getTempRatingForWire(forcedWire);
-      }
-    } else if (forcedWireSize) {
-      warnings.push(
-        `Forced wire size #${forcedWireSize} is not available in the conductor table. Showing the recommended size instead.`
-      );
+  const neutral = neutralFor(selected);
+  if (neutral) {
+    if (sets > 1 && neutral.circularMils < parallelCM) warnings.push('Parallel neutral conductors must be at least 1/0 AWG. Special exceptions are not modeled.');
+    // On a two-wire L-N circuit the neutral must carry the full circuit design load.
+    const neutralRequired = hotCount === 1 ? requiredAmps : state.neutralMode === 'custom' ? Number(state.neutralDesignAmperage) : designAmps;
+    if (ampacity(neutral) * sets + EPS < neutralRequired) warnings.push(`Neutral ampacity is below its ${neutralRequired.toFixed(1)} A design load.`);
+    if (neutral.circularMils < minCM) warnings.push('Neutral is below the ACIES #12 AWG minimum.');
+  }
+
+  // Baseline includes the same terminal, derating, breaker and parallel constraints.
+  // Only increases beyond this ampacity minimum cause proportional EGC upsizing (250.122(B)).
+  const allCandidates = candidates(sets, true);
+  const ampacityMinimum = allCandidates.find(w => ampacity(w) * sets + EPS >= requiredAmps);
+  const voltageMinimum = allCandidates.find(w => drop(w, sets) / state.voltage * 100 <= target + EPS);
+  const groundRow = GROUND_DATA.find(g => g.rating >= breaker);
+  const baseGround = groundRow ? wireBySize(state.groundMaterial === 'Copper' ? groundRow.cuSize : groundRow.alSize) : undefined;
+  const groundUpsizeRatio = ampacityMinimum ? Math.max(1, selected.circularMils / ampacityMinimum.circularMils) : 1;
+  const ground = baseGround && WIRE_DATA.find(w => w.circularMils + EPS >= baseGround.circularMils * groundUpsizeRatio);
+  if (!baseGround) warnings.push('Breaker / fuse rating exceeds the supported EGC table (1600 A). Ground sizing and conduit fill are unresolved.');
+  if (baseGround && !ground) warnings.push('Required upsized EGC exceeds the conductor table. Ground sizing and conduit fill are unresolved.');
+  if (neutral && groundRow) {
+    // 215.2(B): a feeder neutral also has a grounding-based size floor. Compare in
+    // the NEUTRAL material, not the independently selected EGC material. Apply
+    // the floor per set conservatively; reduced parallel-neutral exceptions are not modeled.
+    const neutralGroundFloor = wireBySize(state.material === 'Copper' ? groundRow.cuSize : groundRow.alSize)!;
+    if (neutral.circularMils + EPS < neutralGroundFloor.circularMils * groundUpsizeRatio) {
+      warnings.push('Neutral is below the grounding-based feeder minimum in its material, including the conductor upsizing multiplier.');
     }
   }
 
-  const sets = effectiveSets;
-  const ampsPerSet = amperage / sets;
-
-  const actualCM = selectedWire.circularMils;
-  const actualVD =
-    actualCM > 0 ? (kFactor * ampsPerSet * distance * phaseFactor) / actualCM : 0;
-  const actualVDPercent = voltage > 0 ? (actualVD / voltage) * 100 : 0;
-  const voltsAtLoad = voltage - actualVD;
-  const actualAmpacity = getTotalAmpacityForWire(selectedWire, material, sets);
-
-  if (isWireSizeForced) {
-    if (actualAmpacity < amperage) {
-      warnings.push(
-        `Forced wire size #${selectedWire.size} has only ${actualAmpacity}A total ampacity across ${sets} set${sets === 1 ? '' : 's'}, below the ${amperage}A load.`
-      );
-    }
-    if (maxVoltageDrop > 0 && actualVDPercent > maxVoltageDrop) {
-      warnings.push(
-        `Forced wire size #${selectedWire.size} causes ${actualVDPercent.toFixed(2)}% voltage drop, above the ${maxVoltageDrop}% limit.`
-      );
-    }
+  // GEC is a separate reference, never substituted for the feeder EGC or placed in its raceway spec.
+  const gec = GEC_DATA.find(g => selected.circularMils * sets <= (state.material === 'Copper' ? g.maxCuCM : g.maxAlCM))!;
+  const gecWireSize = state.groundMaterial === 'Copper' ? gec.gecCuSize : gec.gecAlSize;
+  const fill = selected.areaSqIn * hotCount + (neutral?.areaSqIn ?? 0) + (ground?.areaSqIn ?? 0);
+  const conduits = CONDUIT_EMT_40_PERCENT.filter(c => c.size !== '1/2');
+  let conduitIndex = conduits.findIndex(c => c.area + EPS >= fill);
+  const conduitFits = conduitIndex !== -1;
+  if (!conduitFits) {
+    warnings.push('Conductor fill exceeds 40% in the largest supported EMT (4 inches). Change the wire size or parallel sets.');
+    conduitIndex = conduits.length - 1;
   }
-
-  let groundWireSize: string;
-
-  if (state.groundingTable === 'GEC') {
-    const conductorCM = selectedWire.circularMils * sets;
-    const gecRow = GEC_DATA.find((ground) => {
-      const threshold = material === 'Copper' ? ground.maxCuCM : ground.maxAlCM;
-      return conductorCM <= threshold;
-    });
-    groundWireSize = gecRow
-      ? material === 'Copper'
-        ? gecRow.gecCuSize
-        : gecRow.gecAlSize
-      : 'See Eng.';
-  } else {
-    const groundRow = GROUND_DATA.find((ground) => ground.rating >= amperage);
-    groundWireSize = groundRow
-      ? material === 'Copper'
-        ? groundRow.cuSize
-        : groundRow.alSize
-      : 'See Eng.';
-  }
-
-  const hotCount = getHotCount(effectivePhase, voltage);
-  const numCurrentCarrying = hotCount + 1;
-  const totalWiresPerSet = numCurrentCarrying;
-
-  const groundWireObj = getWireBySize(groundWireSize);
-  const groundArea = groundWireObj ? groundWireObj.areaSqIn : 0.02;
-  const totalFillArea = selectedWire.areaSqIn * totalWiresPerSet + groundArea;
-
-  const minConduitIndex = CONDUIT_EMT_40_PERCENT.findIndex((conduit) => conduit.size === '3/4');
-  const availableConduits = CONDUIT_EMT_40_PERCENT.slice(minConduitIndex);
-
-  let recommendedConduitIndex = availableConduits.findIndex(
-    (conduit) => conduit.area >= totalFillArea
-  );
-  if (recommendedConduitIndex === -1) {
-    recommendedConduitIndex = availableConduits.length - 1;
-  }
-  if (oversizeConduit && recommendedConduitIndex < availableConduits.length - 1) {
-    recommendedConduitIndex++;
-  }
-
-  const recommendedConduit = availableConduits[recommendedConduitIndex];
-
+  if (state.oversizeConduit && conduitFits && conduitIndex < conduits.length - 1) conduitIndex++;
+  const conduit = conduits[conduitIndex];
+  // Unknown grounding must not turn into a fabricated fill value.
+  const fillPercent = ground ? fill / (conduit.area / 0.4) * 100 : NaN;
+  const resistancePerFoot = drop(selected, sets) / (distance || 1);
+  const maxDistanceAtTarget = distance > 0 ? state.voltage * target / 100 / resistancePerFoot :
+    state.voltage * target / 100 / (k * operatingAmps / sets * (hotCount === 1 && neutral ? 1 / selected.circularMils + 1 / neutral.circularMils : phaseFactor / selected.circularMils));
   return {
-    recommendedSize: recommendedWire.size,
-    selectedSize: selectedWire.size,
-    isWireSizeForced,
-    warnings,
-    actualAmpacity,
-    voltageDrop: actualVD,
-    voltageDropPercentage: actualVDPercent,
-    voltageAtLoad: voltsAtLoad,
-    groundWireSize,
-    conduitSize: recommendedConduit ? recommendedConduit.size : '4"+',
-    conduitType: 'EMT',
-    maxDistanceFor3Percent:
-      actualCM > 0
-        ? (actualCM * (voltage * 0.03)) / (kFactor * ampsPerSet * phaseFactor)
-        : 0,
-    wireAreaTotal: totalFillArea,
-    conduitFillPercentage: recommendedConduit
-      ? (totalFillArea / (recommendedConduit.area / 0.4)) * 100
-      : 100,
-    tempRatingUsed: finalTempRating,
-    sets,
-    recommendedSets: autoResult.sets,
+    valid: warnings.length === 0, warnings, operatingAmps, designAmps,
+    ampacityMinimum: ampacityMinimum?.size ?? null, voltageDropMinimum: voltageMinimum?.size ?? null,
+    recommendedSize: recommended?.size ?? '', selectedSize: selected.size,
+    isWireSizeForced: state.forceWireSize, actualAmpacity, voltageDrop: actualVD,
+    voltageDropPercentage, voltageAtLoad: state.voltage - actualVD,
+    groundWireSize: ground?.size ?? 'Unresolved', neutralSize: neutral?.size ?? null,
+    gecWireSize, groundUpsizeRatio, temperatureFactor, adjustmentFactor, currentCarryingCount,
+    conduitSize: ground && conduitFits ? conduit.size : '', conduitType: 'EMT',
+    wireAreaTotal: ground ? fill : NaN, conduitFillPercentage: fillPercent,
+    maxDistanceAtTarget, maxDistanceFor3Percent: maxDistanceAtTarget * 3 / target,
+    tempRatingUsed: state.terminalRating, sets,
+    recommendedSets: recommendedSets <= MAX_SETS ? recommendedSets : 0,
   };
-};
+}
+
+export function formatFeederSpec(state: AppState, results: CalculationResult): string {
+  if (!results.valid || validateInputs(state).length) throw new Error('Resolve calculation errors before copying a specification.');
+  const hots = getHotCount(state.phase, state.voltage);
+  const neutral = results.neutralSize ? `, 1 x ${formatWireSize(results.neutralSize)} N` : '';
+  return [
+    `${results.sets} raceway${results.sets === 1 ? '' : 's'}; EACH: ${results.conduitSize}\" EMT, ${hots} x ${formatWireSize(results.selectedSize)} H${neutral}, 1 x ${formatWireSize(results.groundWireSize)} EGC`,
+    `PHASE/NEUTRAL: ${state.material} THHN/THWN-2; EGC: ${state.groundMaterial}, insulated; TERMINALS: ${state.terminalRating}°C`,
+    `${state.voltage} V, ${state.phase} phase; OCPD: ${state.breakerAmperage} A; OPERATING: ${results.operatingAmps} A; DESIGN: ${results.designAmps} A`,
+    `ONE-WAY LENGTH: ${state.distance} ft; VOLTAGE DROP: ${results.voltageDropPercentage.toFixed(2)}% (target ${state.maxVoltageDrop}%, ${hots === 1 ? 'L-N' : 'balanced L-L'}, resistance approximation)`,
+    `AMBIENT: ${state.ambientTemperature}°C; CCC PER RACEWAY: ${results.currentCarryingCount}; FILL: ${results.conduitFillPercentage.toFixed(1)}%`,
+    ...(state.neutralMode === 'custom' ? [`NEUTRAL DESIGN LOAD: ${state.neutralDesignAmperage} A (user calculated)`] : []),
+  ].join('\n');
+}

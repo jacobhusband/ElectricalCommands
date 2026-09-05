@@ -1,6 +1,5 @@
 export type ConductorMaterial = 'Copper' | 'Aluminum';
 type Phase = 1 | 3;
-type GroundingTableType = 'EGC' | 'GEC';
 
 export interface WireSizeData {
   size: string;
@@ -26,6 +25,18 @@ export interface GECData {
 }
 
 export interface CalculationResult {
+  valid: boolean;
+  operatingAmps: number;
+  designAmps: number;
+  ampacityMinimum: string | null;
+  voltageDropMinimum: string | null;
+  neutralSize: string | null;
+  gecWireSize: string;
+  groundUpsizeRatio: number;
+  temperatureFactor: number;
+  adjustmentFactor: number;
+  currentCarryingCount: number;
+  maxDistanceAtTarget: number;
   recommendedSize: string; // Baseline recommended conductor size for the effective set count
   selectedSize: string; // Actual conductor size used for displayed results
   isWireSizeForced: boolean;
@@ -56,7 +67,14 @@ export interface AppState {
   forceSets: boolean; // Force user-defined sets to override recommendation
   forceWireSize: boolean; // Force a specific conductor size
   forcedWireSize: string; // Exact conductor size to use when forcing wire size
-  powerFactor: number;
+  continuousAmperage: number | ''; // Portion of the total operating load that is continuous
+  breakerAmperage: number | '';
+  terminalRating: 60 | 75; // Lowest marked rating at either end
+  ambientTemperature: number | '';
+  neutralMode: 'none' | 'full' | 'custom';
+  neutralSize: string;
+  neutralDesignAmperage: number | ''; // Calculated neutral load, including continuous-load allowance
+  neutralCurrentCarrying: boolean;
+  groundMaterial: ConductorMaterial;
   oversizeConduit: boolean;
-  groundingTable: GroundingTableType;
 }

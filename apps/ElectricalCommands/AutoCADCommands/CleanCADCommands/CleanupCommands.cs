@@ -21,6 +21,9 @@ namespace AutoCADCleanupTool
         internal static bool UseClassicBindDuringFinalize = false;
         internal static bool ForceDetachOriginalXrefs = false;
         internal static bool RunRemoveRemainingAfterFinalize = false;
+        internal static bool RunFinalizeStagesSynchronously = false;
+        internal static bool PreserveRemainingXrefsDuringFinalizeCleanup = false;
+        internal static bool FinalizeStageFailed = false;
         internal static bool StrictTitleBlockProtectionActive = false;
         internal static bool StrictTitleBlockBindFailed = false;
         internal static bool AbortRemainingXrefDetach = false;
@@ -278,7 +281,12 @@ namespace AutoCADCleanupTool
             return (true, w, h, angle);
         }
 
-        internal static int EraseEntitiesExcept(Database db, Editor ed, ObjectId spaceId, HashSet<ObjectId> idsToKeep)
+        internal static int EraseEntitiesExcept(
+            Database db,
+            Editor ed,
+            ObjectId spaceId,
+            HashSet<ObjectId> idsToKeep,
+            bool regenerateView = true)
         {
             int erasedCount = 0;
             try
@@ -337,7 +345,10 @@ namespace AutoCADCleanupTool
                 if (erasedCount > 0)
                 {
                     ed.WriteMessage($"\nErased {erasedCount} object(s).");
-                    ed.Regen();
+                    if (regenerateView)
+                    {
+                        ed.Regen();
+                    }
                 }
             }
             catch (System.Exception ex)

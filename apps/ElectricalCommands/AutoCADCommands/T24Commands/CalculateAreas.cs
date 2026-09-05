@@ -4,6 +4,8 @@ using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using AcApplication = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace ElectricalCommands
@@ -18,10 +20,22 @@ namespace ElectricalCommands
 
       try
       {
-        SelectionSet selectionSet;
+        List<AreaLabelRoomItem> roomItems = LoadSavedAreaLabelRooms(
+          db,
+          ed,
+          out Point3d? existingBasePoint);
+
+        HashSet<ObjectId> existingIds = new HashSet<ObjectId>(
+          roomItems.Select(r => r.ObjectId));
+        HashSet<string> existingHandles = new HashSet<string>(
+          roomItems.Select(r => r.SourceHandle),
+          StringComparer.OrdinalIgnoreCase);
+
+        SelectionSet selectionSet = null;
         PromptSelectionResult selectionResult = ed.SelectImplied();
         if (selectionResult.Status == PromptStatus.OK &&
-            selectionResult.Value != null)
+            selectionResult.Value != null &&
+            selectionResult.Value.Count > 0)
         {
           selectionSet = selectionResult.Value;
         }
@@ -29,7 +43,9 @@ namespace ElectricalCommands
         {
           PromptSelectionOptions options = new PromptSelectionOptions
           {
-            MessageForAdding = "\nSelect room polylines: ",
+            MessageForAdding = roomItems.Count > 0
+              ? $"\nSelect room polylines to add (or press Enter to review {roomItems.Count} saved room(s)): "
+              : "\nSelect room polylines: ",
             AllowDuplicates = false,
             RejectObjectsOnLockedLayers = true,
           };
@@ -38,19 +54,95 @@ namespace ElectricalCommands
             {
               new TypedValue((int)DxfCode.Start, "LWPOLYLINE"),
             });
+
           selectionResult = ed.GetSelection(options, filter);
-          if (selectionResult.Status != PromptStatus.OK ||
-              selectionResult.Value == null)
+          if (selectionResult.Status == PromptStatus.OK &&
+              selectionResult.Value != null &&
+              selectionResult.Value.Count > 0)
+          {
+            selectionSet = selectionResult.Value;
+          }
+          else if (selectionResult.Status == PromptStatus.Cancel)
           {
             return;
           }
-          selectionSet = selectionResult.Value;
+          else if (roomItems.Count == 0)
+          {
+            return;
+          }
         }
 
-        List<AreaLabelRoomItem> roomItems = BuildAreaLabelRoomItems(
-          db,
-          ed,
-          selectionSet);
+        if (selectionSet != null)
+        {
+          using (Transaction transaction =
+            db.TransactionManager.StartOpenCloseTransaction())
+          {
+            foreach (ObjectId objectId in selectionSet.GetObjectIds())
+            {
+              if (objectId.IsNull || !objectId.IsValid || objectId.IsErased)
+              {
+                continue;
+              }
+
+              if (existingIds.Contains(objectId))
+              {
+                continue;
+              }
+
+              Polyline polyline = transaction.GetObject(
+                objectId,
+                OpenMode.ForRead,
+                false) as Polyline;
+              if (polyline == null)
+              {
+                ed.WriteMessage(
+                  $"\nIgnored selected object {objectId.Handle}; it is not a " +
+                  "lightweight polyline.");
+                continue;
+              }
+              if (polyline.NumberOfVertices < 3)
+              {
+                ed.WriteMessage(
+                  $"\nIgnored polyline {polyline.Handle}; room boundaries must " +
+                  "contain at least three vertices.");
+                continue;
+              }
+
+              string handleStr = polyline.Handle.ToString();
+              if (existingHandles.Contains(handleStr))
+              {
+                continue;
+              }
+
+              double squareFeet = polyline.Area / 144.0;
+              int roomNumber = roomItems.Count + 1;
+              string defaultName = $"Polyline {roomNumber}";
+              string roomName = defaultName;
+
+              if (RoomBoundaryMetadataStore.TryRead(
+                polyline,
+                transaction,
+                out var existingMetadata) &&
+                !string.IsNullOrWhiteSpace(existingMetadata.Name))
+              {
+                roomName = existingMetadata.Name;
+              }
+
+              roomItems.Add(new AreaLabelRoomItem
+              {
+                ObjectId = objectId,
+                SourceLabel = defaultName,
+                SourceHandle = handleStr,
+                DefaultRoomName = defaultName,
+                RoomName = roomName,
+                SquareFeet = squareFeet,
+              });
+              existingIds.Add(objectId);
+              existingHandles.Add(handleStr);
+            }
+          }
+        }
+
         if (roomItems.Count == 0)
         {
           ed.WriteMessage(
@@ -59,10 +151,10 @@ namespace ElectricalCommands
           return;
         }
 
-        // Remove PickFirst grips so the naming window can show one clear,
-        // individually highlighted boundary at a time.
+        // Remove PickFirst grips so the naming window can show clear,
+        // individually highlighted boundaries.
         ed.SetImpliedSelection(new ObjectId[0]);
-        ObjectId highlightedBoundaryId = ObjectId.Null;
+        List<ObjectId> highlightedBoundaryIds = new List<ObjectId>();
         string drawingDirectory = null;
         try
         {
@@ -75,22 +167,28 @@ namespace ElectricalCommands
         {
           // Ignore drawing path resolution exceptions
         }
+
         RoomNamingWindow namingWindow = new RoomNamingWindow(
           roomItems,
           drawingDirectory,
-          ed);
-        namingWindow.SelectedBoundaryChanged += selectedId =>
+          ed,
+          db);
+
+        namingWindow.SelectedBoundariesChanged += selectedIds =>
         {
-          if (selectedId == highlightedBoundaryId)
+          foreach (ObjectId id in highlightedBoundaryIds)
           {
-            return;
+            SetAreaLabelBoundaryHighlight(db, id, false);
           }
-          SetAreaLabelBoundaryHighlight(
-            db,
-            highlightedBoundaryId,
-            false);
-          highlightedBoundaryId = selectedId;
-          SetAreaLabelBoundaryHighlight(db, highlightedBoundaryId, true);
+
+          highlightedBoundaryIds = selectedIds?
+            .Where(id => !id.IsNull && id.IsValid && !id.IsErased)
+            .ToList() ?? new List<ObjectId>();
+
+          foreach (ObjectId id in highlightedBoundaryIds)
+          {
+            SetAreaLabelBoundaryHighlight(db, id, true);
+          }
         };
 
         bool? accepted;
@@ -100,35 +198,76 @@ namespace ElectricalCommands
         }
         finally
         {
-          SetAreaLabelBoundaryHighlight(
-            db,
-            highlightedBoundaryId,
-            false);
+          foreach (ObjectId id in highlightedBoundaryIds)
+          {
+            SetAreaLabelBoundaryHighlight(db, id, false);
+          }
         }
+
         if (accepted != true)
         {
           ed.WriteMessage("\nAREALABEL room naming canceled.");
           return;
         }
 
-        PromptPointResult basePointResult = ed.GetPoint(
-          new PromptPointOptions(
-            "\nSpecify the common base point for the saved room boundaries: "));
-        if (basePointResult.Status != PromptStatus.OK)
+        Point3d basePoint;
+        PromptPointOptions basePointOptions;
+        if (existingBasePoint.HasValue)
+        {
+          basePointOptions = new PromptPointOptions(
+            $"\nSpecify common base point [press ENTER to keep {FormatAreaLabelPoint(existingBasePoint.Value)}]: ")
+          {
+            AllowNone = true,
+          };
+        }
+        else
+        {
+          basePointOptions = new PromptPointOptions(
+            "\nSpecify the common base point for the saved room boundaries: ");
+        }
+
+        PromptPointResult basePointResult = ed.GetPoint(basePointOptions);
+        if (basePointResult.Status == PromptStatus.None && existingBasePoint.HasValue)
+        {
+          basePoint = existingBasePoint.Value;
+        }
+        else if (basePointResult.Status == PromptStatus.OK)
+        {
+          basePoint = basePointResult.Value.TransformBy(
+            ed.CurrentUserCoordinateSystem);
+        }
+        else
         {
           ed.WriteMessage("\nAREALABEL canceled before room data was saved.");
           return;
         }
 
-        Point3d basePoint = basePointResult.Value.TransformBy(
-          ed.CurrentUserCoordinateSystem);
         List<ElectricalDrawingSettingsStore.RoomBoundarySetting> savedRooms =
           new List<ElectricalDrawingSettingsStore.RoomBoundarySetting>();
 
         using (Transaction transaction =
           doc.TransactionManager.StartTransaction())
         {
-          foreach (AreaLabelRoomItem roomItem in roomItems)
+          // Clean up metadata from polylines that were explicitly removed in the UI
+          foreach (ObjectId removedId in namingWindow.RemovedObjectIds)
+          {
+            if (removedId.IsNull || !removedId.IsValid || removedId.IsErased)
+            {
+              continue;
+            }
+
+            Polyline removedPolyline = transaction.GetObject(
+              removedId,
+              OpenMode.ForWrite,
+              false) as Polyline;
+            if (removedPolyline != null)
+            {
+              RoomBoundaryMetadataStore.Remove(removedPolyline, transaction);
+            }
+          }
+
+          // Save metadata and settings for all active rooms
+          foreach (AreaLabelRoomItem roomItem in namingWindow.Rooms)
           {
             Polyline polyline = transaction.GetObject(
               roomItem.ObjectId,
@@ -190,82 +329,119 @@ namespace ElectricalCommands
       }
     }
 
-    private static List<AreaLabelRoomItem> BuildAreaLabelRoomItems(
+    private static List<AreaLabelRoomItem> LoadSavedAreaLabelRooms(
       Database database,
       Editor editor,
-      SelectionSet selectionSet)
+      out Point3d? existingBasePoint)
     {
+      existingBasePoint = null;
       List<AreaLabelRoomItem> rooms = new List<AreaLabelRoomItem>();
-      Dictionary<string, string> legacyRoomNames =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-      if (ElectricalDrawingSettingsStore.TryReadRoomBoundaries(
+      if (!ElectricalDrawingSettingsStore.TryReadRoomBoundaries(
         database,
-        out var legacyRoomData))
+        out var savedRoomData) ||
+        savedRoomData == null ||
+        savedRoomData.Rooms == null ||
+        savedRoomData.Rooms.Count == 0)
       {
-        foreach (ElectricalDrawingSettingsStore.RoomBoundarySetting legacyRoom
-          in legacyRoomData.Rooms)
-        {
-          if (!string.IsNullOrWhiteSpace(legacyRoom.SourceHandle) &&
-              !string.IsNullOrWhiteSpace(legacyRoom.Name))
-          {
-            legacyRoomNames[legacyRoom.SourceHandle] = legacyRoom.Name;
-          }
-        }
+        return rooms;
       }
+
+      existingBasePoint = savedRoomData.BasePoint;
+      HashSet<string> seenHandles = new HashSet<string>(
+        StringComparer.OrdinalIgnoreCase);
 
       using (Transaction transaction =
         database.TransactionManager.StartOpenCloseTransaction())
       {
-        foreach (ObjectId objectId in selectionSet.GetObjectIds())
+        foreach (var roomSetting in savedRoomData.Rooms)
         {
-          Polyline polyline = transaction.GetObject(
-            objectId,
-            OpenMode.ForRead,
-            false) as Polyline;
-          if (polyline == null)
+          if (string.IsNullOrWhiteSpace(roomSetting.SourceHandle))
           {
-            editor.WriteMessage(
-              $"\nIgnored selected object {objectId.Handle}; it is not a " +
-              "lightweight polyline.");
             continue;
           }
-          if (polyline.NumberOfVertices < 3)
+
+          if (seenHandles.Contains(roomSetting.SourceHandle))
           {
-            editor.WriteMessage(
-              $"\nIgnored polyline {polyline.Handle}; room boundaries must " +
-              "contain at least three vertices.");
+            continue;
+          }
+
+          ObjectId polylineId = ResolvePolylineByHandle(
+            database,
+            roomSetting.SourceHandle);
+          if (polylineId.IsNull || !polylineId.IsValid || polylineId.IsErased)
+          {
+            continue;
+          }
+
+          Polyline polyline = transaction.GetObject(
+            polylineId,
+            OpenMode.ForRead,
+            false) as Polyline;
+          if (polyline == null || polyline.IsErased || polyline.NumberOfVertices < 3)
+          {
             continue;
           }
 
           double squareFeet = polyline.Area / 144.0;
-          int roomNumber = rooms.Count + 1;
-          string defaultName = $"Polyline {roomNumber}";
-          string roomName = defaultName;
+          string roomName = roomSetting.Name ?? string.Empty;
           if (RoomBoundaryMetadataStore.TryRead(
             polyline,
             transaction,
-            out var existingMetadata))
+            out var metadata) &&
+            !string.IsNullOrWhiteSpace(metadata.Name))
           {
-            roomName = existingMetadata.Name;
+            roomName = metadata.Name;
           }
-          else if (legacyRoomNames.TryGetValue(
-            polyline.Handle.ToString(),
-            out string legacyRoomName))
+
+          int roomNumber = rooms.Count + 1;
+          string defaultName = $"Polyline {roomNumber}";
+          if (string.IsNullOrWhiteSpace(roomName))
           {
-            roomName = legacyRoomName;
+            roomName = defaultName;
           }
+
           rooms.Add(new AreaLabelRoomItem
           {
-            ObjectId = objectId,
+            ObjectId = polylineId,
             SourceLabel = defaultName,
             SourceHandle = polyline.Handle.ToString(),
             DefaultRoomName = defaultName,
             RoomName = roomName,
             SquareFeet = squareFeet,
           });
+          seenHandles.Add(roomSetting.SourceHandle);
         }
       }
+
       return rooms;
+    }
+
+    private static ObjectId ResolvePolylineByHandle(
+      Database database,
+      string handleStr)
+    {
+      if (database == null || string.IsNullOrWhiteSpace(handleStr))
+      {
+        return ObjectId.Null;
+      }
+
+      if (!long.TryParse(
+        handleStr,
+        NumberStyles.HexNumber,
+        CultureInfo.InvariantCulture,
+        out long handleVal))
+      {
+        return ObjectId.Null;
+      }
+
+      try
+      {
+        return database.GetObjectId(false, new Handle(handleVal), 0);
+      }
+      catch
+      {
+        return ObjectId.Null;
+      }
     }
 
     private static Point3d ResolveAreaLabelLocation(Polyline polyline)

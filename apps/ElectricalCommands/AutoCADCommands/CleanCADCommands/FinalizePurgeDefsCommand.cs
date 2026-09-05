@@ -89,6 +89,7 @@ namespace AutoCADCleanupTool
                 }
                 catch (System.Exception ex)
                 {
+                    FinalizeStageFailed = true;
                     ed.WriteMessage($"\nAn error occurred during final purge: {ex.Message}\n{ex.StackTrace}");
                 }
             }

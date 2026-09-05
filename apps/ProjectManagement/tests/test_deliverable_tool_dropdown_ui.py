@@ -168,7 +168,7 @@ class DeliverableToolDropdownUiTests(unittest.TestCase):
             self.assertIn(expected, css)
 
 
-    def test_card_view_dropdown_positioning_and_viewport_bounds(self):
+    def test_card_view_dropdown_positioning_and_visible_board_bounds(self):
         text = SCRIPT_JS_PATH.read_text(encoding="utf-8")
         css = STYLES_CSS_PATH.read_text(encoding="utf-8")
 
@@ -176,6 +176,13 @@ class DeliverableToolDropdownUiTests(unittest.TestCase):
             "function positionDropdownMenuInCardView(dropdown, isOpen) {",
             'menu.style.maxHeight = "";',
             'menu.style.overflowY = "";',
+            'const cardView = dropdown.closest(".projects-card-view");',
+            "const cardViewRect = cardView.getBoundingClientRect();",
+            "const minLeft = Math.max(margin, cardViewRect.left + margin);",
+            "let minTop = Math.max(margin, cardViewRect.top + margin);",
+            "const maxBottom = Math.min(viewportH - margin, cardViewRect.bottom - margin);",
+            '.querySelector(":scope > .kanban-column__header");',
+            "headerRect.bottom + gap",
             "const spaceBelow = Math.max(0, maxBottom - (triggerRect.bottom + gap));",
             "const spaceAbove = Math.max(0, (triggerRect.top - gap) - minTop);",
             "menu.style.maxHeight = `${maxHeight}px`;",

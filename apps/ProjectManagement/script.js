@@ -22636,7 +22636,8 @@ function positionDropdownMenuInCardView(dropdown, isOpen) {
     return;
   }
 
-  if (!dropdown.closest(".projects-card-view")) return;
+  const cardView = dropdown.closest(".projects-card-view");
+  if (!cardView) return;
 
   const trigger = dropdown.querySelector(
     ":scope > .deliverable-tool-trigger, :scope > .deliverable-actions-trigger, :scope > .deliverable-status-trigger"
@@ -22655,10 +22656,13 @@ function positionDropdownMenuInCardView(dropdown, isOpen) {
 
   const menuRect = menu.getBoundingClientRect();
   const triggerRect = trigger.getBoundingClientRect();
+  const cardViewRect = cardView.getBoundingClientRect();
   const viewportW = window.innerWidth;
   const viewportH = window.innerHeight;
   const gap = 6;
   const margin = 8;
+  const minLeft = Math.max(margin, cardViewRect.left + margin);
+  const maxRight = Math.min(viewportW - margin, cardViewRect.right - margin);
   const isLeftAligned =
     menu.classList.contains("deliverable-status-menu") ||
     dropdown.classList.contains("deliverable-card-tool-action") ||
@@ -22667,10 +22671,27 @@ function positionDropdownMenuInCardView(dropdown, isOpen) {
   let left = isLeftAligned
     ? triggerRect.left
     : triggerRect.right - menuRect.width;
-  left = Math.max(margin, Math.min(left, viewportW - menuRect.width - margin));
+  left = Math.max(
+    minLeft,
+    Math.min(left, Math.max(minLeft, maxRight - menuRect.width))
+  );
 
-  const minTop = margin;
-  const maxBottom = viewportH - margin;
+  // The card board is its own scroll/clipping viewport. Its top edge sits below
+  // the project controls, and each column also has a sticky header. Keep menus
+  // below both boundaries instead of treating obscured page space as available.
+  let minTop = Math.max(margin, cardViewRect.top + margin);
+  const maxBottom = Math.min(viewportH - margin, cardViewRect.bottom - margin);
+  const stickyHeader = dropdown
+    .closest(".kanban-column")
+    ?.querySelector(":scope > .kanban-column__header");
+  if (stickyHeader) {
+    const headerRect = stickyHeader.getBoundingClientRect();
+    const headerIntersectsVisibleBoard =
+      headerRect.bottom > minTop && headerRect.top < maxBottom;
+    if (headerIntersectsVisibleBoard && headerRect.top <= triggerRect.top) {
+      minTop = Math.max(minTop, headerRect.bottom + gap);
+    }
+  }
 
   const spaceBelow = Math.max(0, maxBottom - (triggerRect.bottom + gap));
   const spaceAbove = Math.max(0, (triggerRect.top - gap) - minTop);
@@ -22696,8 +22717,11 @@ function positionDropdownMenuInCardView(dropdown, isOpen) {
     maxHeight = spaceBelow;
   }
 
-  top = Math.max(minTop, Math.min(top, maxBottom - 40));
-  maxHeight = Math.max(80, Math.floor(maxHeight));
+  top = Math.max(minTop, Math.min(top, maxBottom - 1));
+  maxHeight = Math.max(
+    1,
+    Math.floor(Math.min(maxHeight, Math.max(0, maxBottom - top)))
+  );
 
   // An ancestor with backdrop-filter / transform / filter / etc. establishes a
   // containing block for our fixed menu. getBoundingClientRect returns viewport
@@ -29968,7 +29992,7 @@ const PLUGIN_DOC_OVERRIDES = {
   },
   CleanCADCommands: {
     replace: true,
-    order: ["EMBEDIMAGES", "EMBEDPDFS", "CLEANTBLK", "CLEANCAD"],
+    order: ["EMBEDIMAGES", "EMBEDPDFS", "CLEANTBLK", "CLEANCAD", "CLEANCAD2"],
     commands: {
       EMBEDIMAGES:
         "Embeds raster images from XREFs into the drawing by converting them to OLE objects using PowerPoint, preserving orientation.",
@@ -29978,6 +30002,8 @@ const PLUGIN_DOC_OVERRIDES = {
         "Cleans the title block by exploding blocks, keeping only the title block, detaching XREFs, and embedding images.",
       CLEANCAD:
         "Cleans the entire sheet by embedding XREFs and performing cleanup operations.",
+      CLEANCAD2:
+        "Runs the initial non-interactive cleanup workflow, aborting safely when unresolved XREFs or media requiring desktop embedding are detected.",
     },
     links: {
       EMBEDIMAGES: buildPluginDocUrl(

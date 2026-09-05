@@ -29,6 +29,7 @@ namespace AutoCADCleanupTool
                 ObjectId protectedXrefId = ProtectedTitleBlockXrefId;
                 StrictTitleBlockBindFailed = false;
                 AbortRemainingXrefDetach = false;
+                FinalizeStageFailed = false;
                 string protectedNameAtScan = ProtectedTitleBlockName;
                 string protectedPathAtScan = ProtectedTitleBlockPath;
 
@@ -291,8 +292,16 @@ namespace AutoCADCleanupTool
 
                 if (bindCount > 0 || ForceDetachOriginalXrefs || _originalXrefIds.Count > 0)
                 {
-                    ed.WriteMessage("\nBind complete or skipped. Queueing cleanup process...");
-                    doc.SendStringToExecute("_-FINALIZE-CLEANUP ", true, false, false);
+                    if (RunFinalizeStagesSynchronously)
+                    {
+                        ed.WriteMessage("\nBind complete or skipped. Running cleanup process synchronously...");
+                        FinalizeCleanupCommand();
+                    }
+                    else
+                    {
+                        ed.WriteMessage("\nBind complete or skipped. Queueing cleanup process...");
+                        doc.SendStringToExecute("_-FINALIZE-CLEANUP ", true, false, false);
+                    }
                 }
                 else
                 {
@@ -301,6 +310,7 @@ namespace AutoCADCleanupTool
             }
             catch (System.Exception ex)
             {
+                FinalizeStageFailed = true;
                 ed.WriteMessage($"\nAn error occurred during bind: {ex.Message}");
                 if (strictProtection)
                 {

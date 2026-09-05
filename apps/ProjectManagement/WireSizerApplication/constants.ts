@@ -83,3 +83,30 @@ export const MIN_RECOMMENDED_CONDUCTOR_SIZE = "12";
 export const MAX_WIRE_SIZE_CU = "600"; // 600 kcmil max for copper
 export const MAX_WIRE_SIZE_AL = "750"; // 750 kcmil max for aluminum
 export const MAX_WIRE_SIZE_FORCED = "2000"; // Max allowed when forcing sets
+
+// NEC Table 310.16, 90°C column, for THHN/THWN-2 correction and adjustment ONLY.
+// Final allowable ampacity is capped by the selected terminal rating and 240.4(D).
+// Reference: Southwire MC Installation Guide (2024), ampacity tables.
+export const AMPACITY_90: Record<string, { Copper: number; Aluminum: number }> = {
+  '14': { Copper: 25, Aluminum: 0 }, '12': { Copper: 30, Aluminum: 25 },
+  '10': { Copper: 40, Aluminum: 35 }, '8': { Copper: 55, Aluminum: 45 },
+  '6': { Copper: 75, Aluminum: 55 }, '4': { Copper: 95, Aluminum: 75 },
+  '3': { Copper: 115, Aluminum: 85 }, '2': { Copper: 130, Aluminum: 100 },
+  '1': { Copper: 150, Aluminum: 115 }, '1/0': { Copper: 170, Aluminum: 135 },
+  '2/0': { Copper: 195, Aluminum: 150 }, '3/0': { Copper: 225, Aluminum: 175 },
+  '4/0': { Copper: 260, Aluminum: 205 }, '250': { Copper: 290, Aluminum: 230 },
+  '300': { Copper: 320, Aluminum: 260 }, '350': { Copper: 350, Aluminum: 280 },
+  '400': { Copper: 380, Aluminum: 305 }, '500': { Copper: 430, Aluminum: 350 },
+  '600': { Copper: 475, Aluminum: 385 }, '700': { Copper: 520, Aluminum: 425 },
+  '750': { Copper: 535, Aluminum: 435 }, '800': { Copper: 555, Aluminum: 445 },
+  '900': { Copper: 585, Aluminum: 480 }, '1000': { Copper: 615, Aluminum: 500 },
+  '1250': { Copper: 665, Aluminum: 545 }, '1500': { Copper: 705, Aluminum: 585 },
+  '1750': { Copper: 735, Aluminum: 615 }, '2000': { Copper: 750, Aluminum: 630 },
+};
+
+// Table 310.15(B)(1), 90°C insulation, ambient range 10–80°C.
+export const AMBIENT_FACTORS_90 = [
+  [10, 1.15], [15, 1.12], [20, 1.08], [25, 1.04], [30, 1],
+  [35, 0.96], [40, 0.91], [45, 0.87], [50, 0.82], [55, 0.76],
+  [60, 0.71], [65, 0.65], [70, 0.58], [75, 0.50], [80, 0.41],
+];

@@ -157,6 +157,296 @@ namespace AutoCADCleanupTool
             }
         }
 
+        [CommandMethod("VP2PLHEADLESS", CommandFlags.Modal)]
+        public static void ViewportToPolyline_AllLayoutsHeadlessCommand()
+        {
+            RunViewportToPolylineHeadless();
+        }
+
+        /// <summary>
+        /// Core Console-safe VP2PL variant. It deliberately uses entity extents and
+        /// polygon intersection instead of Editor.SelectCrossingPolygon, which is
+        /// tied to the active graphics view. The extents test is conservative: an
+        /// entity may be kept unnecessarily, but a selection/view failure will never
+        /// cause all of Model Space to be erased.
+        /// </summary>
+        internal static bool RunViewportToPolylineHeadless()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return false;
+
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            try
+            {
+                using (doc.LockDocument())
+                {
+                    var regions = CollectViewportRegionsHeadless(db, ed);
+                    if (regions.Count == 0)
+                    {
+                        ed.WriteMessage("\nVP2PLHEADLESS: No eligible viewport regions were found. Model Space was left unchanged.");
+                        return false;
+                    }
+
+                    ObjectId modelSpaceId = SymbolUtilityServices.GetBlockModelSpaceId(db);
+                    var keepIds = new HashSet<ObjectId>();
+                    int intersectingCount;
+                    int missingExtentsCount;
+                    SelectViewportRegionContentsHeadless(
+                        db,
+                        modelSpaceId,
+                        regions,
+                        keepIds,
+                        out intersectingCount,
+                        out missingExtentsCount);
+
+                    AddProtectedModelSpaceEntities(db, modelSpaceId, keepIds);
+
+                    if (keepIds.Count == 0)
+                    {
+                        ed.WriteMessage("\nVP2PLHEADLESS: No Model Space entities could be matched safely. Model Space was left unchanged.");
+                        return false;
+                    }
+
+                    int erasedCount = EraseEntitiesExcept(
+                        db,
+                        ed,
+                        modelSpaceId,
+                        keepIds,
+                        regenerateView: false);
+
+                    ed.WriteMessage(
+                        $"\nVP2PLHEADLESS: Evaluated {regions.Count} viewport region(s); " +
+                        $"kept {intersectingCount} intersecting entit(ies) and {missingExtentsCount} entit(ies) without reliable extents; " +
+                        $"erased {erasedCount} entit(ies) outside every viewport region.");
+                    return true;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\nVP2PLHEADLESS failed: {ex.Message}. Model Space cleanup may be incomplete.");
+                return false;
+            }
+        }
+
+        private static List<ViewportRegion> CollectViewportRegionsHeadless(Database db, Editor ed)
+        {
+            var regions = new List<ViewportRegion>();
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry kv in layoutDict)
+                {
+                    var layout = tr.GetObject(kv.Value, OpenMode.ForRead) as Layout;
+                    if (layout == null || layout.ModelType) continue;
+
+                    var layoutBtr = tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead) as BlockTableRecord;
+                    if (layoutBtr == null) continue;
+
+                    foreach (ObjectId id in layoutBtr)
+                    {
+                        if (!id.IsValid || id.IsErased || id.ObjectClass.DxfName != "VIEWPORT") continue;
+
+                        var viewport = tr.GetObject(id, OpenMode.ForRead, false) as Viewport;
+                        if (viewport == null || viewport.Number == 1 || !viewport.On) continue;
+                        if (viewport.Width <= 0 || viewport.Height <= 0) continue;
+
+                        var paperPoints = GetViewportBoundaryPointsInPaper(viewport, tr);
+                        if (paperPoints == null || paperPoints.Count < 3) continue;
+
+                        Matrix3d modelFromPaper;
+                        try
+                        {
+                            modelFromPaper = ComputeMsFromPsMatrixAaa(viewport);
+                        }
+                        catch (System.Exception ex)
+                        {
+                            ed.WriteMessage(
+                                $"\nVP2PLHEADLESS: PS-to-MS transform failed for layout '{layout.LayoutName}' viewport {viewport.Number}: {ex.Message}");
+                            continue;
+                        }
+
+                        var polygon = new Point3dCollection();
+                        Point3d? previous = null;
+                        foreach (Point2d paperPoint in paperPoints)
+                        {
+                            Point3d modelPoint = new Point3d(paperPoint.X, paperPoint.Y, 0.0).TransformBy(modelFromPaper);
+                            modelPoint = new Point3d(modelPoint.X, modelPoint.Y, 0.0);
+                            if (previous.HasValue && previous.Value.DistanceTo(modelPoint) < 1e-9) continue;
+                            polygon.Add(modelPoint);
+                            previous = modelPoint;
+                        }
+
+                        if (polygon.Count < 3) continue;
+
+                        regions.Add(new ViewportRegion(layout.LayoutName, viewport.ObjectId, polygon, ObjectId.Null));
+                    }
+                }
+
+                tr.Commit();
+            }
+
+            return regions;
+        }
+
+        private static void SelectViewportRegionContentsHeadless(
+            Database db,
+            ObjectId modelSpaceId,
+            IEnumerable<ViewportRegion> regions,
+            HashSet<ObjectId> keepIds,
+            out int intersectingCount,
+            out int missingExtentsCount)
+        {
+            intersectingCount = 0;
+            missingExtentsCount = 0;
+            var regionList = regions?.ToList() ?? new List<ViewportRegion>();
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var modelSpace = tr.GetObject(modelSpaceId, OpenMode.ForRead) as BlockTableRecord;
+                if (modelSpace == null)
+                {
+                    tr.Commit();
+                    return;
+                }
+
+                foreach (ObjectId id in modelSpace)
+                {
+                    if (!id.IsValid || id.IsErased) continue;
+
+                    var entity = tr.GetObject(id, OpenMode.ForRead, false) as Entity;
+                    if (entity == null) continue;
+
+                    Extents3d? extents = TryGetExtents(entity);
+                    if (extents == null)
+                    {
+                        // Fail safe: an entity that cannot be measured is retained.
+                        if (keepIds.Add(id)) missingExtentsCount++;
+                        continue;
+                    }
+
+                    bool intersects = regionList.Any(region =>
+                        ExtentsIntersectsPolygonXY(extents.Value, region.Polygon));
+                    if (intersects && keepIds.Add(id))
+                    {
+                        intersectingCount++;
+                    }
+                }
+
+                tr.Commit();
+            }
+        }
+
+        private static bool ExtentsIntersectsPolygonXY(Extents3d extents, Point3dCollection polygon)
+        {
+            if (polygon == null || polygon.Count < 3) return false;
+
+            double minX = Math.Min(extents.MinPoint.X, extents.MaxPoint.X);
+            double maxX = Math.Max(extents.MinPoint.X, extents.MaxPoint.X);
+            double minY = Math.Min(extents.MinPoint.Y, extents.MaxPoint.Y);
+            double maxY = Math.Max(extents.MinPoint.Y, extents.MaxPoint.Y);
+
+            var rectangle = new[]
+            {
+                new Point2d(minX, minY),
+                new Point2d(maxX, minY),
+                new Point2d(maxX, maxY),
+                new Point2d(minX, maxY)
+            };
+
+            for (int i = 0; i < polygon.Count; i++)
+            {
+                var p = polygon[i];
+                if (p.X >= minX - 1e-9 && p.X <= maxX + 1e-9 &&
+                    p.Y >= minY - 1e-9 && p.Y <= maxY + 1e-9)
+                {
+                    return true;
+                }
+            }
+
+            foreach (Point2d corner in rectangle)
+            {
+                if (PointInPolygonXY(corner, polygon)) return true;
+            }
+
+            for (int polygonIndex = 0; polygonIndex < polygon.Count; polygonIndex++)
+            {
+                Point3d polygonStart3d = polygon[polygonIndex];
+                Point3d polygonEnd3d = polygon[(polygonIndex + 1) % polygon.Count];
+                var polygonStart = new Point2d(polygonStart3d.X, polygonStart3d.Y);
+                var polygonEnd = new Point2d(polygonEnd3d.X, polygonEnd3d.Y);
+
+                for (int rectangleIndex = 0; rectangleIndex < rectangle.Length; rectangleIndex++)
+                {
+                    Point2d rectangleStart = rectangle[rectangleIndex];
+                    Point2d rectangleEnd = rectangle[(rectangleIndex + 1) % rectangle.Length];
+                    if (SegmentsIntersectXY(polygonStart, polygonEnd, rectangleStart, rectangleEnd))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool PointInPolygonXY(Point2d point, Point3dCollection polygon)
+        {
+            bool inside = false;
+            for (int i = 0, j = polygon.Count - 1; i < polygon.Count; j = i++)
+            {
+                var pi = new Point2d(polygon[i].X, polygon[i].Y);
+                var pj = new Point2d(polygon[j].X, polygon[j].Y);
+
+                if (PointOnSegmentXY(point, pj, pi)) return true;
+
+                bool crosses = (pi.Y > point.Y) != (pj.Y > point.Y);
+                if (crosses)
+                {
+                    double xAtY = (pj.X - pi.X) * (point.Y - pi.Y) / (pj.Y - pi.Y) + pi.X;
+                    if (point.X < xAtY) inside = !inside;
+                }
+            }
+
+            return inside;
+        }
+
+        private static bool SegmentsIntersectXY(Point2d a, Point2d b, Point2d c, Point2d d)
+        {
+            double abC = CrossXY(a, b, c);
+            double abD = CrossXY(a, b, d);
+            double cdA = CrossXY(c, d, a);
+            double cdB = CrossXY(c, d, b);
+            const double tolerance = 1e-9;
+
+            if (((abC > tolerance && abD < -tolerance) || (abC < -tolerance && abD > tolerance)) &&
+                ((cdA > tolerance && cdB < -tolerance) || (cdA < -tolerance && cdB > tolerance)))
+            {
+                return true;
+            }
+
+            return (Math.Abs(abC) <= tolerance && PointOnSegmentXY(c, a, b)) ||
+                   (Math.Abs(abD) <= tolerance && PointOnSegmentXY(d, a, b)) ||
+                   (Math.Abs(cdA) <= tolerance && PointOnSegmentXY(a, c, d)) ||
+                   (Math.Abs(cdB) <= tolerance && PointOnSegmentXY(b, c, d));
+        }
+
+        private static double CrossXY(Point2d a, Point2d b, Point2d c)
+        {
+            return (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
+        }
+
+        private static bool PointOnSegmentXY(Point2d point, Point2d start, Point2d end)
+        {
+            const double tolerance = 1e-9;
+            if (Math.Abs(CrossXY(start, end, point)) > tolerance) return false;
+
+            return point.X >= Math.Min(start.X, end.X) - tolerance &&
+                   point.X <= Math.Max(start.X, end.X) + tolerance &&
+                   point.Y >= Math.Min(start.Y, end.Y) - tolerance &&
+                   point.Y <= Math.Max(start.Y, end.Y) + tolerance;
+        }
+
         // -------------------- Updated / New Helpers --------------------
 
         private sealed class ViewportRegion

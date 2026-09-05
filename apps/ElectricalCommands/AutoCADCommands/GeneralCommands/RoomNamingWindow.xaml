@@ -22,12 +22,13 @@
   <Grid Margin="16">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Grid.Row="0" Margin="0,0,0,14">
+    <StackPanel Grid.Row="0" Margin="0,0,0,10">
       <TextBlock Text="Name the selected room polylines"
                  FontSize="18"
                  FontWeight="SemiBold"
@@ -38,7 +39,34 @@
                  Text="Open and closed polylines are included. Select a row to highlight it in AutoCAD, then replace every placeholder with the correct room name and number."/>
     </StackPanel>
 
-    <Border Grid.Row="1"
+    <Grid Grid.Row="1" Margin="0,0,0,10">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <TextBlock x:Name="RoomSummaryTextBlock"
+                 Grid.Column="0"
+                 VerticalAlignment="Center"
+                 FontWeight="SemiBold"
+                 Foreground="#334E68"
+                 Text="0 Room Boundaries"/>
+      <Button Grid.Column="1"
+              x:Name="AddPolylinesButton"
+              Content="+ Add Polylines"
+              Click="AddPolylines_Click"
+              MinWidth="115"
+              Margin="0,0,8,0"
+              ToolTip="Pick additional room polylines from the AutoCAD drawing"/>
+      <Button Grid.Column="2"
+              x:Name="RemoveSelectedButton"
+              Content="Remove Selected"
+              Click="RemoveSelected_Click"
+              MinWidth="115"
+              ToolTip="Remove selected polyline(s) from the room list (Delete key)"/>
+    </Grid>
+
+    <Border Grid.Row="2"
             Background="White"
             BorderBrush="#D9E0E7"
             BorderThickness="1"
@@ -54,9 +82,16 @@
                 HorizontalGridLinesBrush="#E8EDF2"
                 BorderThickness="0"
                 RowHeaderWidth="0"
-                SelectionMode="Single"
+                SelectionMode="Extended"
                 SelectionUnit="FullRow"
+                PreviewKeyDown="RoomsDataGrid_PreviewKeyDown"
                 SelectionChanged="RoomsDataGrid_SelectionChanged">
+        <DataGrid.ContextMenu>
+          <ContextMenu>
+            <MenuItem Header="+ Add Polylines..." Click="AddPolylines_Click"/>
+            <MenuItem Header="Remove Selected" Click="RemoveSelected_Click"/>
+          </ContextMenu>
+        </DataGrid.ContextMenu>
         <DataGrid.Columns>
           <DataGridTextColumn Header="Boundary"
                               Binding="{Binding SourceLabel}"
@@ -73,7 +108,7 @@
       </DataGrid>
     </Border>
 
-    <Border Grid.Row="2"
+    <Border Grid.Row="3"
             Background="#F4F7FA"
             BorderBrush="#D9E0E7"
             BorderThickness="1"
@@ -92,7 +127,7 @@
       </StackPanel>
     </Border>
 
-    <Grid Grid.Row="3" Margin="0,14,0,0">
+    <Grid Grid.Row="4" Margin="0,14,0,0">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="Auto"/>
