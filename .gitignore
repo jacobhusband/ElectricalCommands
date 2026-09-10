@@ -1,54 +1,64 @@
-# .NET / C#
-bin/
-obj/
+# .NET / Visual Studio
+**/bin/
+**/obj/
+**/Debug/
+**/Release/
 *.user
+*.suo
 *.userosscache
 *.sln.docstates
-*.suo
-*.userprefs
-[Dd]ebug/
-[Rr]elease/
+*.vssscc
+*.vspscc
+.vs/
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-.venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-.pytest_cache/
-.ruff_cache/
-
-# CAD / Logs
+# Build results
+*.dbmdl
 *.log
-plot.log
-plot_out.log
-run_out.log
-nul
-
-# Claude / Editor / OS
-.claude/worktrees/
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
+*.tlog
 *.tmp
-*.bak
+*.cache
+*.ilk
+*.pdb
+*.idb
+
+# NuGet
+*.nupkg
+*.snupkg
+**/packages/
+*.nuget.props
+*.nuget.targets
+NuGet.Config
+
+# Rider/JetBrains
+.idea/
+*.sln.iml
+
+# Visual Studio Code
+.vscode/
+
+# Azure / Publish Profiles
+*.PublishSettings
+Properties/PublishProfiles/
+
+# Resharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+
+# DotCover
+*.dotCover
+
+# Dotnet tools
+.store/
+.tools/
+.dotnet/
+
+# Other
+*.DS_Store
+Thumbs.db
+tools/
+
+logs/
+
+dist/
+
+.env
