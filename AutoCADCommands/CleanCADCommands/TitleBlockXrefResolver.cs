@@ -1,3 +1,4 @@
+using Application = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
@@ -46,6 +47,9 @@ namespace AutoCADCleanupTool
 
     internal static class TitleBlockXrefResolver
     {
+        // Set only for a confirmed, staged batch job; never infer another titleblock.
+        internal static string ConfirmedBatchPath;
+        internal static Point3d[] ConfirmedBatchBoundary;
         private static readonly string[] _hints = { "x-tb", "title", "tblock", "border", "sheet" };
 
         internal static IReadOnlyList<TitleBlockXrefCandidate> GetLikelyTitleBlockCandidates(Database db)
@@ -69,6 +73,17 @@ namespace AutoCADCleanupTool
             }
 
             List<TitleBlockXrefCandidate> sorted = GetScoredCandidates(db);
+            if (!string.IsNullOrWhiteSpace(ConfirmedBatchPath))
+            {
+                var matches = sorted.Where(c => string.Equals(
+                    Path.GetFullPath(Path.IsPathRooted(c.PathName) ? c.PathName :
+                        Path.Combine(Path.GetDirectoryName(db.Filename), c.PathName)),
+                    Path.GetFullPath(ConfirmedBatchPath), StringComparison.OrdinalIgnoreCase)).ToList();
+                var identities = matches.Select(c => c.XrefBtrId).Distinct().ToList();
+                return new TitleBlockXrefResolutionResult(
+                    identities.Count == 1 ? TitleBlockResolutionKind.Resolved : TitleBlockResolutionKind.NotFound,
+                    identities.Count == 1 ? matches[0] : null, matches);
+            }
             if (sorted.Count == 0)
             {
                 return new TitleBlockXrefResolutionResult(TitleBlockResolutionKind.NotFound, null, sorted);

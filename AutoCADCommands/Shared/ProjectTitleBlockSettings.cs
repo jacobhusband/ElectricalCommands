@@ -3,6 +3,7 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Newtonsoft.Json;
+using Spire.Pdf;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -35,9 +36,11 @@ namespace Acies.AutoCAD.Shared
 
     internal sealed class ProjectTitleBlockSettings
     {
-        public int Version { get; set; } = 1;
+        public int Version { get; set; } = 2;
         public StoredTitleBlockPoint LowerLeft { get; set; }
         public StoredTitleBlockPoint UpperRight { get; set; }
+        public string PaperSizeKey { get; set; } = string.Empty;
+        public string PaperSizeSource { get; set; } = string.Empty;
         public string SourceDrawing { get; set; } = string.Empty;
         public string SourceSpace { get; set; } = string.Empty;
         public string UpdatedUtc { get; set; } = string.Empty;
@@ -98,6 +101,9 @@ namespace Acies.AutoCAD.Shared
 
         private const string SettingsDirectoryName = ".acies";
         private const string SettingsFileName = "titleblock-boundary.json";
+        private const int MaxCandidatePdfs = 25;
+        private const long MaxPdfBytes = 150L * 1024L * 1024L;
+        private static readonly TimeSpan PdfScanTimeLimit = TimeSpan.FromSeconds(4);
 
         private static readonly string[] ProjectTopLevelFolders =
         {
@@ -184,7 +190,9 @@ namespace Acies.AutoCAD.Shared
             Database db,
             out ProjectTitleBlockSettings settings,
             out string projectRoot,
-            out string settingsPath)
+            out string settingsPath,
+            SheetSizeProfile detectedProfile = null,
+            string paperSizeSource = "")
         {
             settings = null;
             projectRoot = string.Empty;
@@ -248,9 +256,11 @@ namespace Acies.AutoCAD.Shared
 
             settings = new ProjectTitleBlockSettings
             {
-                Version = 1,
+                Version = 2,
                 LowerLeft = StoredTitleBlockPoint.FromPoint3d(new Point3d(minX, minY, firstResult.Value.Z)),
                 UpperRight = StoredTitleBlockPoint.FromPoint3d(new Point3d(maxX, maxY, oppositeResult.Value.Z)),
+                PaperSizeKey = detectedProfile?.Key ?? string.Empty,
+                PaperSizeSource = paperSizeSource ?? string.Empty,
                 SourceDrawing = ResolveBestDrawingPath(doc, db),
                 SourceSpace = sourceSpace,
                 UpdatedUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
@@ -313,7 +323,7 @@ namespace Acies.AutoCAD.Shared
 
             var settings = new ProjectTitleBlockSettings
             {
-                Version = 1,
+                Version = 2,
                 LowerLeft = StoredTitleBlockPoint.FromPoint3d(new Point3d(minX, minY, boundary[0].Z)),
                 UpperRight = StoredTitleBlockPoint.FromPoint3d(new Point3d(maxX, maxY, boundary[0].Z)),
                 SourceDrawing = ResolveBestDrawingPath(doc, db),
@@ -335,6 +345,16 @@ namespace Acies.AutoCAD.Shared
             {
                 failureReason = "The saved titleblock boundary is invalid.";
                 return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(settings.PaperSizeKey))
+            {
+                profile = Profiles.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Key, settings.PaperSizeKey, StringComparison.OrdinalIgnoreCase));
+                if (profile != null)
+                {
+                    return true;
+                }
             }
 
             double observedShort = Math.Min(settings.Width, settings.Height);
@@ -385,6 +405,89 @@ namespace Acies.AutoCAD.Shared
 
             profile = best.Item1;
             return true;
+        }
+
+        internal static bool TryDetectSheetSizeFromProjectPdfs(
+            Document doc,
+            Database db,
+            out SheetSizeProfile profile,
+            out string sourcePdf,
+            out string failureReason)
+        {
+            profile = null;
+            sourcePdf = string.Empty;
+            failureReason = string.Empty;
+
+            if (!TryResolveProjectContext(doc, db, out string projectRoot, out _, out failureReason))
+            {
+                return false;
+            }
+
+            string[] searchFolders =
+            {
+                Path.Combine(projectRoot, "PDF"),
+                Path.Combine(projectRoot, "Electrical", "Checkset")
+            };
+
+            List<FileInfo> candidates = GetRecentPdfCandidates(searchFolders);
+            if (candidates.Count == 0)
+            {
+                failureReason = "No PDF drawings were found in the project PDF or Electrical\\Checkset folders.";
+                return false;
+            }
+
+            foreach (FileInfo candidate in candidates)
+            {
+                try
+                {
+                    using (var pdf = new PdfDocument())
+                    {
+                        pdf.LoadFromFile(candidate.FullName);
+                        if (pdf.Pages.Count == 0) continue;
+
+                        var pageSize = pdf.Pages[0].Size;
+                        double shortSideInches = Math.Min(pageSize.Width, pageSize.Height) / 72.0;
+                        double longSideInches = Math.Max(pageSize.Width, pageSize.Height) / 72.0;
+                        SheetSizeProfile match = Profiles.FirstOrDefault(candidateProfile =>
+                            Math.Abs(shortSideInches - candidateProfile.ShortSideInches) <= 0.5 &&
+                            Math.Abs(longSideInches - candidateProfile.LongSideInches) <= 0.5);
+
+                        if (match == null) continue;
+
+                        profile = match;
+                        sourcePdf = candidate.FullName;
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // A damaged, locked, or unsupported PDF should not prevent checking older drawings.
+                }
+            }
+
+            failureReason = "Project PDFs were found, but none matched a supported sheet size (22x34, 24x36, 30x42, or 36x48).";
+            return false;
+        }
+
+        internal static bool TryApplyDetectedSheetSize(
+            string settingsPath,
+            ProjectTitleBlockSettings settings,
+            SheetSizeProfile profile,
+            string sourcePdf,
+            out string failureReason)
+        {
+            failureReason = string.Empty;
+            if (settings == null || !settings.IsValid || profile == null)
+            {
+                failureReason = "The titleblock boundary or detected paper size is invalid.";
+                return false;
+            }
+
+            settings.Version = 2;
+            settings.PaperSizeKey = profile.Key;
+            settings.PaperSizeSource = sourcePdf ?? string.Empty;
+            settings.UpdatedUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            return TrySave(settingsPath, settings, out failureReason);
         }
 
         internal static bool TryResolveProjectContext(
@@ -463,6 +566,54 @@ namespace Acies.AutoCAD.Shared
             }
 
             return string.Empty;
+        }
+
+        private static List<FileInfo> GetRecentPdfCandidates(IEnumerable<string> searchFolders)
+        {
+            DateTime deadline = DateTime.UtcNow.Add(PdfScanTimeLimit);
+            var candidates = new List<FileInfo>();
+            var foldersToVisit = new Stack<string>(searchFolders
+                .Where(Directory.Exists)
+                .Reverse());
+
+            while (foldersToVisit.Count > 0 && DateTime.UtcNow <= deadline)
+            {
+                string folder = foldersToVisit.Pop();
+                string[] childFolders;
+                string[] pdfPaths;
+
+                try { childFolders = Directory.GetDirectories(folder); }
+                catch { childFolders = Array.Empty<string>(); }
+
+                try { pdfPaths = Directory.GetFiles(folder, "*.pdf", SearchOption.TopDirectoryOnly); }
+                catch { pdfPaths = Array.Empty<string>(); }
+
+                foreach (string childFolder in childFolders)
+                {
+                    foldersToVisit.Push(childFolder);
+                }
+
+                foreach (string pdfPath in pdfPaths)
+                {
+                    try
+                    {
+                        var info = new FileInfo(pdfPath);
+                        if (info.Length <= MaxPdfBytes)
+                        {
+                            candidates.Add(info);
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore inaccessible files and keep scanning within the time budget.
+                    }
+                }
+            }
+
+            return candidates
+                .OrderByDescending(candidate => candidate.LastWriteTimeUtc)
+                .Take(MaxCandidatePdfs)
+                .ToList();
         }
 
         private static string ResolveProjectRoot(string drawingFolder)

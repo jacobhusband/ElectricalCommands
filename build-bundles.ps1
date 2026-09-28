@@ -145,6 +145,7 @@ function New-AutoLispBundle {
 
 # Map: bundle folder -> zip name prefix
 $bundles = @(
+    @{ Folder = "ElectricalCommands.AuditCommands.bundle"; Prefix = "ElectricalCommands.AuditCommands" },
     @{ Folder = "ElectricalCommands.AutoLispCommands.bundle"; Prefix = "ElectricalCommands.AutoLispCommands" },
     @{ Folder = "ElectricalCommands.CleanCADCommands.bundle"; Prefix = "ElectricalCommands.CleanCADCommands" },
     @{ Folder = "ElectricalCommands.ControlScheduleCommands.bundle"; Prefix = "ElectricalCommands.ControlScheduleCommands" },
@@ -169,9 +170,21 @@ foreach ($b in $bundles) {
     $bundlePath = Join-Path $SourceRoot $b.Folder
 
     if (-not (Test-Path $bundlePath)) {
-        Write-Host ("[skip] {0}: bundle not found at {1}" -f $b.Folder, $bundlePath)
-        continue
+        throw "Required bundle missing: $bundlePath. Build the full solution before packaging."
     }
+
+    $manifestPath = Join-Path $bundlePath "PackageContents.xml"
+    $manifest = [xml](Get-Content -LiteralPath $manifestPath -Raw)
+    if ($manifest.ApplicationPackage.AppVersion -ne $Version) {
+        throw "Version mismatch in $manifestPath. Rebuild with version.props set to $Version."
+    }
+    foreach ($entry in $manifest.SelectNodes('//ComponentEntry')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $bundlePath $entry.ModuleName))) {
+            throw "Missing module $($entry.ModuleName) in $bundlePath"
+        }
+    }
+    # ASCII avoids BOM characters in the desktop app's installed-version display.
+    Set-Content -LiteralPath (Join-Path $bundlePath 'version.txt') -Value "v$Version" -Encoding ASCII -NoNewline
 
     $zipName = "{0}-v{1}.zip" -f $b.Prefix, $Version
     $zipPath = Join-Path $OutputRoot $zipName

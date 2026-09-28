@@ -21,8 +21,6 @@
   <ItemGroup>
     <Compile Include="*.cs" />
     <Compile Remove="CalculateAreas.cs" />
-    <Compile Remove="GetSumFromText.cs" />
-    <Compile Remove="GetSumFromTextExport.cs" />
     <Compile Remove="LightingFixtureSchedule.cs" />
     <Compile Remove="LightingFixtureScheduleCentralStore.cs" />
     <Compile Remove="LightingFixtureScheduleFallbackControl.cs" />

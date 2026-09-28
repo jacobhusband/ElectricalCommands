@@ -1,8 +1,9 @@
 Param(
     [string]$Notes = "Automated release",
+    [string]$NotesFile = "",
     [string]$Version = "",
     [switch]$Build,
-    [string]$SourceRoot = "$env:APPDATA\Autodesk\ApplicationPlugins",
+    [string]$SourceRoot = (Join-Path $PSScriptRoot "build\release-bundles"),
     [string]$OutputRoot = "AutoCADCommands\\dist",
     [string]$Configuration = "Release",
     [string]$SolutionPath = (Join-Path $PSScriptRoot "ElectricalCommands.sln"),
@@ -66,6 +67,11 @@ try {
     exit 1
 }
 $tag = "v$version"
+if ($NotesFile) { $Notes = Get-Content -LiteralPath $NotesFile -Raw }
+$commit = git -C $PSScriptRoot rev-parse HEAD
+if ($LASTEXITCODE -ne 0) { throw "Cannot resolve release commit." }
+$dirty = git -C $PSScriptRoot status --porcelain --untracked-files=no
+if ($dirty) { throw "Commit tracked changes before publishing a release." }
 
 # --- Optional build ---
 if ($Build) {
@@ -93,6 +99,20 @@ if (-not $zipFiles) {
     exit 1
 }
 $assetsToUpload += $zipFiles
+if ($zipFiles.Count -ne 10) { throw "Expected all 10 plugin ZIPs; found $($zipFiles.Count)." }
+foreach ($zip in $zipFiles) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
+    try {
+        $versionEntry = $archive.GetEntry('version.txt')
+        if (-not $versionEntry -or -not $archive.GetEntry('PackageContents.xml')) {
+            throw "Invalid plugin archive: $($zip.Name)"
+        }
+        $reader = [System.IO.StreamReader]::new($versionEntry.Open())
+        try { $archiveVersion = $reader.ReadToEnd().Trim() } finally { $reader.Dispose() }
+        if ($archiveVersion -ne $tag) { throw "Version mismatch in $($zip.Name)" }
+    } finally { $archive.Dispose() }
+}
 $metaPath = Join-Path $distRoot "release_meta.json"
 if (Test-Path $metaPath) {
     $assetsToUpload += Get-Item $metaPath
@@ -108,14 +128,21 @@ $headers = @{
 $release = $null
 try {
     $release = Invoke-RestMethod -Method Get -Headers $headers -Uri "https://api.github.com/repos/$repo/releases/tags/$tag"
-} catch { $release = $null }
+} catch {
+    if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+}
+
+if ($release -and -not $release.draft) {
+    throw "Release $tag is already published. Use a new version instead of replacing published assets."
+}
 
 if (-not $release) {
     $body = @{
         tag_name   = $tag
+        target_commitish = $commit.Trim()
         name       = $tag
         body       = $Notes
-        draft      = $false
+        draft      = $true
         prerelease = $false
     } | ConvertTo-Json
     $release = Invoke-RestMethod -Method Post -Headers $headers -Uri "https://api.github.com/repos/$repo/releases" -Body $body
@@ -142,7 +169,7 @@ foreach ($asset in $assetsToUpload) {
                 Invoke-RestMethod -Method Delete -Headers $headers -Uri "https://api.github.com/repos/$repo/releases/assets/$($a.id)" | Out-Null
             }
         }
-    } catch { }
+    } catch { throw }
 
     $assetHeaders = $headers.Clone()
     $assetHeaders["Content-Type"] = "application/octet-stream"
@@ -155,4 +182,11 @@ foreach ($asset in $assetsToUpload) {
     }
 }
 
+$uploaded = @(Invoke-RestMethod -Method Get -Headers $headers -Uri "https://api.github.com/repos/$repo/releases/$($release.id)/assets")
+foreach ($asset in $assetsToUpload) {
+    $match = @($uploaded | Where-Object { $_.name -eq $asset.Name -and $_.size -eq $asset.Length })
+    if ($match.Count -ne 1) { throw "Uploaded asset verification failed: $($asset.Name). Release remains a draft." }
+}
+$publishBody = @{ draft = $false; make_latest = "true"; body = $Notes } | ConvertTo-Json
+Invoke-RestMethod -Method Patch -Headers $headers -Uri "https://api.github.com/repos/$repo/releases/$($release.id)" -Body $publishBody -ContentType 'application/json' | Out-Null
 Write-Host "Release $tag published with $($assetsToUpload.Count) asset(s)." -ForegroundColor Green

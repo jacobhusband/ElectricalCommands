@@ -1,0 +1,200 @@
+<Window x:Class="ElectricalCommands.SwitchConfigurationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ACIES - Switch Configuration Manager"
+        Width="880"
+        Height="640"
+        MinWidth="760"
+        MinHeight="540"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False"
+        Background="#F5F7F9"
+        UseLayoutRounding="True">
+  <Window.Resources>
+    <Style TargetType="Button">
+      <Setter Property="MinHeight" Value="30"/>
+      <Setter Property="Padding" Value="14,6"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+    <Style x:Key="CardBorderStyle" TargetType="Border">
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="BorderBrush" Value="#D9E0E7"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="14"/>
+    </Style>
+    <Style x:Key="HeaderLabelStyle" TargetType="TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Foreground" Value="#1F2933"/>
+    </Style>
+    <Style x:Key="ValueLabelStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="#52606D"/>
+      <Setter Property="Margin" Value="0,2,0,4"/>
+    </Style>
+  </Window.Resources>
+
+  <Grid Margin="18">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- Header -->
+    <StackPanel Grid.Row="0" Margin="0,0,0,14">
+      <TextBlock Text="Switch Configuration Manager"
+                 FontSize="20"
+                 FontWeight="Bold"
+                 Foreground="#1F2933"/>
+      <TextBlock Text="Configure switch blocks and associated text objects across North, East, South, and West orientations. Configurations persist project-wide."
+                 Margin="0,4,0,0"
+                 Foreground="#52606D"
+                 TextWrapping="Wrap"/>
+      <TextBlock x:Name="ProjectLocationText"
+                 Text="Project Root: Loading..."
+                 Margin="0,4,0,0"
+                 FontSize="11"
+                 Foreground="#7B8794"/>
+    </StackPanel>
+
+    <!-- Type Selection Bar -->
+    <Border Grid.Row="1"
+            Background="White"
+            BorderBrush="#D9E0E7"
+            BorderThickness="1"
+            CornerRadius="6"
+            Padding="12,8"
+            Margin="0,0,0,14">
+      <DockPanel LastChildFill="False">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Text="Switch Type:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,0"/>
+          <RadioButton x:Name="RadioStandard" Content="Standard (SW)" IsChecked="True" VerticalAlignment="Center" Margin="0,0,16,0" Checked="OnSwitchTypeChanged"/>
+          <RadioButton x:Name="RadioDimmer" Content="Dimmer (DSW / DM)" VerticalAlignment="Center" Margin="0,0,16,0" Checked="OnSwitchTypeChanged"/>
+          <RadioButton x:Name="RadioOccupancy" Content="Occupancy (OSW / OS)" VerticalAlignment="Center" Margin="0,0,16,0" Checked="OnSwitchTypeChanged"/>
+        </StackPanel>
+
+        <Button DockPanel.Dock="Right"
+                Content="Auto-Derive 4 from North"
+                Click="OnAutoDeriveClicked"
+                Background="#EEF2F6"
+                BorderBrush="#CBD2D9"
+                Foreground="#1F2933"
+                ToolTip="Take North sample and rotate block &amp; text offsets by 90°, 180°, and 270° with right-reading text."/>
+      </DockPanel>
+    </Border>
+
+    <!-- 4 Orientation Cards (2x2 Grid) -->
+    <Grid Grid.Row="2" Margin="0,0,0,14">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+
+      <!-- NORTH (Top-Left) -->
+      <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBorderStyle}" Margin="0,0,8,8">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <DockPanel Grid.Row="0">
+            <TextBlock Text="NORTH (SWN / DSWN / OSWN)" Style="{StaticResource HeaderLabelStyle}"/>
+            <Border x:Name="NorthBadge" DockPanel.Dock="Right" CornerRadius="3" Padding="6,2" Background="#EDF2F7">
+              <TextBlock x:Name="NorthStatusText" Text="Not Configured" FontSize="11" Foreground="#4A5568"/>
+            </Border>
+          </DockPanel>
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,8,0,8">
+            <TextBlock x:Name="NorthDetailsText" Style="{StaticResource ValueLabelStyle}" Text="No configuration." TextWrapping="Wrap"/>
+          </ScrollViewer>
+          <Button Grid.Row="2" Content="Capture from Drawing..." Click="OnCaptureNorthClicked" HorizontalAlignment="Right"/>
+        </Grid>
+      </Border>
+
+      <!-- EAST (Top-Right) -->
+      <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource CardBorderStyle}" Margin="8,0,0,8">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <DockPanel Grid.Row="0">
+            <TextBlock Text="EAST (SWE / DSWE / OSWE)" Style="{StaticResource HeaderLabelStyle}"/>
+            <Border x:Name="EastBadge" DockPanel.Dock="Right" CornerRadius="3" Padding="6,2" Background="#EDF2F7">
+              <TextBlock x:Name="EastStatusText" Text="Not Configured" FontSize="11" Foreground="#4A5568"/>
+            </Border>
+          </DockPanel>
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,8,0,8">
+            <TextBlock x:Name="EastDetailsText" Style="{StaticResource ValueLabelStyle}" Text="No configuration." TextWrapping="Wrap"/>
+          </ScrollViewer>
+          <Button Grid.Row="2" Content="Capture from Drawing..." Click="OnCaptureEastClicked" HorizontalAlignment="Right"/>
+        </Grid>
+      </Border>
+
+      <!-- SOUTH (Bottom-Left) -->
+      <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CardBorderStyle}" Margin="0,8,8,0">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <DockPanel Grid.Row="0">
+            <TextBlock Text="SOUTH (SWS / DSWS / OSWS)" Style="{StaticResource HeaderLabelStyle}"/>
+            <Border x:Name="SouthBadge" DockPanel.Dock="Right" CornerRadius="3" Padding="6,2" Background="#EDF2F7">
+              <TextBlock x:Name="SouthStatusText" Text="Not Configured" FontSize="11" Foreground="#4A5568"/>
+            </Border>
+          </DockPanel>
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,8,0,8">
+            <TextBlock x:Name="SouthDetailsText" Style="{StaticResource ValueLabelStyle}" Text="No configuration." TextWrapping="Wrap"/>
+          </ScrollViewer>
+          <Button Grid.Row="2" Content="Capture from Drawing..." Click="OnCaptureSouthClicked" HorizontalAlignment="Right"/>
+        </Grid>
+      </Border>
+
+      <!-- WEST (Bottom-Right) -->
+      <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource CardBorderStyle}" Margin="8,8,0,0">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <DockPanel Grid.Row="0">
+            <TextBlock Text="WEST (SWW / DSWW / OSWW)" Style="{StaticResource HeaderLabelStyle}"/>
+            <Border x:Name="WestBadge" DockPanel.Dock="Right" CornerRadius="3" Padding="6,2" Background="#EDF2F7">
+              <TextBlock x:Name="WestStatusText" Text="Not Configured" FontSize="11" Foreground="#4A5568"/>
+            </Border>
+          </DockPanel>
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,8,0,8">
+            <TextBlock x:Name="WestDetailsText" Style="{StaticResource ValueLabelStyle}" Text="No configuration." TextWrapping="Wrap"/>
+          </ScrollViewer>
+          <Button Grid.Row="2" Content="Capture from Drawing..." Click="OnCaptureWestClicked" HorizontalAlignment="Right"/>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- Bottom Action Bar -->
+    <DockPanel Grid.Row="3" LastChildFill="False">
+      <StackPanel Orientation="Horizontal">
+        <Button Content="Load Global Defaults" Click="OnLoadDefaultsClicked" Margin="0,0,8,0" Background="#F0F4F8" BorderBrush="#D9E2EC"/>
+        <Button Content="Save as Global Defaults" Click="OnSaveDefaultsClicked" Margin="0,0,8,0" Background="#F0F4F8" BorderBrush="#D9E2EC"/>
+      </StackPanel>
+
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button Content="Save to Project" Click="OnSaveProjectClicked" Background="#0066CC" Foreground="White" BorderBrush="#0052A3" Margin="0,0,8,0"/>
+        <Button Content="Close" Click="OnCloseClicked" Background="#E2E8F0" BorderBrush="#CBD5E0"/>
+      </StackPanel>
+    </DockPanel>
+  </Grid>
+</Window>

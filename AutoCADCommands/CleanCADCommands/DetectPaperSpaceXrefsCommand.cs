@@ -1,3 +1,4 @@
+using Application = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -13,15 +14,30 @@ namespace AutoCADCleanupTool
 {
     public partial class CleanupCommands
     {
+        internal static bool HeadlessPaperSpaceSucceeded;
         [CommandMethod("CLEANPS", CommandFlags.Modal)]
         public static void ListPaperSpaceXrefs()
+        {
+            CleanPaperSpace(headless: false);
+        }
+
+        internal static void CleanPaperSpaceHeadless()
+        {
+            HeadlessPaperSpaceSucceeded = false;
+            CleanPaperSpace(headless: true);
+        }
+
+        private static void CleanPaperSpace(bool headless)
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
-            ed.Regen();
+            if (!headless)
+            {
+                ed.Regen();
+            }
 
             try
             {
@@ -29,8 +45,7 @@ namespace AutoCADCleanupTool
 
                 using (Transaction tr = db.TransactionManager.StartTransaction())
                 {
-                    LayoutManager lm = LayoutManager.Current;
-                    if (lm == null)
+                    if (!headless && LayoutManager.Current == null)
                     {
                         ed.WriteMessage("\r\nLayout manager is unavailable; cannot inspect paper space.");
                         tr.Commit();
@@ -131,6 +146,12 @@ namespace AutoCADCleanupTool
                                 footprint = BuildRectangleFromExtents(extents.Value);
                             }
 
+                            if (headless && TitleBlockXrefResolver.ConfirmedBatchBoundary != null)
+                            {
+                                footprint = TitleBlockXrefResolver.ConfirmedBatchBoundary
+                                    .Select(point => point.TransformBy(br.BlockTransform)).ToArray();
+                                extents = ExtentsFromPoints(footprint);
+                            }
                             entries.Add(new XrefReportEntry(br.ObjectId, layout.LayoutName, blockName, layer, status, absolutePath, footprint, extents));
                         }
                     }
@@ -168,7 +189,7 @@ namespace AutoCADCleanupTool
                             continue;
                         }
 
-                        int erased = TryEraseOutsideEntry(doc, ed, db, target);
+                        int erased = TryEraseOutsideEntry(doc, ed, db, target, headless);
                         if (erased >= 0)
                         {
                             autoCleanedLayouts++;
@@ -190,6 +211,7 @@ namespace AutoCADCleanupTool
 
                 if (autoCleanedLayouts > 0)
                 {
+                    if (headless) HeadlessPaperSpaceSucceeded = autoCleanedLayouts == groupedByLayout.Count;
                     ed.WriteMessage($"\r\nAutomatically cleaned {autoCleanedLayouts} layout(s) containing a single XREF.");
                 }
                 else
@@ -237,7 +259,12 @@ namespace AutoCADCleanupTool
             }
         }
 
-        private static int TryEraseOutsideEntry(Document doc, Editor ed, Database db, XrefReportItem target)
+        private static int TryEraseOutsideEntry(
+            Document doc,
+            Editor ed,
+            Database db,
+            XrefReportItem target,
+            bool headless)
         {
             if (doc == null || ed == null || db == null || target == null || target.Entry.Extents == null)
                 return -1;
@@ -246,7 +273,7 @@ namespace AutoCADCleanupTool
             {
                 using (doc.LockDocument())
                 {
-                    if (!EnsurePaperSpaceLayoutActive(doc, ed, target.Entry.LayoutName))
+                    if (!headless && !EnsurePaperSpaceLayoutActive(doc, ed, target.Entry.LayoutName))
                         return -1;
 
                     ObjectId layoutBtrId = GetLayoutBlockTableRecordId(db, target.Entry.LayoutName);
@@ -281,8 +308,16 @@ namespace AutoCADCleanupTool
                             }
 
                             Extents3d? entExt = TryGetExtents(ent);
-                            if (entExt != null && ExtentsIntersectsXY(expanded, entExt.Value, includeTouch: true))
+                            if (entExt == null && headless)
+                            {
+                                // Fail safe in Core Console: retain objects that cannot be
+                                // measured instead of treating them as outside the sheet.
                                 keepIds.Add(entId);
+                            }
+                            else if (entExt != null && ExtentsIntersectsXY(expanded, entExt.Value, includeTouch: true))
+                            {
+                                keepIds.Add(entId);
+                            }
                         }
 
                         tr.Commit();
@@ -294,7 +329,12 @@ namespace AutoCADCleanupTool
                         return -1;
                     }
 
-                    return EraseEntitiesExcept(db, ed, layoutBtrId, keepIds);
+                    return EraseEntitiesExcept(
+                        db,
+                        ed,
+                        layoutBtrId,
+                        keepIds,
+                        regenerateView: !headless);
                 }
             }
             catch (System.Exception ex)

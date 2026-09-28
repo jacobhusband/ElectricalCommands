@@ -72,7 +72,7 @@ namespace ElectricalCommands
           PaletteSetStyles.ShowCloseButton |
           PaletteSetStyles.ShowPropertiesMenu,
         DockEnabled = DockSides.Left | DockSides.Right,
-        MinimumSize = new Size(360, 340),
+        MinimumSize = new Size(360, 390),
       };
       _palette.Add("Settings", _control);
 
@@ -118,6 +118,13 @@ namespace ElectricalCommands
       if (ElectricalDrawingSettingsStore.TryReadPanelName(database, out string panelName))
       {
         snapshot.PanelName = panelName;
+      }
+
+      if (ElectricalDrawingSettingsStore.TryReadReceptacleCircuitMaxKva(
+        database,
+        out double receptacleCircuitMaxKva))
+      {
+        snapshot.ReceptacleCircuitMaxKva = receptacleCircuitMaxKva;
       }
 
       GeneralCommands.ResolveHomerunLayerId(database, out string selectedLayerName);
@@ -173,12 +180,31 @@ namespace ElectricalCommands
       "1/16\" = 1'-0\"",
     };
 
+    private static readonly string[] ReceptacleCircuitMaximums =
+    {
+      "0.18",
+      "0.36",
+      "0.54",
+      "0.72",
+      "0.90",
+      "1.08",
+      "1.26",
+      "1.44",
+      "1.62",
+      "1.80",
+      "1.98",
+      "2.16",
+      "2.34",
+    };
+
     private readonly Label _locationValue;
     private readonly Button _pickLocationButton;
     private readonly ComboBox _scaleComboBox;
     private readonly Button _setScaleButton;
     private readonly TextBox _panelNameTextBox;
     private readonly Button _setPanelNameButton;
+    private readonly ComboBox _receptacleCircuitMaxComboBox;
+    private readonly Button _setReceptacleCircuitMaxButton;
     private readonly ComboBox _layerComboBox;
     private readonly Button _setLayerButton;
     private readonly Button _runHomerunButton;
@@ -194,7 +220,7 @@ namespace ElectricalCommands
       {
         Dock = DockStyle.Fill,
         ColumnCount = 3,
-        RowCount = 8,
+        RowCount = 9,
       };
       layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
       layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
@@ -205,7 +231,7 @@ namespace ElectricalCommands
         AutoSize = true,
         Font = new System.Drawing.Font(Font, FontStyle.Bold),
         Margin = new Padding(0, 0, 0, 12),
-        Text = "Home Run Drawing Settings",
+        Text = "Electrical Drawing Settings",
       };
       layout.Controls.Add(heading, 0, 0);
       layout.SetColumnSpan(heading, 3);
@@ -239,6 +265,24 @@ namespace ElectricalCommands
       _setPanelNameButton = CreateActionButton("Set Name", SetPanelNameButton_Click);
       AddRow(layout, 3, "Panel", _panelNameTextBox, _setPanelNameButton);
 
+      _receptacleCircuitMaxComboBox = new ComboBox
+      {
+        Dock = DockStyle.Top,
+        DropDownStyle = ComboBoxStyle.DropDown,
+        Margin = new Padding(0, 3, 8, 10),
+      };
+      _receptacleCircuitMaxComboBox.Items.AddRange(
+        ReceptacleCircuitMaximums);
+      _setReceptacleCircuitMaxButton = CreateActionButton(
+        "Set Max",
+        SetReceptacleCircuitMaxButton_Click);
+      AddRow(
+        layout,
+        4,
+        "RC Max kVA",
+        _receptacleCircuitMaxComboBox,
+        _setReceptacleCircuitMaxButton);
+
       _layerComboBox = new ComboBox
       {
         Dock = DockStyle.Top,
@@ -247,7 +291,7 @@ namespace ElectricalCommands
         Sorted = true,
       };
       _setLayerButton = CreateActionButton("Set Layer", SetLayerButton_Click);
-      AddRow(layout, 4, "HR Layer", _layerComboBox, _setLayerButton);
+      AddRow(layout, 5, "HR Layer", _layerComboBox, _setLayerButton);
 
       _runHomerunButton = new Button
       {
@@ -258,7 +302,7 @@ namespace ElectricalCommands
         Text = "Run Home Run (HR)",
       };
       _runHomerunButton.Click += RunHomerunButton_Click;
-      layout.Controls.Add(_runHomerunButton, 0, 5);
+      layout.Controls.Add(_runHomerunButton, 0, 6);
       layout.SetColumnSpan(_runHomerunButton, 3);
 
       _refreshButton = new Button
@@ -273,7 +317,7 @@ namespace ElectricalCommands
         HomerunSettingsPalette.Refresh();
         SetStatus("Settings refreshed from the current drawing.");
       };
-      layout.Controls.Add(_refreshButton, 0, 6);
+      layout.Controls.Add(_refreshButton, 0, 7);
 
       _statusLabel = new Label
       {
@@ -283,9 +327,10 @@ namespace ElectricalCommands
         Margin = new Padding(0, 8, 0, 0),
         Text = "Ready.",
       };
-      layout.Controls.Add(_statusLabel, 0, 7);
+      layout.Controls.Add(_statusLabel, 0, 8);
       layout.SetColumnSpan(_statusLabel, 3);
 
+      layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
       layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
       layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
       layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -305,6 +350,10 @@ namespace ElectricalCommands
         : snapshot.LocationText;
       _scaleComboBox.Text = snapshot.ScaleText ?? string.Empty;
       _panelNameTextBox.Text = snapshot.PanelName ?? string.Empty;
+      _receptacleCircuitMaxComboBox.Text =
+        snapshot.ReceptacleCircuitMaxKva.ToString(
+          "0.00",
+          CultureInfo.InvariantCulture);
 
       _layerComboBox.Items.Clear();
       foreach (string layerName in snapshot.LayerNames)
@@ -327,6 +376,8 @@ namespace ElectricalCommands
       _setScaleButton.Enabled = enabled;
       _panelNameTextBox.Enabled = enabled;
       _setPanelNameButton.Enabled = enabled;
+      _receptacleCircuitMaxComboBox.Enabled = enabled;
+      _setReceptacleCircuitMaxButton.Enabled = enabled;
       _layerComboBox.Enabled = enabled;
       _setLayerButton.Enabled = enabled;
       _runHomerunButton.Enabled = enabled;
@@ -470,6 +521,54 @@ namespace ElectricalCommands
       }
     }
 
+    private void SetReceptacleCircuitMaxButton_Click(
+      object sender,
+      EventArgs e)
+    {
+      Document document = AcApplication.DocumentManager.MdiActiveDocument;
+      if (document == null)
+      {
+        SetStatus("Open a drawing before setting the RC maximum load.");
+        return;
+      }
+
+      string candidate =
+        (_receptacleCircuitMaxComboBox.Text ?? string.Empty).Trim();
+      if (!double.TryParse(
+            candidate,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out double maximumKva) &&
+          !double.TryParse(
+            candidate,
+            NumberStyles.Float,
+            CultureInfo.CurrentCulture,
+            out maximumKva))
+      {
+        SetStatus("Enter an RC maximum load such as 0.90 or 1.26 kVA.");
+        return;
+      }
+
+      try
+      {
+        using (DocumentLock documentLock = document.LockDocument())
+        {
+          ElectricalDrawingSettingsStore.WriteReceptacleCircuitMaxKva(
+            document.Database,
+            maximumKva);
+        }
+        HomerunSettingsPalette.Refresh();
+        SetStatus(
+          $"RC maximum circuit load set to {maximumKva:0.00} kVA.");
+        document.Editor.WriteMessage(
+          $"\nRC maximum circuit load set to {maximumKva:0.00} kVA.");
+      }
+      catch (System.Exception ex)
+      {
+        SetStatus("Unable to set the RC maximum load: " + ex.Message);
+      }
+    }
+
     private void SetLayerButton_Click(object sender, EventArgs e)
     {
       Document document = AcApplication.DocumentManager.MdiActiveDocument;
@@ -533,6 +632,8 @@ namespace ElectricalCommands
     internal string LocationText { get; set; } = string.Empty;
     internal string ScaleText { get; set; } = string.Empty;
     internal string PanelName { get; set; } = string.Empty;
+    internal double ReceptacleCircuitMaxKva { get; set; } =
+      GeneralCommands.DefaultReceptacleCircuitMaxKva;
     internal string SelectedLayerName { get; set; } = string.Empty;
     internal List<string> LayerNames { get; set; } = new List<string>();
 

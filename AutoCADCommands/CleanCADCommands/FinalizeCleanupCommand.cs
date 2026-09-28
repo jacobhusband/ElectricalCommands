@@ -1,3 +1,4 @@
+using Application = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -25,6 +26,7 @@ namespace AutoCADCleanupTool
 
             if (_blockIdsBeforeBind.Count == 0)
             {
+                FinalizeStageFailed = true;
                 ed.WriteMessage("\nNo pre-bind block snapshot found. Run the finalize workflow from stage 1; aborting so every existing block is not treated as newly bound.");
                 return;
             }
@@ -90,7 +92,14 @@ namespace AutoCADCleanupTool
 
                         if (!isTitleBlock)
                         {
-                            xrefsToDetach.Add(btrId);
+                            if (PreserveRemainingXrefsDuringFinalizeCleanup)
+                            {
+                                ed.WriteMessage($"\nPreserving unbound XREF during headless finalize validation: {btr.Name}");
+                            }
+                            else
+                            {
+                                xrefsToDetach.Add(btrId);
+                            }
                         }
                     }
 
@@ -115,11 +124,20 @@ namespace AutoCADCleanupTool
                 }
                 if (ghostsDetached > 0) ed.WriteMessage($"\nDetached {ghostsDetached} remaining XREF definition(s).");
 
-                ed.WriteMessage("\nIntermediate cleanup complete. Queueing final surgical purge...");
-                doc.SendStringToExecute("_-FINALIZE-PURGEDEFS ", true, false, false);
+                if (RunFinalizeStagesSynchronously)
+                {
+                    ed.WriteMessage("\nIntermediate cleanup complete. Running final surgical purge synchronously...");
+                    FinalizePurgeDefsCommand();
+                }
+                else
+                {
+                    ed.WriteMessage("\nIntermediate cleanup complete. Queueing final surgical purge...");
+                    doc.SendStringToExecute("_-FINALIZE-PURGEDEFS ", true, false, false);
+                }
             }
             catch (System.Exception ex)
             {
+                FinalizeStageFailed = true;
                 ed.WriteMessage($"\nAn error occurred during cleanup: {ex.Message}\n{ex.StackTrace}");
             }
             finally

@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using System;
+using System.Collections.Generic;
 
 namespace ElectricalCommands
 {
@@ -16,7 +17,11 @@ namespace ElectricalCommands
     private const string PanelNameKey = "PANEL_NAME";
     private const string PanelScheduleKey = "PANEL_SCHEDULE";
     private const string HomerunLayerKey = "HOMERUN_LAYER";
+    private const string RoomBoundariesKey = "ROOM_BOUNDARIES";
+    private const string ReceptacleCircuitMaxKvaKey =
+      "RECEPTACLE_CIRCUIT_MAX_KVA";
     private const int RecordVersion = 1;
+    private const int RoomBoundaryRecordVersion = 2;
 
     internal sealed class PanelLocationSetting
     {
@@ -36,6 +41,24 @@ namespace ElectricalCommands
     {
       public string WorkbookPath { get; set; } = string.Empty;
       public int CircuitCapacity { get; set; }
+      public int SpareCount { get; set; } = 6;
+    }
+
+    internal sealed class RoomBoundarySetting
+    {
+      public string Name { get; set; } = string.Empty;
+      public string SourceHandle { get; set; } = string.Empty;
+      public double SquareFeet { get; set; }
+      public Point2d RelativeLocation { get; set; }
+      public List<Point2d> RelativeBoundary { get; set; } =
+        new List<Point2d>();
+    }
+
+    internal sealed class RoomBoundariesSetting
+    {
+      public Point3d BasePoint { get; set; }
+      public List<RoomBoundarySetting> Rooms { get; set; } =
+        new List<RoomBoundarySetting>();
     }
 
     public static void WritePanelLocation(
@@ -168,15 +191,18 @@ namespace ElectricalCommands
     public static void WritePanelSchedule(
       Database database,
       string workbookPath,
-      int circuitCapacity)
+      int circuitCapacity,
+      int spareCount = 6)
     {
+      int validSpareCount = Math.Max(0, Math.Min(spareCount, circuitCapacity));
       WriteRecord(
         database,
         PanelScheduleKey,
         new ResultBuffer(
           new TypedValue((int)DxfCode.Int32, RecordVersion),
           new TypedValue((int)DxfCode.Text, workbookPath ?? string.Empty),
-          new TypedValue((int)DxfCode.Int32, circuitCapacity)
+          new TypedValue((int)DxfCode.Int32, circuitCapacity),
+          new TypedValue((int)DxfCode.Int32, validSpareCount)
         )
       );
     }
@@ -197,8 +223,9 @@ namespace ElectricalCommands
         string workbookPath =
           (Convert.ToString(values[1].Value) ?? string.Empty).Trim();
         int circuitCapacity = Convert.ToInt32(values[2].Value);
+        int spareCount = values.Length >= 4 ? Convert.ToInt32(values[3].Value) : 6;
         if (workbookPath.Length == 0 ||
-            circuitCapacity < 6 ||
+            circuitCapacity < 2 ||
             circuitCapacity % 2 != 0)
         {
           return false;
@@ -208,6 +235,7 @@ namespace ElectricalCommands
         {
           WorkbookPath = workbookPath,
           CircuitCapacity = circuitCapacity,
+          SpareCount = Math.Max(0, Math.Min(spareCount, circuitCapacity)),
         };
         return true;
       }
@@ -216,6 +244,83 @@ namespace ElectricalCommands
         setting = null;
         return false;
       }
+    }
+
+    public static void WriteReceptacleCircuitMaxKva(
+      Database database,
+      double maximumKva)
+    {
+      if (!TryNormalizeReceptacleCircuitMaxKva(
+        maximumKva,
+        out double normalizedKva))
+      {
+        throw new ArgumentOutOfRangeException(
+          nameof(maximumKva),
+          $"Maximum receptacle circuit load must be a multiple of " +
+          $"{GeneralCommands.ReceptacleLoadUnitKva:0.00} kVA between " +
+          $"{GeneralCommands.ReceptacleLoadUnitKva:0.00} and " +
+          $"{GeneralCommands.MaximumReceptacleCircuitLoadKva:0.00} kVA.");
+      }
+
+      WriteRecord(
+        database,
+        ReceptacleCircuitMaxKvaKey,
+        new ResultBuffer(
+          new TypedValue((int)DxfCode.Int32, RecordVersion),
+          new TypedValue((int)DxfCode.Real, normalizedKva)
+        )
+      );
+    }
+
+    public static bool TryReadReceptacleCircuitMaxKva(
+      Database database,
+      out double maximumKva)
+    {
+      maximumKva = 0.0;
+      TypedValue[] values = ReadRecord(
+        database,
+        ReceptacleCircuitMaxKvaKey);
+      if (values == null || values.Length < 2 || !HasSupportedVersion(values))
+      {
+        return false;
+      }
+
+      try
+      {
+        return TryNormalizeReceptacleCircuitMaxKva(
+          Convert.ToDouble(values[1].Value),
+          out maximumKva);
+      }
+      catch
+      {
+        maximumKva = 0.0;
+        return false;
+      }
+    }
+
+    private static bool TryNormalizeReceptacleCircuitMaxKva(
+      double maximumKva,
+      out double normalizedKva)
+    {
+      normalizedKva = 0.0;
+      if (maximumKva <= 0.0 ||
+          double.IsNaN(maximumKva) ||
+          double.IsInfinity(maximumKva))
+      {
+        return false;
+      }
+
+      int loadUnits = (int)Math.Round(
+        maximumKva / GeneralCommands.ReceptacleLoadUnitKva);
+      if (loadUnits < 1 ||
+          loadUnits > GeneralCommands.MaximumReceptacleCircuitLoadUnits)
+      {
+        return false;
+      }
+
+      normalizedKva =
+        loadUnits * GeneralCommands.ReceptacleLoadUnitKva;
+      return Math.Abs(maximumKva - normalizedKva) < 0.001;
     }
 
     public static void WriteHomerunLayer(Database database, string layerName)
@@ -241,6 +346,205 @@ namespace ElectricalCommands
 
       layerName = (Convert.ToString(values[1].Value) ?? string.Empty).Trim();
       return layerName.Length > 0;
+    }
+
+    public static void WriteRoomBoundaries(
+      Database database,
+      Point3d basePoint,
+      IList<RoomBoundarySetting> rooms)
+    {
+      if (rooms == null)
+      {
+        throw new ArgumentNullException(nameof(rooms));
+      }
+
+      List<TypedValue> values = new List<TypedValue>
+      {
+        new TypedValue((int)DxfCode.Int32, RoomBoundaryRecordVersion),
+        new TypedValue((int)DxfCode.Real, basePoint.X),
+        new TypedValue((int)DxfCode.Real, basePoint.Y),
+        new TypedValue((int)DxfCode.Real, basePoint.Z),
+        new TypedValue((int)DxfCode.Int32, rooms.Count),
+      };
+
+      foreach (RoomBoundarySetting room in rooms)
+      {
+        if (room == null ||
+            string.IsNullOrWhiteSpace(room.Name) ||
+            room.RelativeBoundary == null ||
+            room.RelativeBoundary.Count < 3 ||
+            room.SquareFeet < 0.0 ||
+            double.IsNaN(room.SquareFeet) ||
+            double.IsInfinity(room.SquareFeet) ||
+            double.IsNaN(room.RelativeLocation.X) ||
+            double.IsInfinity(room.RelativeLocation.X) ||
+            double.IsNaN(room.RelativeLocation.Y) ||
+            double.IsInfinity(room.RelativeLocation.Y))
+        {
+          throw new ArgumentException(
+            "Every saved room must contain a name, valid square footage " +
+            "and location, and at least three boundary points.",
+            nameof(rooms));
+        }
+
+        values.Add(new TypedValue(
+          (int)DxfCode.Text,
+          room.Name ?? string.Empty));
+        values.Add(new TypedValue(
+          (int)DxfCode.Text,
+          room.SourceHandle ?? string.Empty));
+        values.Add(new TypedValue((int)DxfCode.Real, room.SquareFeet));
+        values.Add(new TypedValue(
+          (int)DxfCode.Real,
+          room.RelativeLocation.X));
+        values.Add(new TypedValue(
+          (int)DxfCode.Real,
+          room.RelativeLocation.Y));
+        values.Add(new TypedValue(
+          (int)DxfCode.Int32,
+          room.RelativeBoundary.Count));
+        foreach (Point2d point in room.RelativeBoundary)
+        {
+          values.Add(new TypedValue((int)DxfCode.Real, point.X));
+          values.Add(new TypedValue((int)DxfCode.Real, point.Y));
+        }
+      }
+
+      WriteRecord(
+        database,
+        RoomBoundariesKey,
+        new ResultBuffer(values.ToArray()));
+    }
+
+    public static bool TryReadRoomBoundaries(
+      Database database,
+      out RoomBoundariesSetting setting)
+    {
+      setting = null;
+      TypedValue[] values = ReadRecord(database, RoomBoundariesKey);
+      if (values == null || values.Length < 5)
+      {
+        return false;
+      }
+
+      try
+      {
+        int roomRecordVersion = Convert.ToInt32(values[0].Value);
+        if (roomRecordVersion < 1 ||
+            roomRecordVersion > RoomBoundaryRecordVersion)
+        {
+          return false;
+        }
+
+        int valueIndex = 1;
+        Point3d basePoint = new Point3d(
+          Convert.ToDouble(values[valueIndex++].Value),
+          Convert.ToDouble(values[valueIndex++].Value),
+          Convert.ToDouble(values[valueIndex++].Value));
+        int roomCount = Convert.ToInt32(values[valueIndex++].Value);
+        if (roomCount < 1)
+        {
+          return false;
+        }
+
+        RoomBoundariesSetting result = new RoomBoundariesSetting
+        {
+          BasePoint = basePoint,
+        };
+        for (int roomIndex = 0; roomIndex < roomCount; roomIndex++)
+        {
+          if (valueIndex + 2 >= values.Length)
+          {
+            return false;
+          }
+
+          RoomBoundarySetting room = new RoomBoundarySetting
+          {
+            Name = Convert.ToString(values[valueIndex++].Value) ?? string.Empty,
+            SourceHandle =
+              Convert.ToString(values[valueIndex++].Value) ?? string.Empty,
+          };
+          if (roomRecordVersion >= 2)
+          {
+            if (valueIndex + 3 >= values.Length)
+            {
+              return false;
+            }
+            room.SquareFeet = Convert.ToDouble(values[valueIndex++].Value);
+            room.RelativeLocation = new Point2d(
+              Convert.ToDouble(values[valueIndex++].Value),
+              Convert.ToDouble(values[valueIndex++].Value));
+            if (room.SquareFeet < 0.0 ||
+                double.IsNaN(room.SquareFeet) ||
+                double.IsInfinity(room.SquareFeet) ||
+                double.IsNaN(room.RelativeLocation.X) ||
+                double.IsInfinity(room.RelativeLocation.X) ||
+                double.IsNaN(room.RelativeLocation.Y) ||
+                double.IsInfinity(room.RelativeLocation.Y))
+            {
+              return false;
+            }
+          }
+          int pointCount = Convert.ToInt32(values[valueIndex++].Value);
+          if (pointCount < 3 || valueIndex + pointCount * 2 > values.Length)
+          {
+            return false;
+          }
+
+          for (int pointIndex = 0; pointIndex < pointCount; pointIndex++)
+          {
+            room.RelativeBoundary.Add(new Point2d(
+              Convert.ToDouble(values[valueIndex++].Value),
+              Convert.ToDouble(values[valueIndex++].Value)));
+          }
+          if (roomRecordVersion == 1)
+          {
+            room.SquareFeet =
+              CalculateRoomBoundaryArea(room.RelativeBoundary) / 144.0;
+            room.RelativeLocation =
+              CalculateRoomBoundaryAverage(room.RelativeBoundary);
+          }
+          result.Rooms.Add(room);
+        }
+
+        if (valueIndex != values.Length)
+        {
+          return false;
+        }
+
+        setting = result;
+        return true;
+      }
+      catch
+      {
+        setting = null;
+        return false;
+      }
+    }
+
+    private static double CalculateRoomBoundaryArea(List<Point2d> boundary)
+    {
+      double doubledArea = 0.0;
+      for (int index = 0; index < boundary.Count; index++)
+      {
+        Point2d current = boundary[index];
+        Point2d next = boundary[(index + 1) % boundary.Count];
+        doubledArea += current.X * next.Y - next.X * current.Y;
+      }
+      return Math.Abs(doubledArea) / 2.0;
+    }
+
+    private static Point2d CalculateRoomBoundaryAverage(
+      List<Point2d> boundary)
+    {
+      double x = 0.0;
+      double y = 0.0;
+      foreach (Point2d point in boundary)
+      {
+        x += point.X;
+        y += point.Y;
+      }
+      return new Point2d(x / boundary.Count, y / boundary.Count);
     }
 
     private static bool HasSupportedVersion(TypedValue[] values)

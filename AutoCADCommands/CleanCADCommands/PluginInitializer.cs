@@ -61,7 +61,7 @@ namespace AutoCADCleanupTool
             catch (System.Exception ex)
             {
                 // Log any errors to the AutoCAD command line for easier debugging.
-                var editor = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument?.Editor;
+                var editor = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument?.Editor;
                 editor?.WriteMessage($"\nAssemblyResolver Error: {ex.Message}");
             }
 

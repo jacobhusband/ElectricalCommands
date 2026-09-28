@@ -1,3 +1,4 @@
+using Application = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -89,7 +90,9 @@ namespace AutoCADCleanupTool
                 }
                 catch (System.Exception ex)
                 {
+                    FinalizeStageFailed = true;
                     ed.WriteMessage($"\nAn error occurred during final purge: {ex.Message}\n{ex.StackTrace}");
+                    FinalizeStageFailed = true;
                 }
             }
 
