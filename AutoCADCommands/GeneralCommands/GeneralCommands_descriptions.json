@@ -26,6 +26,8 @@
         "R270": "Rotates selected objects 270 degrees around a specified base point.",
         "R360": "Rotates selected objects 360 degrees around a specified base point.",
         "R": "Inserts a scaled receptacle or automatically circuits selected RECEPT/Receptacles blocks, using dynamic visibility state for duplex and quad loads and updating the linked panel schedule.",
+        "JBOX": "Inserts a scaled junction box symbol: plain, with a switch, or wall-mounted, with the switch or wall mount placed on the north, east, south, or west side.",
+        "DISCONNECT": "Inserts a scaled disconnect symbol with its handle facing north, east, south, or west.",
         "OPENLAYERS": "Freezes or thaws selected layers across selected DWGs that are open in the current AutoCAD session.",
         "OPENFREEZETHAW": "Alias for OPENLAYERS.",
         "OLAYERS": "Alias for OPENLAYERS."

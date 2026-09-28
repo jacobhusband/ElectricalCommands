@@ -102,7 +102,7 @@ namespace ElectricalCommands
         double symbolSize = ResolveHomerunSymbolSize(paperInchesPerFoot);
         double receptBlockScale = ResolveReceptBlockScale(paperInchesPerFoot);
         ed.WriteMessage(
-          $"\nDrawing scale set to {displayText}. New HR objects will use a {FormatNumber(symbolSize)}\" arrow and text height; new RECEPT blocks will use X/Y/Z scale {FormatNumber(receptBlockScale)}. Existing objects are unchanged."
+          $"\nDrawing scale set to {displayText}. New HR objects will use a {FormatNumber(symbolSize)}\" arrow and text height; new RECEPT and JBOX blocks will use X/Y/Z scale {FormatNumber(receptBlockScale)}. Existing objects are unchanged."
         );
         HomerunSettingsPalette.Refresh();
         HomerunSettingsPalette.SetStatus($"Scale set to {displayText}.");
