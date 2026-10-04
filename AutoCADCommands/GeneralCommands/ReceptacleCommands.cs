@@ -53,8 +53,8 @@ namespace ElectricalCommands
         ed.WriteMessage(
           $"\nDrawing scale automatically set to {scale.DisplayText} " +
           "from the active viewport.");
-        HomerunSettingsPalette.Refresh();
-        HomerunSettingsPalette.SetStatus(
+        DraftingPalette.Refresh();
+        DraftingPalette.SetStatus(
           $"Scale set to {scale.DisplayText} from the active viewport.");
       }
       else if (isEditingViewport)
@@ -341,8 +341,8 @@ namespace ElectricalCommands
         ed.WriteMessage(
           $"\nDrawing scale automatically set to {scale.DisplayText} " +
           "from the active viewport.");
-        HomerunSettingsPalette.Refresh();
-        HomerunSettingsPalette.SetStatus(
+        DraftingPalette.Refresh();
+        DraftingPalette.SetStatus(
           $"Scale set to {scale.DisplayText} from the active viewport.");
       }
       else if (isEditingViewport)

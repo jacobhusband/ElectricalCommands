@@ -15,11 +15,13 @@ namespace ElectricalCommands
     private const double QuarterScaleSymbolSize = 4.5;
     private const double QuarterScalePaperInchesPerFoot = 0.25;
 
+    [CommandMethod("DRAFTPALETTE", CommandFlags.Modal)]
+    [CommandMethod("EDP", CommandFlags.Modal)]
     [CommandMethod("HRSETTINGS", CommandFlags.Modal)]
     [CommandMethod("HRS", CommandFlags.Modal)]
-    public void ShowHomerunSettingsCommand()
+    public void ShowDraftingPaletteCommand()
     {
-      HomerunSettingsPalette.Show();
+      DraftingPalette.Show();
     }
 
     [CommandMethod("SETPANELLOCATION", CommandFlags.Modal)]
@@ -49,8 +51,8 @@ namespace ElectricalCommands
           context
         );
         ed.WriteMessage($"\nPanel location set to {FormatPoint(result.Value)} ({context}).");
-        HomerunSettingsPalette.Refresh();
-        HomerunSettingsPalette.SetStatus("Panel location updated.");
+        DraftingPalette.Refresh();
+        DraftingPalette.SetStatus("Panel location updated.");
       }
       catch (System.Exception ex)
       {
@@ -104,8 +106,8 @@ namespace ElectricalCommands
         ed.WriteMessage(
           $"\nDrawing scale set to {displayText}. New HR objects will use a {FormatNumber(symbolSize)}\" arrow and text height; new RECEPT and JBOX blocks will use X/Y/Z scale {FormatNumber(receptBlockScale)}. Existing objects are unchanged."
         );
-        HomerunSettingsPalette.Refresh();
-        HomerunSettingsPalette.SetStatus($"Scale set to {displayText}.");
+        DraftingPalette.Refresh();
+        DraftingPalette.SetStatus($"Scale set to {displayText}.");
       }
       catch (System.Exception ex)
       {
@@ -150,8 +152,8 @@ namespace ElectricalCommands
       {
         ElectricalDrawingSettingsStore.WritePanelName(db, panelName);
         ed.WriteMessage($"\nPanel name set to {panelName}. HR and receptacle labels will start with {BuildPanelLabel(panelName)}");
-        HomerunSettingsPalette.Refresh();
-        HomerunSettingsPalette.SetStatus($"Panel name set to {panelName}.");
+        DraftingPalette.Refresh();
+        DraftingPalette.SetStatus($"Panel name set to {panelName}.");
       }
       catch (System.Exception ex)
       {

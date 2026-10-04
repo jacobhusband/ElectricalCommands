@@ -99,7 +99,7 @@ namespace ElectricalCommands
           Path.GetFullPath(dialog.FileName),
           detectedCapacity,
           spareCount);
-        HomerunSettingsPalette.Refresh();
+        DraftingPalette.Refresh();
 
         editor.WriteMessage(
           $"\nPanel schedule linked to worksheet \"{worksheetName}\". Autodetected {detectedCapacity} active circuits (1-{detectedCapacity})." +
@@ -185,7 +185,7 @@ namespace ElectricalCommands
           panelSchedule.WorkbookPath,
           panelSchedule.CircuitCapacity,
           spareCount);
-        HomerunSettingsPalette.Refresh();
+        DraftingPalette.Refresh();
 
         editor.WriteMessage(
           $"\nPanel {panelName} spares set to {spareCount} on worksheet \"{worksheetName}\"." +
