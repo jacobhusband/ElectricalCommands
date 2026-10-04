@@ -7,7 +7,9 @@
         "ACIESCLEANJOB": "Executes a JSON cleanup job from Project Management: inspect, stage references, clean, or verify a saved drawing.",
         "CLEANCAD": "Cleans the entire sheet by embedding XREFs and performing cleanup operations.",
         "CLEANCAD2": "Runs the initial non-interactive cleanup workflow, aborting safely when unresolved XREFs or media requiring desktop embedding are detected.",
-        "VP2PLHEADLESS": "Cleans Model Space against layout viewport regions using database-only, fail-safe extents intersection."
+        "BINDALLXREFS": "Removes every data link, PDF underlay, and image from the drawing, then binds every DWG XREF whose file is found (Bind or Insert), and removes the images and PDFs that came in with them. XREFs with missing files are left attached and reported.",
+        "BAX": "Alias for BINDALLXREFS.",
+        "VP2PLHEADLESS":"Cleans Model Space against layout viewport regions using database-only, fail-safe extents intersection."
     },
     "links": {
         "EMBEDIMAGES": "https://brainy-seahorse-3c5.notion.site/EMBEDIMAGES-2b03fdbb662c80a08954db8d05ac745f",

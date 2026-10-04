@@ -72,6 +72,8 @@ ElectricalCommands.GeneralCommands
 AutoCADCleanupTool.CleanCADCommands
 - -FINALIZE-CLEANUP / FinalizeCleanupCommand (AutoCADCommands\CleanCADCommands\FinalizeCleanupCommand.cs:16)
 - -FINALIZE-PURGEDEFS / FinalizePurgeDefsCommand (AutoCADCommands\CleanCADCommands\FinalizePurgeDefsCommand.cs:15)
+- BAX / BindAllXrefs (AutoCADCommands\CleanCADCommands\BindAllXrefsCommand.cs:25)
+- BINDALLXREFS / BindAllXrefs (AutoCADCommands\CleanCADCommands\BindAllXrefsCommand.cs:24)
 - CLEANCAD / RunCleanSheet (AutoCADCommands\CleanCADCommands\CleanCadCommand.cs:85)
 - CLEANCAD2 / RunCleanSheetHeadless (AutoCADCommands\CleanCADCommands\CleanCadHeadlessCommand.cs:22)
 - CLEANPS / ListPaperSpaceXrefs (AutoCADCommands\CleanCADCommands\DetectPaperSpaceXrefsCommand.cs:16)
