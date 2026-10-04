@@ -235,6 +235,7 @@ namespace ElectricalCommands
   {
     internal const short RedColorIndex = 1;
     internal const short YellowColorIndex = 2;
+    internal const short CyanColorIndex = 4;
     internal const short WhiteColorIndex = 7;
 
     // Symbol sizes are specified in model inches at 1/4" = 1'-0"; dividing by
