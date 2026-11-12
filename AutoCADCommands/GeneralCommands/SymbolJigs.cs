@@ -197,6 +197,91 @@ namespace ElectricalCommands
     }
   }
 
+  // Rotates a placed symbol so its top faces the cursor, like the receptacle
+  // orientation pick. Enter keeps the rotation currently shown.
+  internal sealed class SymbolRotationJig : DrawJig, IDisposable
+  {
+    private readonly SymbolPreview _preview;
+    private readonly Point3d _location;
+    private readonly double _scale;
+    private readonly double _minimumPickDistance;
+    private readonly string _message;
+    private double _rotation;
+
+    public SymbolRotationJig(
+      List<Entity> previewEntities,
+      string message,
+      Point3d location,
+      double scale,
+      double initialRotation,
+      double minimumPickDistance
+    )
+    {
+      _preview = new SymbolPreview(previewEntities);
+      _message = message;
+      _location = location;
+      _scale = scale;
+      _rotation = initialRotation;
+      // Close to the insertion point the direction is too twitchy to read, so keep the current rotation.
+      _minimumPickDistance = minimumPickDistance;
+    }
+
+    public double Rotation => _rotation;
+
+    protected override SamplerStatus Sampler(JigPrompts prompts)
+    {
+      JigPromptPointOptions options = new JigPromptPointOptions
+      {
+        Message = _message,
+        BasePoint = _location,
+        UseBasePoint = true,
+        UserInputControls = UserInputControls.Accept3dCoordinates
+          | UserInputControls.NullResponseAccepted
+          | UserInputControls.NoNegativeResponseAccepted,
+        Cursor = CursorType.RubberBand,
+      };
+
+      PromptPointResult result = prompts.AcquirePoint(options);
+      if (result.Status == PromptStatus.None)
+      {
+        return SamplerStatus.OK;
+      }
+      if (result.Status != PromptStatus.OK)
+      {
+        return SamplerStatus.Cancel;
+      }
+
+      Vector3d offset = result.Value - _location;
+      if (Math.Sqrt(offset.X * offset.X + offset.Y * offset.Y) < _minimumPickDistance)
+      {
+        return SamplerStatus.NoChange;
+      }
+
+      double rotation = Math.Atan2(offset.Y, offset.X) - (Math.PI / 2.0);
+      if (Math.Abs(rotation - _rotation) < 1e-9)
+      {
+        return SamplerStatus.NoChange;
+      }
+
+      _rotation = rotation;
+      return SamplerStatus.OK;
+    }
+
+    protected override bool WorldDraw(WorldDraw draw)
+    {
+      _preview.Draw(
+        draw,
+        SymbolGeometry.CreateInsertTransform(_location, _rotation, _scale)
+      );
+      return true;
+    }
+
+    public void Dispose()
+    {
+      _preview.Dispose();
+    }
+  }
+
   internal sealed class SymbolPreview : IDisposable
   {
     private readonly List<Entity> _entities;

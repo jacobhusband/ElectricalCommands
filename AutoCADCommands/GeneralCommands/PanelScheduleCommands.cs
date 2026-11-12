@@ -87,13 +87,20 @@ namespace ElectricalCommands
 
       try
       {
-        string worksheetName = PanelScheduleWorkbookAllocator.PreparePanel(
+        string worksheetName = PreparePanelOrOfferToCreate(
+          editor,
           dialog.FileName,
           panelName,
-          circuitCapacity: 0,
-          spareCount: spareCount,
+          spareCount,
           out int detectedCapacity,
           out PanelCircuitCounts counts);
+        if (worksheetName == null)
+        {
+          editor.WriteMessage(
+            $"\nPanel schedule not linked: panel {panelName} has no worksheet in the workbook.");
+          return;
+        }
+
         ElectricalDrawingSettingsStore.WritePanelSchedule(
           document.Database,
           Path.GetFullPath(dialog.FileName),
@@ -110,6 +117,52 @@ namespace ElectricalCommands
         editor.WriteMessage(
           $"\nUnable to link the panel schedule: {ex.Message}");
       }
+    }
+
+    /// <summary>
+    /// Prepares the panel's worksheet. When the workbook has no worksheet for
+    /// the panel, offers to create one from a template sheet and retries.
+    /// Returns null when the user declines or cancels the creation.
+    /// </summary>
+    private static string PreparePanelOrOfferToCreate(
+      Editor editor,
+      string workbookPath,
+      string panelName,
+      int spareCount,
+      out int detectedCapacity,
+      out PanelCircuitCounts counts)
+    {
+      try
+      {
+        return PanelScheduleWorkbookAllocator.PreparePanel(
+          workbookPath,
+          panelName,
+          circuitCapacity: 0,
+          spareCount: spareCount,
+          out detectedCapacity,
+          out counts);
+      }
+      catch (PanelWorksheetNotFoundException notFound)
+      {
+        if (!TryCreatePanelWorksheet(
+          editor,
+          workbookPath,
+          panelName,
+          notFound))
+        {
+          detectedCapacity = 0;
+          counts = null;
+          return null;
+        }
+      }
+
+      return PanelScheduleWorkbookAllocator.PreparePanel(
+        workbookPath,
+        panelName,
+        circuitCapacity: 0,
+        spareCount: spareCount,
+        out detectedCapacity,
+        out counts);
     }
 
     [CommandMethod("SETSPARES", CommandFlags.Modal)]
@@ -324,7 +377,7 @@ namespace ElectricalCommands
     internal int BreakerAmps { get; set; } = 20;
   }
 
-  internal static class PanelScheduleWorkbookAllocator
+  internal static partial class PanelScheduleWorkbookAllocator
   {
     private const int AciesStartRow = 7;
     private const int AciesMaxRow = 48;
@@ -525,6 +578,37 @@ namespace ElectricalCommands
       string panelName,
       Func<Excel.Worksheet, T> action)
     {
+      return ExecuteWithWorkbook(
+        workbookPath,
+        false,
+        workbook =>
+        {
+          Excel.Sheets worksheets = null;
+          Excel.Worksheet worksheet = null;
+          try
+          {
+            worksheets = workbook.Worksheets;
+            worksheet = FindPanelWorksheet(worksheets, panelName);
+            return action(worksheet);
+          }
+          finally
+          {
+            ReleaseComObject(worksheet);
+            ReleaseComObject(worksheets);
+          }
+        });
+    }
+
+    /// <summary>
+    /// Opens the workbook in a hidden Excel instance, runs the action, and
+    /// (unless read-only) recalculates and saves it. Nothing is saved when the
+    /// action throws.
+    /// </summary>
+    private static T ExecuteWithWorkbook<T>(
+      string workbookPath,
+      bool readOnly,
+      Func<Excel.Workbook, T> action)
+    {
       string fullPath = Path.GetFullPath(workbookPath ?? string.Empty);
       if (!File.Exists(fullPath))
       {
@@ -544,8 +628,6 @@ namespace ElectricalCommands
       Excel.Application excel = null;
       Excel.Workbooks workbooks = null;
       Excel.Workbook workbook = null;
-      Excel.Sheets worksheets = null;
-      Excel.Worksheet worksheet = null;
 
       try
       {
@@ -569,19 +651,21 @@ namespace ElectricalCommands
         workbook = workbooks.Open(
           fullPath,
           UpdateLinks: 0,
-          ReadOnly: false,
+          ReadOnly: readOnly,
           IgnoreReadOnlyRecommended: true,
           AddToMru: false);
-        if (workbook.ReadOnly)
+        if (!readOnly && workbook.ReadOnly)
         {
           throw new InvalidOperationException(
             "The panel schedule is read-only or open elsewhere. Close Excel " +
             "and try again.");
         }
 
-        worksheets = workbook.Worksheets;
-        worksheet = FindPanelWorksheet(worksheets, panelName);
-        T result = action(worksheet);
+        T result = action(workbook);
+        if (readOnly)
+        {
+          return result;
+        }
 
         try
         {
@@ -623,8 +707,6 @@ namespace ElectricalCommands
           }
         }
 
-        ReleaseComObject(worksheet);
-        ReleaseComObject(worksheets);
         ReleaseComObject(workbook);
         ReleaseComObject(workbooks);
         ReleaseComObject(excel);
@@ -666,9 +748,7 @@ namespace ElectricalCommands
         }
       }
 
-      throw new InvalidOperationException(
-        $"Could not find panel {panelName} in the workbook. Available panel " +
-        $"worksheets: {(scheduleNames.Count == 0 ? "none" : string.Join(", ", scheduleNames))}.");
+      throw new PanelWorksheetNotFoundException(panelName, scheduleNames);
     }
 
     private static bool IsPanelSchedule(Excel.Worksheet worksheet)
@@ -838,6 +918,7 @@ namespace ElectricalCommands
       }
 
       string rightCktCol = DetectRightCircuitColumn(worksheet, startRow);
+      string leftKvaColumn = DetectLeftKvaColumn(worksheet, startRow);
       int endRow = hasExplicitCircuitNumbers
         ? startRow + 41
         : GeneratedMaxRow;
@@ -910,7 +991,7 @@ namespace ElectricalCommands
             PolesAddress = $"D{row}",
             BreakerAmpsAddress = $"E{row}",
             LoadDescriptionAddress = $"F{row}",
-            ConnectedKvaAddress = $"H{row}",
+            ConnectedKvaAddress = $"{leftKvaColumn}{row}",
           });
           slots.Add(new PanelCircuitSlot
           {
@@ -939,13 +1020,48 @@ namespace ElectricalCommands
       return slots;
     }
 
+    // The left LOAD KVA column is the one right after the merged left LOAD
+    // DESCRIPTION: I when the description is merged F:H (current ACIES
+    // template), H when it is merged F:G. Writing kVA to a column inside the
+    // merge lands in the description cell and overwrites it.
+    private static string DetectLeftKvaColumn(
+      Excel.Worksheet worksheet,
+      int startRow)
+    {
+      const string unmergedDefault = "H";
+      Excel.Range description = null;
+      Excel.Range mergeArea = null;
+      Excel.Range columns = null;
+      try
+      {
+        description = worksheet.Range[$"F{startRow}"];
+        if (!Convert.ToBoolean(description.MergeCells))
+        {
+          return unmergedDefault;
+        }
+
+        mergeArea = description.MergeArea;
+        columns = mergeArea.Columns;
+        int lastColumn =
+          Convert.ToInt32(mergeArea.Column) +
+          Convert.ToInt32(columns.Count) - 1;
+        return ColumnLetters(lastColumn + 1);
+      }
+      finally
+      {
+        ReleaseComObject(columns);
+        ReleaseComObject(mergeArea);
+        ReleaseComObject(description);
+      }
+    }
+
     private static bool TryFindCircuitStartRow(
       Excel.Worksheet worksheet,
       out int startRow)
     {
       for (int row = 5; row <= 15; row++)
       {
-        if (ReadInteger(worksheet, $"A{row}") == 1)
+        if (IsCircuitNumberOne(worksheet, $"A{row}"))
         {
           startRow = row;
           return true;
@@ -954,6 +1070,22 @@ namespace ElectricalCommands
 
       startRow = -1;
       return false;
+    }
+
+    // The panel title is a merged cell that reaches down to A5. ReadInteger
+    // pulls the first digits out of text, so a title such as PANEL "LP-1A"
+    // read as circuit 1 and put the start of the circuit table at row 5.
+    private static bool IsCircuitNumberOne(
+      Excel.Worksheet worksheet,
+      string address)
+    {
+      object value = ReadCell(worksheet, address);
+      if (value is double number)
+      {
+        return number == 1.0;
+      }
+      return value is string text &&
+        Regex.IsMatch(text, @"^\s*0*1\s*$");
     }
 
     private static string DetectRightCircuitColumn(

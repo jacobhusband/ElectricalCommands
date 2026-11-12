@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AREALABEL - Name Rooms"
-        Width="760"
-        Height="540"
-        MinWidth="620"
-        MinHeight="420"
+        Width="860"
+        Height="720"
+        MinWidth="700"
+        MinHeight="560"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         ShowInTaskbar="False"
@@ -26,6 +26,8 @@
       <RowDefinition Height="*"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0" Margin="0,0,0,10">
@@ -36,12 +38,13 @@
       <TextBlock Margin="0,4,0,0"
                  Foreground="#52606D"
                  TextWrapping="Wrap"
-                 Text="Open and closed polylines are included. Select a row to highlight it in AutoCAD, then replace every placeholder with the correct room name and number."/>
+                 Text="Open and closed polylines are included. Select a row to highlight it in AutoCAD, then replace every placeholder with the correct room name and number. Put polylines in groups (such as INTERIOR and EXTERIOR) to total their area and perimeter separately."/>
     </StackPanel>
 
     <Grid Grid.Row="1" Margin="0,0,0,10">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
         <ColumnDefinition Width="Auto"/>
         <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
@@ -52,13 +55,20 @@
                  Foreground="#334E68"
                  Text="0 Room Boundaries"/>
       <Button Grid.Column="1"
+              x:Name="ZoomToSelectedButton"
+              Content="Zoom To Selected"
+              Click="ZoomToSelected_Click"
+              MinWidth="115"
+              Margin="0,0,8,0"
+              ToolTip="Zoom the drawing to the extents of the selected polyline(s)"/>
+      <Button Grid.Column="2"
               x:Name="AddPolylinesButton"
               Content="+ Add Polylines"
               Click="AddPolylines_Click"
               MinWidth="115"
               Margin="0,0,8,0"
               ToolTip="Pick additional room polylines from the AutoCAD drawing"/>
-      <Button Grid.Column="2"
+      <Button Grid.Column="3"
               x:Name="RemoveSelectedButton"
               Content="Remove Selected"
               Click="RemoveSelected_Click"
@@ -85,22 +95,50 @@
                 SelectionMode="Extended"
                 SelectionUnit="FullRow"
                 PreviewKeyDown="RoomsDataGrid_PreviewKeyDown"
+                CellEditEnding="RoomsDataGrid_CellEditEnding"
                 SelectionChanged="RoomsDataGrid_SelectionChanged">
         <DataGrid.ContextMenu>
           <ContextMenu>
+            <MenuItem Header="Zoom To Selected" Click="ZoomToSelected_Click"/>
             <MenuItem Header="+ Add Polylines..." Click="AddPolylines_Click"/>
             <MenuItem Header="Remove Selected" Click="RemoveSelected_Click"/>
+            <Separator/>
+            <MenuItem Header="Clear Group" Click="ClearGroup_Click"/>
           </ContextMenu>
         </DataGrid.ContextMenu>
         <DataGrid.Columns>
           <DataGridTextColumn Header="Boundary"
                               Binding="{Binding SourceLabel}"
                               IsReadOnly="True"
-                              Width="145"/>
+                              Width="110"/>
           <DataGridTextColumn Header="Square Footage"
                               Binding="{Binding SquareFootageText}"
+                              SortMemberPath="SquareFeet"
                               IsReadOnly="True"
-                              Width="145"/>
+                              Width="120"/>
+          <DataGridTextColumn Header="Perimeter"
+                              Binding="{Binding PerimeterText}"
+                              SortMemberPath="PerimeterFeet"
+                              IsReadOnly="True"
+                              Width="100"/>
+          <DataGridTemplateColumn Header="Group"
+                                  SortMemberPath="Group"
+                                  Width="130">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Group}"
+                           Margin="4,0"
+                           VerticalAlignment="Center"/>
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+            <DataGridTemplateColumn.CellEditingTemplate>
+              <DataTemplate>
+                <ComboBox IsEditable="True"
+                          Text="{Binding Group, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                          ItemsSource="{Binding GroupOptions, RelativeSource={RelativeSource AncestorType=Window}}"/>
+              </DataTemplate>
+            </DataGridTemplateColumn.CellEditingTemplate>
+          </DataGridTemplateColumn>
           <DataGridTextColumn Header="Room Name and Number"
                               Binding="{Binding RoomName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               Width="*"/>
@@ -108,13 +146,109 @@
       </DataGrid>
     </Border>
 
-    <Border Grid.Row="3"
+    <Grid Grid.Row="3" Margin="0,10,0,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <TextBlock Grid.Column="0"
+                 VerticalAlignment="Center"
+                 Foreground="#334E68"
+                 FontWeight="SemiBold"
+                 Margin="0,0,8,0"
+                 Text="Group selected rows as:"/>
+      <ComboBox Grid.Column="1"
+                x:Name="GroupComboBox"
+                IsEditable="True"
+                Width="150"
+                MinHeight="32"
+                VerticalContentAlignment="Center"
+                Text="INTERIOR"
+                ToolTip="Pick INTERIOR or EXTERIOR, or type any group name"/>
+      <Button Grid.Column="2"
+              x:Name="AssignGroupButton"
+              Content="Assign Group"
+              Click="AssignGroup_Click"
+              MinWidth="105"
+              Margin="8,0,0,0"
+              ToolTip="Put the selected polyline(s) in this group"/>
+      <Button Grid.Column="3"
+              x:Name="ClearGroupButton"
+              Content="Clear Group"
+              Click="ClearGroup_Click"
+              MinWidth="95"
+              Margin="8,0,0,0"
+              ToolTip="Remove the selected polyline(s) from their group"/>
+      <Button Grid.Column="5"
+              x:Name="CopyTotalsButton"
+              Content="Copy Totals"
+              Click="CopyTotals_Click"
+              MinWidth="100"
+              ToolTip="Copy the group totals to the clipboard as a table"/>
+    </Grid>
+
+    <Border Grid.Row="4"
+            Background="White"
+            BorderBrush="#D9E0E7"
+            BorderThickness="1"
+            CornerRadius="5"
+            Padding="1"
+            Margin="0,10,0,0">
+      <DataGrid x:Name="GroupTotalsDataGrid"
+                AutoGenerateColumns="False"
+                CanUserAddRows="False"
+                CanUserDeleteRows="False"
+                CanUserReorderColumns="False"
+                CanUserSortColumns="False"
+                IsReadOnly="True"
+                HeadersVisibility="Column"
+                GridLinesVisibility="Horizontal"
+                HorizontalGridLinesBrush="#E8EDF2"
+                BorderThickness="0"
+                RowHeaderWidth="0"
+                SelectionMode="Single"
+                SelectionUnit="FullRow"
+                MaxHeight="150"
+                ToolTip="Select a group to select and highlight its polylines"
+                SelectionChanged="GroupTotalsDataGrid_SelectionChanged">
+        <DataGrid.RowStyle>
+          <Style TargetType="DataGridRow">
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding IsTotal}" Value="True">
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Background" Value="#F4F7FA"/>
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </DataGrid.RowStyle>
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Group Totals"
+                              Binding="{Binding GroupName}"
+                              Width="*"/>
+          <DataGridTextColumn Header="Polylines"
+                              Binding="{Binding Count}"
+                              Width="90"/>
+          <DataGridTextColumn Header="Total Area"
+                              Binding="{Binding AreaText}"
+                              Width="140"/>
+          <DataGridTextColumn Header="Total Perimeter"
+                              Binding="{Binding PerimeterText}"
+                              Width="140"/>
+        </DataGrid.Columns>
+      </DataGrid>
+    </Border>
+
+    <Border Grid.Row="5"
             Background="#F4F7FA"
             BorderBrush="#D9E0E7"
             BorderThickness="1"
             CornerRadius="4"
             Padding="10"
-            Margin="0,12,0,0">
+            Margin="0,10,0,0">
       <StackPanel>
         <TextBlock x:Name="SelectedRoomTextBlock"
                    Foreground="#334E68"
@@ -127,30 +261,41 @@
       </StackPanel>
     </Border>
 
-    <Grid Grid.Row="4" Margin="0,14,0,0">
+    <Grid Grid.Row="6" Margin="0,14,0,0">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="Auto"/>
         <ColumnDefinition Width="Auto"/>
         <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <TextBlock Grid.Column="0"
+                 x:Name="BasePointTextBlock"
                  VerticalAlignment="Center"
                  Foreground="#7B8794"
+                 TextWrapping="Wrap"
                  Text="The base point will be requested after this review. No drawing text will be created."/>
       <Button Grid.Column="1"
+              x:Name="BasePointButton"
+              Content="Set Base Point"
+              Click="BasePoint_Click"
+              MinWidth="130"
+              Margin="12,0,0,0"
+              ToolTip="Pick the common base point the room locations are saved relative to"/>
+      <Button Grid.Column="2"
               x:Name="ExportJsonButton"
               Content="Export JSON"
               Click="ExportJson_Click"
               MinWidth="100"
-              Margin="12,0,0,0"/>
-      <Button Grid.Column="2"
+              Margin="8,0,0,0"
+              ToolTip="Export room-type totals to AreaLabel.json and group totals to AreaLabelGroups.json"/>
+      <Button Grid.Column="3"
               Content="Cancel"
               Click="Cancel_Click"
               IsCancel="True"
               MinWidth="86"
               Margin="8,0,0,0"/>
-      <Button Grid.Column="3"
+      <Button Grid.Column="4"
               Content="Save Room Names"
               Click="Save_Click"
               IsDefault="True"

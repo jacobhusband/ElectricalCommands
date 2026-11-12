@@ -118,25 +118,6 @@ namespace ElectricalCommands
           return;
         }
 
-        string defaultName = $"Group {groupNumber}";
-        PromptStringOptions nameOptions = new PromptStringOptions(
-          $"\nName for this group <{defaultName}>: "
-        )
-        {
-          AllowSpaces = true,
-        };
-        PromptResult nameResult = ed.GetString(nameOptions);
-        if (nameResult.Status != PromptStatus.OK && nameResult.Status != PromptStatus.None)
-        {
-          ed.WriteMessage("\nRTC canceled.");
-          return;
-        }
-        string groupName = (nameResult.StringResult ?? string.Empty).Trim();
-        if (groupName.Length == 0)
-        {
-          groupName = defaultName;
-        }
-
         Matrix3d ucsToWcs = ed.CurrentUserCoordinateSystem;
         Point3d origin = baseResult.Value.TransformBy(ucsToWcs);
         double? facingAngle = null;
@@ -156,7 +137,7 @@ namespace ElectricalCommands
           TemplateGroup group = BuildTemplateGroup(
             db,
             selected,
-            groupName,
+            $"Group {groupNumber}",
             origin,
             facingAngle,
             ucsRotation,
@@ -169,7 +150,7 @@ namespace ElectricalCommands
             continue;
           }
           template.Groups.Add(group);
-          ed.WriteMessage($"\nCaptured {DescribeTemplateGroup(group)}.");
+          ed.WriteMessage($"\nCaptured group {groupNumber}: {DescribeTemplateGroup(group)}.");
         }
         catch (System.Exception ex)
         {
@@ -315,7 +296,7 @@ namespace ElectricalCommands
           notes++;
         }
       }
-      return $"\"{group.Name}\": {symbols} symbol(s), {notes} keyed note(s)"
+      return $"{symbols} symbol(s), {notes} keyed note(s)"
         + (group.FacingAngle.HasValue ? ", with a facing direction" : string.Empty);
     }
 
@@ -375,8 +356,11 @@ namespace ElectricalCommands
             BlockName = blockName,
             Layer = block.Layer,
             ScaleRatio = block.ScaleFactors.X / blockScale,
+            ScaleRatioY = block.ScaleFactors.Y / blockScale,
+            ScaleRatioZ = block.ScaleFactors.Z / blockScale,
           };
           ReadTemplateAttributes(transaction, block, member);
+          ReadTemplateDynamicProperties(block, member);
 
           if (string.Equals(blockName, KnBlockName, StringComparison.OrdinalIgnoreCase))
           {
@@ -403,7 +387,6 @@ namespace ElectricalCommands
           else
           {
             member.Kind = TemplateMemberKind.Symbol;
-            ReadTemplateDynamicProperties(block, member);
           }
           symbols.Add(member);
           symbolPositions.Add(block.Position);
@@ -537,6 +520,23 @@ namespace ElectricalCommands
         if (attribute != null)
         {
           member.Attributes[attribute.Tag.ToUpperInvariant()] = attribute.TextString;
+          using (var local = (AttributeReference)attribute.Clone())
+          {
+            Matrix3d inverse = block.BlockTransform.Inverse();
+            Point3d position = attribute.Position.TransformBy(inverse);
+            Point3d alignment = attribute.AlignmentPoint.TransformBy(inverse);
+            local.TransformBy(inverse);
+            member.AttributeGeometry.Add(new TemplateAttribute
+            {
+              Tag = attribute.Tag.ToUpperInvariant(),
+              Position = new[] { position.X, position.Y, position.Z },
+              AlignmentPoint = new[] { alignment.X, alignment.Y, alignment.Z },
+              Rotation = local.Rotation, Height = local.Height, WidthFactor = local.WidthFactor,
+              Oblique = local.Oblique, HorizontalMode = (int)local.HorizontalMode,
+              VerticalMode = (int)local.VerticalMode, MirroredX = local.IsMirroredInX,
+              MirroredY = local.IsMirroredInY,
+            });
+          }
         }
       }
     }

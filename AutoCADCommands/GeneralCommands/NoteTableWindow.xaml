@@ -1,0 +1,298 @@
+<Window x:Class="ElectricalCommands.NoteTableWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Note Tables"
+        Width="780"
+        Height="680"
+        MinWidth="740"
+        MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="#F5F7F9"
+        UseLayoutRounding="True"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing">
+  <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+    <Style x:Key="FieldLabel" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#52606D"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+    </Style>
+    <Style x:Key="SectionTitle" TargetType="TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="#334E68"/>
+      <Setter Property="Margin" Value="0,0,0,8"/>
+    </Style>
+    <Style TargetType="Button">
+      <Setter Property="MinHeight" Value="30"/>
+      <Setter Property="Padding" Value="12,4"/>
+    </Style>
+    <Style x:Key="SmallButton" TargetType="Button">
+      <Setter Property="MinHeight" Value="24"/>
+      <Setter Property="MinWidth" Value="28"/>
+      <Setter Property="Padding" Value="6,0"/>
+      <Setter Property="Margin" Value="4,0,0,0"/>
+      <Setter Property="VerticalAlignment" Value="Top"/>
+    </Style>
+    <Style x:Key="Card" TargetType="Border">
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="BorderBrush" Value="#D9E0E7"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="5"/>
+      <Setter Property="Padding" Value="12,10"/>
+    </Style>
+  </Window.Resources>
+
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <Grid Grid.Row="0" Margin="0,0,0,10">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <StackPanel>
+        <TextBlock Text="Note tables"
+                   FontSize="18"
+                   FontWeight="SemiBold"
+                   Foreground="#1F2933"/>
+        <TextBlock x:Name="SubtitleText"
+                   Margin="0,2,0,0"
+                   Foreground="#52606D"
+                   TextWrapping="Wrap"/>
+      </StackPanel>
+      <Button Grid.Column="1"
+              Content="+ Add Tab"
+              VerticalAlignment="Bottom"
+              Click="AddTab_Click"
+              ToolTip="Adds a tab, for example one per plan: Site Plan, Power Plan, Lighting Plan."/>
+    </Grid>
+
+    <TabControl Grid.Row="1"
+                x:Name="NoteTabs"
+                SelectionChanged="NoteTabs_SelectionChanged">
+      <TabControl.ItemTemplate>
+        <DataTemplate>
+          <TextBlock Text="{Binding Header}" Margin="4,1"/>
+        </DataTemplate>
+      </TabControl.ItemTemplate>
+      <TabControl.ContentTemplate>
+        <DataTemplate>
+          <DockPanel Margin="8">
+            <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="150"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="50"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Tab name" Style="{StaticResource FieldLabel}"/>
+              <TextBox Grid.Column="1"
+                       Height="26"
+                       VerticalContentAlignment="Center"
+                       Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"/>
+              <TextBlock Grid.Column="2" Text="Numbers" Style="{StaticResource FieldLabel}" Margin="14,0,8,0"/>
+              <ComboBox Grid.Column="3"
+                        Height="26"
+                        VerticalContentAlignment="Center"
+                        ItemsSource="{Binding KindChoices, RelativeSource={RelativeSource AncestorType=Window}}"
+                        DisplayMemberPath="Label"
+                        SelectedValuePath="Kind"
+                        SelectedValue="{Binding Kind}"
+                        ToolTip="Keyed notes get hexagon KEYED_NOTE symbols (like KNT); general notes get plain numbers (like GNT)."/>
+              <TextBlock Grid.Column="4" Text="Start at" Style="{StaticResource FieldLabel}" Margin="14,0,8,0"/>
+              <TextBox Grid.Column="5"
+                       Height="26"
+                       VerticalContentAlignment="Center"
+                       Text="{Binding FirstNumberText, UpdateSourceTrigger=PropertyChanged}"/>
+              <Button Grid.Column="6"
+                      Content="Delete Tab"
+                      Margin="14,0,0,0"
+                      MinHeight="26"
+                      Click="DeleteTab_Click"/>
+            </Grid>
+
+            <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Button Content="+ Add Note" Click="AddNote_Click"/>
+              <TextBlock Grid.Column="1"
+                         Margin="12,0,0,0"
+                         VerticalAlignment="Center"
+                         Foreground="#7B8794"
+                         TextWrapping="Wrap"
+                         Text="{Binding ImportSummary}"/>
+            </Grid>
+
+            <Border BorderBrush="#D9E0E7" BorderThickness="1" Background="White">
+              <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <Grid>
+                  <TextBlock Margin="12"
+                             Foreground="#7B8794"
+                             TextWrapping="Wrap"
+                             Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}"
+                             Text="No notes yet. Click + Add Note to type one, or Import From Text / Import From Table to bring in notes already in the drawing."/>
+                  <ItemsControl ItemsSource="{Binding Notes}" Margin="6">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Grid Margin="0,0,0,6">
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="40"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                          </Grid.ColumnDefinitions>
+                          <Border Width="32"
+                                  Height="24"
+                                  VerticalAlignment="Top"
+                                  HorizontalAlignment="Left"
+                                  CornerRadius="3"
+                                  Background="#E4E7EB">
+                            <TextBlock Text="{Binding NumberText}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       Foreground="#334E68"/>
+                          </Border>
+                          <TextBox Grid.Column="1"
+                                   MinHeight="24"
+                                   Padding="2,3"
+                                   AcceptsReturn="True"
+                                   TextWrapping="Wrap"
+                                   VerticalScrollBarVisibility="Disabled"
+                                   Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
+                                   Loaded="NoteText_Loaded"/>
+                          <StackPanel Grid.Column="2" Orientation="Horizontal">
+                            <Button Content="&#x25B2;" Style="{StaticResource SmallButton}" ToolTip="Move up" Click="MoveNoteUp_Click"/>
+                            <Button Content="&#x25BC;" Style="{StaticResource SmallButton}" ToolTip="Move down" Click="MoveNoteDown_Click"/>
+                            <Button Content="&#x2715;" Style="{StaticResource SmallButton}" ToolTip="Remove note" Click="RemoveNote_Click"/>
+                          </StackPanel>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Grid>
+              </ScrollViewer>
+            </Border>
+          </DockPanel>
+        </DataTemplate>
+      </TabControl.ContentTemplate>
+    </TabControl>
+
+    <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,10,0,0">
+      <StackPanel>
+        <TextBlock Text="Table" Style="{StaticResource SectionTitle}"/>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="80"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <TextBlock Grid.Row="0" Text="Text height" Style="{StaticResource FieldLabel}"/>
+          <TextBox Grid.Row="0" Grid.Column="1"
+                   x:Name="TextHeightBox"
+                   Height="26"
+                   VerticalContentAlignment="Center"
+                   ToolTip="Note text height in drawing units. Keyed-note symbols are scaled to match."/>
+          <TextBlock Grid.Row="0" Grid.Column="2"
+                     x:Name="ScaleHintText"
+                     Margin="10,0,0,0"
+                     VerticalAlignment="Center"
+                     Foreground="#7B8794"/>
+
+          <RadioButton Grid.Row="1" Grid.ColumnSpan="3"
+                       x:Name="BoundaryPlacementButton"
+                       GroupName="Placement"
+                       Margin="0,10,0,0"
+                       Content="Draw a boundary: two corners set the width and maximum height, and notes that don't fit continue in another column"/>
+          <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,6,0,0">
+            <RadioButton x:Name="PointPlacementButton"
+                         GroupName="Placement"
+                         VerticalAlignment="Center"
+                         Content="Pick the upper-left corner, one column wide"/>
+            <TextBox x:Name="TableWidthBox"
+                     Width="70"
+                     Height="26"
+                     Margin="10,0,6,0"
+                     VerticalContentAlignment="Center"
+                     ToolTip="Total table width, symbol column included, in drawing units."/>
+            <TextBlock Text="wide" Style="{StaticResource FieldLabel}"/>
+          </StackPanel>
+        </Grid>
+        <CheckBox x:Name="EraseImportedTextBox"
+                  Margin="0,10,0,0"
+                  Content="Erase the imported text after the table is created"/>
+        <CheckBox x:Name="ReplaceImportedTableBox"
+                  Margin="0,6,0,0"
+                  Content="Replace the imported table (same place, width and columns)"/>
+      </StackPanel>
+    </Border>
+
+    <TextBlock Grid.Row="3"
+               x:Name="StatusText"
+               Margin="0,8,0,0"
+               Foreground="Firebrick"
+               TextWrapping="Wrap"/>
+
+    <Grid Grid.Row="4" Margin="0,10,0,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <Button Grid.Column="0"
+              Content="Import From Text..."
+              Click="ImportText_Click"
+              ToolTip="Pick MText or DBText notes in the drawing and add them to this tab."/>
+      <Button Grid.Column="1"
+              Content="Import From Table..."
+              Margin="8,0,0,0"
+              Click="ImportTable_Click"
+              ToolTip="Pick an existing note table and add its notes to this tab."/>
+      <Button Grid.Column="3"
+              Content="Cancel"
+              IsCancel="True"
+              MinWidth="80"
+              Click="Cancel_Click"/>
+      <Button Grid.Column="4"
+              x:Name="SaveButton"
+              Content="Save"
+              MinWidth="80"
+              Margin="8,0,0,0"
+              Click="Save_Click"
+              ToolTip="Saves every tab to the project folder without drawing a table."/>
+      <Button Grid.Column="5"
+              Content="Update Table..."
+              MinWidth="110"
+              Margin="8,0,0,0"
+              Click="UpdateTable_Click"
+              ToolTip="Saves the tabs, then lets you pick an existing note table and redraws it in place with this tab's notes and numbering. It keeps that table's position, width, overflow and text size."/>
+      <Button Grid.Column="6"
+              Content="Create Table"
+              MinWidth="110"
+              Margin="8,0,0,0"
+              Click="Create_Click"
+              ToolTip="Saves the tabs, then draws this tab's notes as a table."/>
+    </Grid>
+  </Grid>
+</Window>

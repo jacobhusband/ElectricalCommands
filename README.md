@@ -12,6 +12,41 @@ For manual installation, download the desired `ElectricalCommands.<Plugin>-v<ver
 
 The .NET plugin bundles contain separate builds for AutoCAD 2021–2024 (.NET Framework 4.8) and AutoCAD 2025+ (.NET 8). Runtime testing in the intended AutoCAD version is still recommended.
 
+## Scaled text with a leader
+
+Run `TXTL` from GeneralCommands. Set the drawing scale with `SS` first, then
+enter the text, pick the leader tip, and drag the text into place. The live
+preview accepts `North`, `East`, `South`, and `West` for text direction, plus
+`Arrow` and `Circle` for the leader end. TXTL uses TXT's text height and style
+and places editable MText and a separate Leader on the current layer.
+Escape cancels before either object is placed; one Undo removes both objects.
+
+## Note tables
+
+Run `NOTETABLE` from GeneralCommands to type keyed notes and general notes in a
+window and draw them as tables. Each tab is one list of notes, numbered with
+hexagon keyed-note symbols or plain "1." numbers. Add a tab for each plan as
+needed. The tabs are saved in `NoteTables.json` in the drawing's folder, so
+every sheet in that folder shares them. The first run in a drawing whose name
+contains power, lighting (light, ltg), site, roof, demo, systems, fire, or sld
+adds a keyed-note tab for that plan, such as "Power Plan".
+
+`KNT` and `GNT` open the same window on a keyed-note or general-note tab.
+**Import From Text** adds notes from MText or DBText, and **Import From
+Table** adds the notes of an existing note table. **Create Table** saves the
+tabs and then places the current tab's table, either in a drawn boundary or at
+a picked corner. It can also replace the imported table in place or erase the
+imported text. **Update Table** saves the tabs, then asks you to pick any
+existing note table and redraws it with the current tab's notes and numbering.
+The redrawn table keeps the old one's position, width, overflow and text size,
+and one Undo restores the old table. `-KNT` and `-GNT` keep the original command-line versions,
+including renumbering a selected table in place.
+
+Note tables use the LFS and EQS text: ARIALNARROW-1-8 in color 4, with a
+1/4" "KEYED NOTES" or "GENERAL NOTES" title over 3/32" notes (scaled for
+model space). Each note's first line is centered on its keyed-note hexagon, and
+notes are 1/8" apart. Renumbering with `-KNT` or `-GNT` reapplies this styling.
+
 ## Build and publish
 
 Set the next version in `version.props`, then build into an empty staging directory:

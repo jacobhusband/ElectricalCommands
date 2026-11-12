@@ -1,9 +1,20 @@
-ACIES AutoCAD plugins v0.2.1
+ACIES AutoCAD plugins v0.3.0
 
-Fresh builds of all ten plugins, including AuditCommands, which was missing from the previous release assets. Every package includes a consistent installed-version marker for desktop update detection.
+New commands and improvements across the plugins since v0.2.1:
 
-To install or update: close AutoCAD, open Tools > AutoCAD Plugins in the ACIES desktop application, and click Install or Update. Restart AutoCAD afterward. No desktop application rebuild is required to discover this release.
+- Note tables: NOTETABLE opens a tabbed editor for keyed notes and general notes, saved in NoteTables.json in the drawing's folder. KNT and GNT open it on a keyed-note or general-note tab; -KNT and -GNT keep the command-line versions.
+- Equipment tags: ETAG places an oval equipment tag in a paper-space layout; ETAGOCR copies the text from an existing tag using bundled OCR.
+- Scaled text: TXT places text sized to the drawing scale, and TXTL adds a leader with live direction and arrow/circle end options.
+- Room templates: RTC captures, RTP places, and RTD lists room templates.
+- Symbols: SWITCH, DATA, JBOX, and DISCONNECT symbol commands, plus KNL keyed-note leaders.
+- Panel sheets: SPS can create a missing panel sheet from a template.
+- CIRCUITREMAP remaps a run of panel circuits in every text, attribute, and multileader label.
+- NEWLAYER (NL) creates a layer from a name and color and makes it current.
+- BINDALLXREFS (BAX) binds all xrefs in the drawing.
+- Electrical Drafting palette (EDP) opens when AutoCAD starts.
 
-For manual installation, download the desired ElectricalCommands.<Plugin>-v0.2.1.zip asset and extract its contents into %APPDATA%\Autodesk\ApplicationPlugins\ElectricalCommands.<Plugin>.bundle. Replace existing files when updating; back up personally edited plugin files first. PackageContents.xml, version.txt, and Contents must be directly inside the .bundle folder. Restart AutoCAD.
+To install or update: close AutoCAD, open Tools > AutoCAD Plugins in the ACIES desktop application, and click Install or Update. Restart AutoCAD afterward.
 
-Packages include .NET Framework 4.8 and .NET 8 plugin builds. Build and archive validation were performed; interactive AutoCAD command behavior has not been smoke-tested for this release.
+For manual installation, download the desired ElectricalCommands.<Plugin>-v0.3.0.zip asset and extract its contents into %APPDATA%\Autodesk\ApplicationPlugins\ElectricalCommands.<Plugin>.bundle. Replace existing files when updating; back up personally edited plugin files first. PackageContents.xml, version.txt, and Contents must be directly inside the .bundle folder. Restart AutoCAD.
+
+Packages include .NET Framework 4.8 and .NET 8 plugin builds.

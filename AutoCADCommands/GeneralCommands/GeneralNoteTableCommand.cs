@@ -17,15 +17,14 @@ namespace ElectricalCommands
   public partial class GeneralCommands
   {
     private const double GeneralNoteNumberWidth = 0.25;
-    private const double GeneralNoteTableBaseMargin = 0.025;
-    private const double GeneralNoteTableVerticalMargin = 0.125;
     private const double GeneralNoteTableColumnGap = 0.10;
     private const double GeneralNoteRotationTolerance = Math.PI / 180.0;
     private const double GeneralNoteDefaultAttributeHeight = 0.09375;
 
-    [CommandMethod("GENERALNOTETABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
-    [CommandMethod("GNTABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
-    [CommandMethod("GNT", CommandFlags.Modal | CommandFlags.UsePickSet)]
+    // Command-line version of GENERALNOTETABLE, which opens the note editor
+    // (NoteTableCommand.cs). Selecting an existing table renumbers it in place.
+    [CommandMethod("-GENERALNOTETABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
+    [CommandMethod("-GNT", CommandFlags.Modal | CommandFlags.UsePickSet)]
     public static void CreateGeneralNoteTable()
     {
       Document document = Application.DocumentManager.MdiActiveDocument;
@@ -68,97 +67,14 @@ namespace ElectricalCommands
         return;
       }
 
-      bool useEveryDbTextLine = false;
-      bool containsMText;
-      bool containsDbText;
-      try
+      GeneralNoteTablePlan plan = ReadGeneralNoteTextSelection(
+        database,
+        editor,
+        "GENERALNOTETABLE",
+        sourceIds);
+      if (plan == null)
       {
-        GetGeneralNoteTableSelectionTypes(
-          database,
-          sourceIds,
-          out containsMText,
-          out containsDbText);
-      }
-      catch (System.Exception ex)
-      {
-        editor.WriteMessage($"\nGENERALNOTETABLE selection error: {ex.Message}");
         return;
-      }
-
-      if (containsMText && containsDbText)
-      {
-        editor.WriteMessage(
-          "\nSelect either MText columns or DBText lines in one run; " +
-          "mixed selections are not converted together.");
-        return;
-      }
-
-      if (containsDbText)
-      {
-        PromptKeywordOptions groupingOptions = new PromptKeywordOptions(
-          "\nGroup DBText into notes [Automatic/EveryLine] <Automatic>: ",
-          "Automatic EveryLine")
-        {
-          AllowNone = true,
-        };
-        PromptResult groupingResult = editor.GetKeywords(groupingOptions);
-        if (groupingResult.Status != PromptStatus.OK &&
-            groupingResult.Status != PromptStatus.None)
-        {
-          editor.WriteMessage("\nGENERALNOTETABLE canceled.");
-          return;
-        }
-        useEveryDbTextLine = groupingResult.Status == PromptStatus.OK &&
-          string.Equals(
-            groupingResult.StringResult,
-            "EveryLine",
-            StringComparison.OrdinalIgnoreCase);
-      }
-
-      GeneralNoteTablePlan plan;
-      try
-      {
-        using (Transaction transaction =
-          database.TransactionManager.StartOpenCloseTransaction())
-        {
-          plan = containsMText
-            ? BuildGeneralNotePlanFromMText(database, transaction, sourceIds)
-            : BuildGeneralNotePlanFromDbText(
-              database,
-              transaction,
-              sourceIds,
-              useEveryDbTextLine);
-          transaction.Commit();
-        }
-      }
-      catch (System.Exception ex)
-      {
-        editor.WriteMessage($"\nGENERALNOTETABLE could not read the notes: {ex.Message}");
-        return;
-      }
-
-      if (plan == null || plan.Columns.Count == 0 || plan.NoteCount == 0)
-      {
-        editor.WriteMessage("\nNo nonblank general-note text was found.");
-        return;
-      }
-
-      editor.WriteMessage(
-        $"\nDetected {plan.NoteCount} note{(plan.NoteCount == 1 ? string.Empty : "s")} " +
-        $"in {plan.Columns.Count} column{(plan.Columns.Count == 1 ? string.Empty : "s")}.");
-      if (containsDbText && !useEveryDbTextLine &&
-          plan.NoteCount == plan.DbVisualLineCount && plan.DbVisualLineCount > 1)
-      {
-        editor.WriteMessage(
-          "\nEach DBText line was detected as a separate note; " +
-          "no continuation-line spacing or indentation pattern was found.");
-      }
-      else if (containsDbText && !useEveryDbTextLine && plan.NoteCount == 1 &&
-               plan.DbVisualLineCount > 1)
-      {
-        editor.WriteMessage(
-          "\nWarning: all DBText lines were grouped as one note. " +
-          "The source geometry does not contain a detectable note-break pattern.");
       }
 
       PromptIntegerOptions numberOptions = new PromptIntegerOptions(
@@ -274,6 +190,110 @@ namespace ElectricalCommands
       }
     }
 
+    // Reads selected MText or DBText into a general-note plan, asking how
+    // DBText lines are grouped into notes. Returns null, after saying why, when
+    // the selection holds no usable note text or the user cancels.
+    private static GeneralNoteTablePlan ReadGeneralNoteTextSelection(
+      Database database,
+      Editor editor,
+      string commandName,
+      ObjectId[] sourceIds)
+    {
+      bool useEveryDbTextLine = false;
+      bool containsMText;
+      bool containsDbText;
+      try
+      {
+        GetGeneralNoteTableSelectionTypes(
+          database,
+          sourceIds,
+          out containsMText,
+          out containsDbText);
+      }
+      catch (System.Exception ex)
+      {
+        editor.WriteMessage($"\n{commandName} selection error: {ex.Message}");
+        return null;
+      }
+
+      if (containsMText && containsDbText)
+      {
+        editor.WriteMessage(
+          "\nSelect either MText columns or DBText lines in one run; " +
+          "mixed selections are not converted together.");
+        return null;
+      }
+
+      if (containsDbText)
+      {
+        PromptKeywordOptions groupingOptions = new PromptKeywordOptions(
+          "\nGroup DBText into notes [Automatic/EveryLine] <Automatic>: ",
+          "Automatic EveryLine")
+        {
+          AllowNone = true,
+        };
+        PromptResult groupingResult = editor.GetKeywords(groupingOptions);
+        if (groupingResult.Status != PromptStatus.OK &&
+            groupingResult.Status != PromptStatus.None)
+        {
+          editor.WriteMessage($"\n{commandName} canceled.");
+          return null;
+        }
+        useEveryDbTextLine = groupingResult.Status == PromptStatus.OK &&
+          string.Equals(
+            groupingResult.StringResult,
+            "EveryLine",
+            StringComparison.OrdinalIgnoreCase);
+      }
+
+      GeneralNoteTablePlan plan;
+      try
+      {
+        using (Transaction transaction =
+          database.TransactionManager.StartOpenCloseTransaction())
+        {
+          plan = containsMText
+            ? BuildGeneralNotePlanFromMText(database, transaction, sourceIds)
+            : BuildGeneralNotePlanFromDbText(
+              database,
+              transaction,
+              sourceIds,
+              useEveryDbTextLine);
+          transaction.Commit();
+        }
+      }
+      catch (System.Exception ex)
+      {
+        editor.WriteMessage($"\n{commandName} could not read the notes: {ex.Message}");
+        return null;
+      }
+
+      if (plan == null || plan.Columns.Count == 0 || plan.NoteCount == 0)
+      {
+        editor.WriteMessage("\nNo nonblank general-note text was found.");
+        return null;
+      }
+
+      editor.WriteMessage(
+        $"\nDetected {plan.NoteCount} note{(plan.NoteCount == 1 ? string.Empty : "s")} " +
+        $"in {plan.Columns.Count} column{(plan.Columns.Count == 1 ? string.Empty : "s")}.");
+      if (containsDbText && !useEveryDbTextLine &&
+          plan.NoteCount == plan.DbVisualLineCount && plan.DbVisualLineCount > 1)
+      {
+        editor.WriteMessage(
+          "\nEach DBText line was detected as a separate note; " +
+          "no continuation-line spacing or indentation pattern was found.");
+      }
+      else if (containsDbText && !useEveryDbTextLine && plan.NoteCount == 1 &&
+               plan.DbVisualLineCount > 1)
+      {
+        editor.WriteMessage(
+          "\nWarning: all DBText lines were grouped as one note. " +
+          "The source geometry does not contain a detectable note-break pattern.");
+      }
+      return plan;
+    }
+
     private static void UpdateExistingGeneralNoteTable(
       Database database,
       Editor editor,
@@ -290,9 +310,9 @@ namespace ElectricalCommands
             return;
           }
 
-          double textHeight = database.Textsize > 1e-9 ? database.Textsize : GeneralNoteDefaultAttributeHeight;
-          ObjectId textStyleId = database.Textstyle;
-          Color contentColor = Color.FromColorIndex(ColorMethod.ByAci, 256);
+          // The existing numbers' height sets the table's scale; restyling
+          // below gives every cell the shared note-table text.
+          double textHeight = GeneralNoteDefaultAttributeHeight;
           bool hasDot = true;
 
           // Scan column 0 for existing numbers and text styling
@@ -307,22 +327,14 @@ namespace ElectricalCommands
               out int number,
               out bool cellHasDot,
               out double cellHeight,
-              out ObjectId cellStyleId,
-              out Color cellColor))
+              out _,
+              out _))
             {
               foundNumbers.Add((row, number));
               hasDot = cellHasDot;
               if (cellHeight > 1e-9)
               {
                 textHeight = cellHeight;
-              }
-              if (!cellStyleId.IsNull && cellStyleId.IsValid)
-              {
-                textStyleId = cellStyleId;
-              }
-              if (cellColor != null)
-              {
-                contentColor = cellColor;
               }
             }
           }
@@ -405,42 +417,9 @@ namespace ElectricalCommands
 
               EnsureGeneralNoteTableCellContent(table, row, 0);
               table.SetTextString(row, 0, 0, numberString);
-              table.SetTextHeight(row, 0, 0, textHeight);
-              table.SetTextStyleId(row, 0, 0, textStyleId);
-              table.Cells[row, 0].Alignment = CellAlignment.TopLeft;
-              table.SetContentColor(row, 0, 0, contentColor);
-              HideGeneralNoteCellGrid(table, row, 0);
-              SetGeneralNoteCellMargins(
-                table,
-                row,
-                0,
-                GeneralNoteTableVerticalMargin,
-                GeneralNoteTableVerticalMargin,
-                GeneralNoteTableBaseMargin);
-
               if (table.Columns.Count > 1)
               {
-                HideGeneralNoteCellGrid(table, row, 1);
                 EnsureGeneralNoteTableCellContent(table, row, 1);
-                SetGeneralNoteCellMargins(
-                  table,
-                  row,
-                  1,
-                  GeneralNoteTableVerticalMargin,
-                  GeneralNoteTableVerticalMargin,
-                  GeneralNoteTableBaseMargin);
-              }
-
-              double minRowHeight = textHeight * 1.5 + GeneralNoteTableVerticalMargin * 2.0;
-              try
-              {
-                if (table.Rows[row].Height < minRowHeight)
-                {
-                  table.Rows[row].Height = minRowHeight;
-                }
-              }
-              catch
-              {
               }
 
               if (addedCount == 0)
@@ -452,7 +431,13 @@ namespace ElectricalCommands
             }
           }
 
-          table.VerticalCellMargin = GeneralNoteTableVerticalMargin;
+          ApplyNoteTableStyle(
+            table,
+            NoteTableKind.General,
+            textHeight / NoteTableTextHeight,
+            EnsureKnTextStyle(database));
+          table.GenerateLayout();
+          FitNoteTableRowHeights(table, database, NoteTableKind.General);
           table.GenerateLayout();
           TryRecomputeTableBlock(table);
 
@@ -655,14 +640,12 @@ namespace ElectricalCommands
       }
 
       double scale = GetGeneralNoteColumnScale(singleColumn);
-      double maxTextHeight = singleColumn.Entries.Max(entry => entry.TextHeight);
       double minimumRowHeight =
-        maxTextHeight +
-        (GeneralNoteTableVerticalMargin * 2.0) * scale;
+        (NoteTableTitleHeight + NoteTableTextHeight + NoteTableNoteGap * 2.0) * scale;
       if (height <= minimumRowHeight)
       {
         editor.WriteMessage(
-          $"\nThe selected height is too small to contain one general-note row. " +
+          $"\nThe selected height is too small for the title and one general note. " +
           $"Specify a height greater than " +
           $"{minimumRowHeight.ToString("0.###", CultureInfo.InvariantCulture)}.");
         return false;
@@ -936,7 +919,8 @@ namespace ElectricalCommands
         GeneralDbVisualLine current = visualLines[index];
         double pitch = previous.CenterY - current.CenterY;
         bool startsNewNote = pitch > noteGapThreshold ||
-          current.Left < previous.Left - indentationThreshold;
+          current.Left < previous.Left - indentationThreshold ||
+          StartsWithNoteNumber(current.Text);
         if (startsNewNote)
         {
           column.Entries.Add(CreateGeneralNoteEntry(noteFirstLine, noteText.ToString()));
@@ -963,6 +947,15 @@ namespace ElectricalCommands
         TextStyleId = line.TextStyleId,
         ColorIndex = line.ColorIndex,
       };
+    }
+
+    // "2. ", "2) " or "(2) " at the start of a line begins a new note even when
+    // the lines are evenly spaced. "3.5 FEET" does not.
+    private static bool StartsWithNoteNumber(string text)
+    {
+      return Regex.IsMatch(
+        text ?? string.Empty,
+        @"^\s*\(?\d+\)?\s*[\.\:\)](?=\s|$)");
     }
 
     private static string StripLeadingNoteNumber(string text)
@@ -1146,10 +1139,11 @@ namespace ElectricalCommands
         ObjectId tableId = space.AppendEntity(table);
         transaction.AddNewlyCreatedDBObject(table, true);
         table.GenerateLayout();
-        EnsureMinimumGeneralNoteRowHeights(table, plan);
+        FitNoteTableRowHeights(table, database, NoteTableKind.General);
         table.GenerateLayout();
         ConfigureGeneralNoteTableBreaks(table, plan);
         table.GenerateLayout();
+        FitNoteTableRowHeights(table, database, NoteTableKind.General);
         TryRecomputeTableBlock(table);
 
         if (eraseSource)
@@ -1216,10 +1210,10 @@ namespace ElectricalCommands
         stage = "setting the table rotation";
         table.Rotation = plan.Rotation;
         stage = "creating the table rows and columns";
-        table.SetSize(rowCount, columnCount);
+        // Row 0 is the GENERAL NOTES title; notes start on row 1.
+        table.SetSize(rowCount + 1, columnCount);
         stage = "removing table-style title and header merges";
         UnmergeGeneralNoteTableCells(table);
-        table.VerticalCellMargin = GeneralNoteTableVerticalMargin;
         if (!string.IsNullOrWhiteSpace(plan.Layer))
         {
           stage = $"assigning table layer '{plan.Layer}'";
@@ -1237,7 +1231,7 @@ namespace ElectricalCommands
           int textColumn = numberColumn + 1;
           table.Columns[numberColumn].Width = numberWidths[columnIndex];
           double scale = GetGeneralNoteColumnScale(column);
-          double margin = GeneralNoteTableBaseMargin * scale;
+          double margin = NoteTableTextIndent * scale;
           double contentWidth;
           if (plan.ForcedPairWidth > 1e-9)
           {
@@ -1274,35 +1268,20 @@ namespace ElectricalCommands
           GeneralNoteSourceColumn column = plan.Columns[sourceColumn];
           int numberColumn = sourceColumn * 2;
           int textColumn = numberColumn + 1;
-          for (int row = 0; row < rowCount; row++)
+          for (int index = 0; index < rowCount; index++)
           {
-            stage = $"formatting row {row + 1}, column {sourceColumn + 1}";
-            HideGeneralNoteCellGrid(table, row, numberColumn);
-            HideGeneralNoteCellGrid(table, row, textColumn);
+            int row = index + 1;
+            stage = $"filling row {row + 1}, column {sourceColumn + 1}";
             EnsureGeneralNoteTableCellContent(table, row, numberColumn);
             EnsureGeneralNoteTableCellContent(table, row, textColumn);
-            SetGeneralNoteCellMargins(
-              table,
-              row,
-              numberColumn,
-              GeneralNoteTableVerticalMargin,
-              GeneralNoteTableVerticalMargin,
-              GeneralNoteTableBaseMargin);
-            SetGeneralNoteCellMargins(
-              table,
-              row,
-              textColumn,
-              GeneralNoteTableVerticalMargin,
-              GeneralNoteTableVerticalMargin,
-              GeneralNoteTableBaseMargin);
-            if (row >= column.Entries.Count)
+            if (index >= column.Entries.Count)
             {
               table.SetTextString(row, numberColumn, 0, string.Empty);
               table.SetTextString(row, textColumn, 0, string.Empty);
               continue;
             }
 
-            GeneralNoteEntry entry = column.Entries[row];
+            GeneralNoteEntry entry = column.Entries[index];
 
             stage = $"writing general-note number {number}";
             table.SetTextString(
@@ -1310,14 +1289,6 @@ namespace ElectricalCommands
               numberColumn,
               0,
               $"{number.ToString(CultureInfo.InvariantCulture)}.");
-            table.SetTextHeight(row, numberColumn, 0, entry.TextHeight);
-            table.SetTextStyleId(row, numberColumn, 0, entry.TextStyleId);
-            table.Cells[row, numberColumn].Alignment = CellAlignment.TopLeft;
-            table.SetContentColor(
-              row,
-              numberColumn,
-              0,
-              ResolveGeneralNoteTableColor(entry.ColorIndex));
 
             stage = $"writing note text for note {number}";
             table.SetTextString(
@@ -1325,22 +1296,22 @@ namespace ElectricalCommands
               textColumn,
               0,
               ConvertPlainTextToMTextContents(StripLeadingNoteNumber(entry.PlainText)));
-            table.SetTextHeight(row, textColumn, 0, entry.TextHeight);
-            table.SetTextStyleId(row, textColumn, 0, entry.TextStyleId);
-            table.Cells[row, textColumn].Alignment = CellAlignment.TopLeft;
-            table.SetContentColor(
-              row,
-              textColumn,
-              0,
-              ResolveGeneralNoteTableColor(entry.ColorIndex));
             number++;
           }
         }
 
+        stage = "writing the title and styling the cells";
+        SetNoteTableTitle(table, NoteTableKind.General);
+        ApplyNoteTableStyle(
+          table,
+          NoteTableKind.General,
+          plan.Columns.Max(GetGeneralNoteColumnScale),
+          EnsureKnTextStyle(database));
+
         stage = "generating the initial table layout";
         table.GenerateLayout();
         stage = "sizing table rows";
-        EnsureMinimumGeneralNoteRowHeights(table, plan);
+        FitNoteTableRowHeights(table, database, NoteTableKind.General);
         stage = "generating the final table layout";
         table.GenerateLayout();
         TryRecomputeTableBlock(table);
@@ -1352,39 +1323,6 @@ namespace ElectricalCommands
         throw new InvalidOperationException(
           $"Table construction failed while {stage}: {ex.Message}",
           ex);
-      }
-    }
-
-    private static void EnsureMinimumGeneralNoteRowHeights(
-      Table table,
-      GeneralNoteTablePlan plan)
-    {
-      if (table == null || plan == null)
-      {
-        return;
-      }
-
-      for (int row = 0; row < table.Rows.Count; row++)
-      {
-        try
-        {
-          double maxTextHeight = GeneralNoteDefaultAttributeHeight;
-          foreach (var col in plan.Columns)
-          {
-            if (row < col.Entries.Count)
-            {
-              maxTextHeight = Math.Max(maxTextHeight, col.Entries[row].TextHeight);
-            }
-          }
-          double minRowHeight = maxTextHeight * 1.5 + GeneralNoteTableVerticalMargin * 2.0;
-          if (table.Rows[row].Height < minRowHeight)
-          {
-            table.Rows[row].Height = minRowHeight;
-          }
-        }
-        catch
-        {
-        }
       }
     }
 
@@ -1420,19 +1358,6 @@ namespace ElectricalCommands
           $"AutoCAD did not create table-cell content at row {row + 1}, " +
           $"column {column + 1}.");
       }
-    }
-
-    private static Color ResolveGeneralNoteTableColor(short colorIndex)
-    {
-      if (colorIndex == 0)
-      {
-        return Color.FromColorIndex(ColorMethod.ByBlock, 0);
-      }
-      if (colorIndex < 0 || colorIndex >= 256)
-      {
-        return Color.FromColorIndex(ColorMethod.ByLayer, 256);
-      }
-      return Color.FromColorIndex(ColorMethod.ByAci, colorIndex);
     }
 
     private static void HideGeneralNoteCellGrid(Table table, int row, int column)
@@ -1523,7 +1448,7 @@ namespace ElectricalCommands
     private static double GetGeneralNoteNumberColumnWidth(GeneralNoteSourceColumn column)
     {
       double scale = GetGeneralNoteColumnScale(column);
-      return (GeneralNoteNumberWidth + GeneralNoteTableBaseMargin * 2.0) * scale;
+      return (GeneralNoteNumberWidth + NoteTableNumberPad * 2.0) * scale;
     }
 
     private static double GetGeneralNoteColumnScale(GeneralNoteSourceColumn column)

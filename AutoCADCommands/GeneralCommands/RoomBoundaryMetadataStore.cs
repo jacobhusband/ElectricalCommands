@@ -19,6 +19,8 @@ namespace ElectricalCommands
       internal double SquareFeet { get; set; }
       internal Point3d BasePoint { get; set; }
       internal Point2d RelativeLocation { get; set; }
+      // Area group such as INTERIOR or EXTERIOR; empty when ungrouped.
+      internal string Group { get; set; } = string.Empty;
     }
 
     internal static bool TryRead(
@@ -67,6 +69,11 @@ namespace ElectricalCommands
           RelativeLocation = new Point2d(
             Convert.ToDouble(values[6].Value),
             Convert.ToDouble(values[7].Value)),
+          // The group was appended after the original eight values, so
+          // records written before grouping existed simply have none.
+          Group = values.Length >= 9
+            ? (Convert.ToString(values[8].Value) ?? string.Empty).Trim()
+            : string.Empty,
         };
         if (result.Name.Length == 0 ||
             result.SquareFeet < 0.0 ||
@@ -145,7 +152,8 @@ namespace ElectricalCommands
         new TypedValue((int)DxfCode.Real, metadata.BasePoint.Y),
         new TypedValue((int)DxfCode.Real, metadata.BasePoint.Z),
         new TypedValue((int)DxfCode.Real, metadata.RelativeLocation.X),
-        new TypedValue((int)DxfCode.Real, metadata.RelativeLocation.Y));
+        new TypedValue((int)DxfCode.Real, metadata.RelativeLocation.Y),
+        new TypedValue((int)DxfCode.Text, (metadata.Group ?? string.Empty).Trim()));
 
       if (dictionary.Contains(RecordKey))
       {

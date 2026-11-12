@@ -39,13 +39,13 @@ namespace ElectricalCommands
         {
           selectionSet = selectionResult.Value;
         }
-        else
+        else if (roomItems.Count == 0)
         {
+          // Rooms already saved go straight to the review window, where
+          // more polylines can be added and the base point changed.
           PromptSelectionOptions options = new PromptSelectionOptions
           {
-            MessageForAdding = roomItems.Count > 0
-              ? $"\nSelect room polylines to add (or press Enter to review {roomItems.Count} saved room(s)): "
-              : "\nSelect room polylines: ",
+            MessageForAdding = "\nSelect room polylines: ",
             AllowDuplicates = false,
             RejectObjectsOnLockedLayers = true,
           };
@@ -62,11 +62,7 @@ namespace ElectricalCommands
           {
             selectionSet = selectionResult.Value;
           }
-          else if (selectionResult.Status == PromptStatus.Cancel)
-          {
-            return;
-          }
-          else if (roomItems.Count == 0)
+          else
           {
             return;
           }
@@ -118,6 +114,7 @@ namespace ElectricalCommands
               int roomNumber = roomItems.Count + 1;
               string defaultName = $"Polyline {roomNumber}";
               string roomName = defaultName;
+              string group = string.Empty;
 
               if (RoomBoundaryMetadataStore.TryRead(
                 polyline,
@@ -126,6 +123,7 @@ namespace ElectricalCommands
                 !string.IsNullOrWhiteSpace(existingMetadata.Name))
               {
                 roomName = existingMetadata.Name;
+                group = existingMetadata.Group;
               }
 
               roomItems.Add(new AreaLabelRoomItem
@@ -136,6 +134,8 @@ namespace ElectricalCommands
                 DefaultRoomName = defaultName,
                 RoomName = roomName,
                 SquareFeet = squareFeet,
+                PerimeterFeet = CalculateAreaLabelPerimeterFeet(polyline),
+                Group = group,
               });
               existingIds.Add(objectId);
               existingHandles.Add(handleStr);
@@ -172,7 +172,8 @@ namespace ElectricalCommands
           roomItems,
           drawingDirectory,
           ed,
-          db);
+          db,
+          existingBasePoint);
 
         namingWindow.SelectedBoundariesChanged += selectedIds =>
         {
@@ -210,36 +211,25 @@ namespace ElectricalCommands
           return;
         }
 
+        // The saved base point (or one picked in the window) is reused; the
+        // prompt only appears when the drawing has never had one.
         Point3d basePoint;
-        PromptPointOptions basePointOptions;
-        if (existingBasePoint.HasValue)
+        if (namingWindow.BasePoint.HasValue)
         {
-          basePointOptions = new PromptPointOptions(
-            $"\nSpecify common base point [press ENTER to keep {FormatAreaLabelPoint(existingBasePoint.Value)}]: ")
-          {
-            AllowNone = true,
-          };
+          basePoint = namingWindow.BasePoint.Value;
         }
         else
         {
-          basePointOptions = new PromptPointOptions(
-            "\nSpecify the common base point for the saved room boundaries: ");
-        }
-
-        PromptPointResult basePointResult = ed.GetPoint(basePointOptions);
-        if (basePointResult.Status == PromptStatus.None && existingBasePoint.HasValue)
-        {
-          basePoint = existingBasePoint.Value;
-        }
-        else if (basePointResult.Status == PromptStatus.OK)
-        {
+          PromptPointResult basePointResult = ed.GetPoint(
+            new PromptPointOptions(
+              "\nSpecify the common base point for the saved room boundaries: "));
+          if (basePointResult.Status != PromptStatus.OK)
+          {
+            ed.WriteMessage("\nAREALABEL canceled before room data was saved.");
+            return;
+          }
           basePoint = basePointResult.Value.TransformBy(
             ed.CurrentUserCoordinateSystem);
-        }
-        else
-        {
-          ed.WriteMessage("\nAREALABEL canceled before room data was saved.");
-          return;
         }
 
         List<ElectricalDrawingSettingsStore.RoomBoundarySetting> savedRooms =
@@ -295,6 +285,7 @@ namespace ElectricalCommands
                 SquareFeet = roomItem.SquareFeet,
                 BasePoint = basePoint,
                 RelativeLocation = relativeLocation,
+                Group = roomItem.Group,
               });
 
             savedRooms.Add(
@@ -321,6 +312,7 @@ namespace ElectricalCommands
           "room polyline(s): names, current square footage, and locations " +
           $"relative to base point {FormatAreaLabelPoint(basePoint)}. No " +
           "drawing text was created.");
+        WriteAreaLabelGroupTotals(ed, namingWindow.Rooms);
         ed.SetImpliedSelection(new ObjectId[0]);
       }
       catch (System.Exception ex)
@@ -384,6 +376,7 @@ namespace ElectricalCommands
 
           double squareFeet = polyline.Area / 144.0;
           string roomName = roomSetting.Name ?? string.Empty;
+          string group = string.Empty;
           if (RoomBoundaryMetadataStore.TryRead(
             polyline,
             transaction,
@@ -391,6 +384,7 @@ namespace ElectricalCommands
             !string.IsNullOrWhiteSpace(metadata.Name))
           {
             roomName = metadata.Name;
+            group = metadata.Group;
           }
 
           int roomNumber = rooms.Count + 1;
@@ -408,6 +402,8 @@ namespace ElectricalCommands
             DefaultRoomName = defaultName,
             RoomName = roomName,
             SquareFeet = squareFeet,
+            PerimeterFeet = CalculateAreaLabelPerimeterFeet(polyline),
+            Group = group,
           });
           seenHandles.Add(roomSetting.SourceHandle);
         }
@@ -441,6 +437,42 @@ namespace ElectricalCommands
       catch
       {
         return ObjectId.Null;
+      }
+    }
+
+    /// <summary>
+    /// Perimeter in feet. AutoCAD reports an open polyline's area as if it
+    /// were closed, so the closing segment is included here as well to keep
+    /// the perimeter consistent with the area.
+    /// </summary>
+    internal static double CalculateAreaLabelPerimeterFeet(Polyline polyline)
+    {
+      double lengthInches = polyline.Length;
+      if (!polyline.Closed && polyline.NumberOfVertices > 1)
+      {
+        lengthInches += polyline.GetPoint2dAt(polyline.NumberOfVertices - 1)
+          .GetDistanceTo(polyline.GetPoint2dAt(0));
+      }
+      return lengthInches / 12.0;
+    }
+
+    private static void WriteAreaLabelGroupTotals(
+      Editor editor,
+      IEnumerable<AreaLabelRoomItem> rooms)
+    {
+      List<AreaLabelRoomItem> roomList = rooms.ToList();
+      if (!roomList.Any(r => !string.IsNullOrWhiteSpace(r.Group)))
+      {
+        return;
+      }
+
+      List<AreaLabelGroupTotal> totals = AreaLabelGroupTotal.Build(roomList);
+
+      foreach (AreaLabelGroupTotal total in totals)
+      {
+        editor.WriteMessage(
+          $"\n  {total.GroupName}: {total.Count} polyline(s), " +
+          $"{total.AreaText}, {total.PerimeterText} perimeter");
       }
     }
 
@@ -573,7 +605,7 @@ namespace ElectricalCommands
       return points;
     }
 
-    private static string FormatAreaLabelPoint(Point3d point)
+    internal static string FormatAreaLabelPoint(Point3d point)
     {
       return $"({point.X:0.###}, {point.Y:0.###}, {point.Z:0.###})";
     }

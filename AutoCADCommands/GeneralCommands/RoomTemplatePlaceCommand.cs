@@ -49,42 +49,10 @@ namespace ElectricalCommands
         }
       }
 
-      string panelName = string.Empty;
-      ElectricalDrawingSettingsStore.PanelScheduleSetting panelSchedule = null;
-      if (slotCount > 0 && !TryPrepareTemplateCircuiting(db, ed, out panelName, out panelSchedule))
-      {
-        return;
-      }
-
       if (!TryResolveTemplateBlocks(db, ed, template, out Dictionary<string, ObjectId> definitions))
       {
         return;
       }
-
-      Func<TemplateMember, BlockReference> createPreview = member =>
-      {
-        if (!definitions.TryGetValue(TemplateDefinitionKey(member), out ObjectId definitionId))
-        {
-          return null;
-        }
-
-        BlockReference preview = new BlockReference(Point3d.Origin, definitionId)
-        {
-          ScaleFactors = new Scale3d(blockScale * member.ScaleRatio),
-        };
-        if (member.Kind == TemplateMemberKind.Receptacle && !string.IsNullOrWhiteSpace(member.VisibilityState))
-        {
-          try
-          {
-            TrySetReceptacleVisibilityState(preview, member.VisibilityState);
-          }
-          catch
-          {
-            // The preview falls back to the block's default appearance.
-          }
-        }
-        return preview;
-      };
 
       ed.WriteMessage(
         $"\nPlacing room template {template.Name} ({template.Groups.Count} group(s)). "
@@ -102,86 +70,122 @@ namespace ElectricalCommands
       {
         TemplateGroup group = template.Groups[index];
         bool advance = false;
-        using (
-          RoomTemplateGroupJig jig = new RoomTemplateGroupJig(
-            db,
-            group,
-            createPreview,
-            blockScale,
-            ucsRotation,
-            userRotation
-          )
-        )
+        int draggingIndex = index;
+        List<ResolvedTemplateMember> placement = null;
+        // Dynamic properties and attributes require database-resident previews.
+        // Keep them in an anonymous definition, then erase them and commit the
+        // cleanup. Aborting this transaction also rewinds pan/zoom performed
+        // during the jig, which makes the camera jump between group placements.
+        using (Transaction previewTransaction = db.TransactionManager.StartTransaction())
         {
-          while (!advance && !stopped)
+          var previewTable = (BlockTable)previewTransaction.GetObject(db.BlockTableId, OpenMode.ForWrite);
+          var previewSpace = new BlockTableRecord { Name = "*U" };
+          previewTable.Add(previewSpace);
+          previewTransaction.AddNewlyCreatedDBObject(previewSpace, true);
+          Func<TemplateMember, BlockReference> createPreview = member =>
           {
-            jig.Message =
-              $"\nPlace \"{group.Name}\" ({index + 1} of {template.Groups.Count}) "
-              + "[Rotate/Flip/Wall/Angle/Skip/Back/Done] "
-              + $"<{Math.Round(userRotation * 180.0 / Math.PI)}°>: ";
-            PromptResult result = ed.Drag(jig);
-            if (
-              result.Status != PromptStatus.OK
-              && result.Status != PromptStatus.None
-              && result.Status != PromptStatus.Keyword
+            if (!definitions.TryGetValue(TemplateDefinitionKey(member), out ObjectId definitionId)) return null;
+            return CreateTemplateBlock(db, previewTransaction, previewSpace, definitionId,
+              new ResolvedTemplateMember { Member = member, Position = Point3d.Origin,
+                Rotation = 0, ScaleFactors = new Scale3d(1) });
+          };
+          using (
+            RoomTemplateGroupJig jig = new RoomTemplateGroupJig(
+              db,
+              group,
+              createPreview,
+              blockScale,
+              ucsRotation,
+              userRotation
             )
+          )
+          {
+            while (!advance && !stopped)
             {
-              stopped = true;
-              break;
-            }
-
-            switch (jig.LastInput)
-            {
-              case TemplateJigInput.Point:
-                try
-                {
-                  List<ResolvedTemplateMember> resolved = RoomTemplateGeometry.Resolve(
-                    group,
-                    jig.Location,
-                    ucsRotation,
-                    userRotation,
-                    blockScale
-                  );
-                  placed[index] = InsertTemplateGroup(db, resolved, definitions, blockScale);
-                  index++;
-                  advance = true;
-                }
-                catch (System.Exception ex)
-                {
-                  ed.WriteMessage($"\nUnable to place \"{group.Name}\": {ex.Message}");
-                  stopped = true;
-                }
-                break;
-
-              case TemplateJigInput.Enter:
-                userRotation = RoomTemplateGeometry.NormalizeAngle(userRotation + Math.PI / 2.0);
-                jig.UserRotation = userRotation;
-                break;
-
-              case TemplateJigInput.Keyword:
-                HandleTemplateKeyword(
-                  db,
-                  ed,
-                  jig.LastKeyword,
-                  group,
-                  placed,
-                  ref index,
-                  ref userRotation,
-                  ref advance,
-                  ref finished,
-                  ucsRotation
-                );
-                jig.UserRotation = userRotation;
-                if (finished)
-                {
-                  advance = true;
-                }
-                break;
-
-              default:
+              jig.Message =
+                $"\nPlace group {index + 1} of {template.Groups.Count} "
+                + "[Rotate/Flip/Wall/Angle/Skip/Back/Done] "
+                + $"<{Math.Round(userRotation * 180.0 / Math.PI)}°>: ";
+              PromptResult result = ed.Drag(jig);
+              if (
+                result.Status != PromptStatus.OK
+                && result.Status != PromptStatus.None
+                && result.Status != PromptStatus.Keyword
+              )
+              {
                 stopped = true;
                 break;
+              }
+
+              switch (jig.LastInput)
+              {
+                case TemplateJigInput.Point:
+                  try
+                  {
+                    placement = RoomTemplateGeometry.Resolve(
+                      group,
+                      jig.Location,
+                      ucsRotation,
+                      userRotation,
+                      blockScale
+                    );
+                    advance = true;
+                  }
+                  catch (System.Exception ex)
+                  {
+                    ed.WriteMessage($"\nUnable to place group {index + 1}: {ex.Message}");
+                    stopped = true;
+                  }
+                  break;
+
+                case TemplateJigInput.Enter:
+                  userRotation = RoomTemplateGeometry.NormalizeAngle(userRotation + Math.PI / 2.0);
+                  jig.UserRotation = userRotation;
+                  break;
+
+                case TemplateJigInput.Keyword:
+                  HandleTemplateKeyword(
+                    ed,
+                    jig.LastKeyword,
+                    group,
+                    ref index,
+                    ref userRotation,
+                    ref advance,
+                    ref finished,
+                    ucsRotation
+                  );
+                  jig.UserRotation = userRotation;
+                  if (finished)
+                  {
+                    advance = true;
+                  }
+                  break;
+
+                default:
+                  stopped = true;
+                  break;
+              }
             }
+          }
+          CleanupTemplatePreview(previewTransaction, previewSpace);
+          previewTransaction.Commit();
+        }
+        if (index < draggingIndex)
+        {
+          EraseTemplateGroup(db, placed[index]);
+          placed[index] = null;
+        }
+        if (placement != null)
+        {
+          try
+          {
+            placed[index] = InsertTemplateGroup(db, placement, definitions, blockScale);
+            index++;
+          }
+          catch (System.Exception ex)
+          {
+            ed.WriteMessage($"\nUnable to place group {index + 1}: {ex.Message}");
+            stopped = true;
           }
         }
       }
@@ -227,19 +231,46 @@ namespace ElectricalCommands
       }
 
       ed.WriteMessage($"\nPlaced {placedGroups} of {template.Groups.Count} group(s) from {template.Name}.");
-      if (slotCount == 0)
+      if (slotCount == 0 || CountSlotReceptacles(slotReceptacles) == 0)
       {
+        return;
+      }
+      PromptKeywordOptions circuitOptions = new PromptKeywordOptions(
+        "\nName and circuit this room now? [Yes/No] <Yes>: ", "Yes No")
+      {
+        AllowNone = true,
+      };
+      circuitOptions.Keywords.Default = "Yes";
+      PromptResult circuitResult = ed.GetKeywords(circuitOptions);
+      if ((circuitResult.Status != PromptStatus.OK && circuitResult.Status != PromptStatus.None)
+        || string.Equals(circuitResult.StringResult, "No", StringComparison.OrdinalIgnoreCase))
+      {
+        ed.WriteMessage("\nRoom naming and circuiting skipped. Select the receptacles and run RC when ready.");
+        return;
+      }
+      if (!TryPrepareTemplateCircuiting(db, ed, out string panelName,
+        out ElectricalDrawingSettingsStore.PanelScheduleSetting panelSchedule))
+      {
+        ed.WriteMessage("\nThe room remains placed. Select the receptacles and run RC when ready.");
         return;
       }
       CircuitTemplateRoom(db, ed, template, slotReceptacles, scale, panelName, panelSchedule);
     }
 
+    internal static void CleanupTemplatePreview(Transaction transaction, BlockTableRecord previewSpace)
+    {
+      foreach (ObjectId id in previewSpace)
+      {
+        DBObject entity = transaction.GetObject(id, OpenMode.ForWrite);
+        if (!entity.IsErased) entity.Erase();
+      }
+      previewSpace.Erase();
+    }
+
     private static void HandleTemplateKeyword(
-      Database db,
       Editor ed,
       string keyword,
       TemplateGroup group,
-      PlacedTemplateGroup[] placed,
       ref int index,
       ref double userRotation,
       ref bool advance,
@@ -297,8 +328,6 @@ namespace ElectricalCommands
             break;
           }
           index--;
-          EraseTemplateGroup(db, placed[index]);
-          placed[index] = null;
           advance = true;
           break;
 
@@ -397,8 +426,8 @@ namespace ElectricalCommands
       return true;
     }
 
-    // The same checks RC makes, run before any drafting so a missing panel schedule
-    // cannot surface after the whole room has been placed.
+    // The same checks RC makes, deferred until the user chooses to circuit the
+    // placed room. Placement alone needs no panel name or linked schedule.
     private static bool TryPrepareTemplateCircuiting(
       Database db,
       Editor ed,
@@ -435,14 +464,14 @@ namespace ElectricalCommands
           && System.IO.File.Exists(panelSchedule.WorkbookPath);
         if (!hasSchedule)
         {
-          ed.WriteMessage("\nRTP canceled because no usable panel schedule was linked.");
+          ed.WriteMessage("\nRTP circuiting skipped because no usable panel schedule was linked.");
           return false;
         }
       }
 
       if (!TryVerifyPanelScheduleWorkbookClosed(panelSchedule.WorkbookPath, out string availabilityError))
       {
-        ed.WriteMessage($"\nRTP canceled: {availabilityError.Replace("running RC", "running RTP")}");
+        ed.WriteMessage($"\nRTP circuiting skipped: {availabilityError.Replace("running RC", "running RTP")}");
         return false;
       }
       return true;
@@ -565,6 +594,9 @@ namespace ElectricalCommands
         case "DATA":
           createEntities = () => DataGeometry.CreateEntities(db, SymbolSide.South);
           break;
+        case "ACIES_DATA":
+          createEntities = () => DataGeometry.CreateEntities(db, SymbolSide.North);
+          break;
         case "DISCONNECT":
           createEntities = () => DisconnectGeometry.CreateEntities(db, SymbolSide.North);
           break;
@@ -633,7 +665,6 @@ namespace ElectricalCommands
       using (Transaction transaction = db.TransactionManager.StartTransaction())
       {
         BlockTableRecord space = (BlockTableRecord)transaction.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
-        LayerTable layers = (LayerTable)transaction.GetObject(db.LayerTableId, OpenMode.ForRead);
 
         foreach (ResolvedTemplateMember item in resolved)
         {
@@ -662,50 +693,7 @@ namespace ElectricalCommands
             continue;
           }
 
-          BlockReference block = new BlockReference(item.Position, definitionId);
-          block.SetDatabaseDefaults(db);
-          block.ScaleFactors = new Scale3d(item.Scale);
-          block.Rotation = item.Rotation;
-
-          string layer = member.Kind == TemplateMemberKind.Note && !layers.Has(member.Layer)
-            ? KnLayerName
-            : member.Layer;
-          if (!string.IsNullOrEmpty(layer) && layers.Has(layer))
-          {
-            block.Layer = layer;
-          }
-
-          space.AppendEntity(block);
-          transaction.AddNewlyCreatedDBObject(block, true);
-
-          if (
-            member.Kind == TemplateMemberKind.Receptacle
-            && !string.IsNullOrWhiteSpace(member.VisibilityState)
-            && !TrySetReceptacleVisibilityState(block, member.VisibilityState)
-          )
-          {
-            throw new InvalidOperationException(
-              $"The {member.BlockName} block does not expose receptacle type {member.VisibilityState}."
-            );
-          }
-          if (member.Kind == TemplateMemberKind.Symbol)
-          {
-            ApplyTemplateDynamicProperties(block, member);
-          }
-
-          AddDefaultAttributes(transaction, definitionId, block);
-          foreach (ObjectId attributeId in block.AttributeCollection)
-          {
-            AttributeReference attribute = transaction.GetObject(attributeId, OpenMode.ForWrite) as AttributeReference;
-            if (
-              attribute != null
-              && member.Attributes.TryGetValue(attribute.Tag.ToUpperInvariant(), out string text)
-            )
-            {
-              attribute.TextString = text;
-            }
-          }
-          block.RecordGraphicsModified(true);
+          BlockReference block = CreateTemplateBlock(db, transaction, space, definitionId, item);
 
           placed.Entities.Add(block.ObjectId);
           if (member.Kind == TemplateMemberKind.Receptacle)
@@ -716,6 +704,84 @@ namespace ElectricalCommands
         transaction.Commit();
       }
       return placed;
+    }
+
+    // One setup path for the jig and final insertion: same definition, dynamic
+    // state, signed scales, layer and attribute geometry/value.
+    private static BlockReference CreateTemplateBlock(Database db, Transaction transaction,
+      BlockTableRecord space, ObjectId definitionId, ResolvedTemplateMember item)
+    {
+      TemplateMember member = item.Member;
+      var block = new BlockReference(item.Position, definitionId);
+      block.SetDatabaseDefaults(db);
+      block.ScaleFactors = item.ScaleFactors;
+      block.Rotation = item.Rotation;
+      var layers = (LayerTable)transaction.GetObject(db.LayerTableId, OpenMode.ForRead);
+      string layer = member.Kind == TemplateMemberKind.Note && !layers.Has(member.Layer) ? KnLayerName : member.Layer;
+      if (!string.IsNullOrEmpty(layer) && layers.Has(layer)) block.Layer = layer;
+      space.AppendEntity(block);
+      transaction.AddNewlyCreatedDBObject(block, true);
+      ApplyTemplateDynamicProperties(block, member);
+      if (member.Kind == TemplateMemberKind.Receptacle && !string.IsNullOrWhiteSpace(member.VisibilityState)
+        && !TrySetReceptacleVisibilityState(block, member.VisibilityState))
+        throw new InvalidOperationException($"The {member.BlockName} block does not expose receptacle type {member.VisibilityState}.");
+
+      AddDefaultAttributes(transaction, definitionId, block);
+      UpdateTemplateBlock(db, transaction, block, item);
+      return block;
+    }
+
+    internal static void UpdateTemplateBlock(Database db, Transaction transaction,
+      BlockReference block, ResolvedTemplateMember item)
+    {
+      block.Position = item.Position;
+      block.Rotation = item.Rotation;
+      block.ScaleFactors = item.ScaleFactors;
+      TemplateMember member = item.Member;
+      var definition = (BlockTableRecord)transaction.GetObject(block.IsDynamicBlock
+        ? block.DynamicBlockTableRecord : block.BlockTableRecord, OpenMode.ForRead);
+      var attributeDefinitions = new Dictionary<string, AttributeDefinition>();
+      foreach (ObjectId id in definition)
+        if (transaction.GetObject(id, OpenMode.ForRead) is AttributeDefinition ad && !ad.Constant)
+          attributeDefinitions[ad.Tag.ToUpperInvariant()] = ad;
+      foreach (ObjectId attributeId in block.AttributeCollection)
+      {
+        var attribute = (AttributeReference)transaction.GetObject(attributeId, OpenMode.ForWrite);
+        string tag = attribute.Tag.ToUpperInvariant();
+        if (attributeDefinitions.TryGetValue(tag, out AttributeDefinition ad))
+          attribute.SetAttributeFromBlock(ad, block.BlockTransform);
+        TemplateAttribute geometry = member.AttributeGeometry.Find(candidate => candidate.Tag == tag);
+        if (geometry != null)
+        {
+          // Start from local geometry; applying the complete block transform also
+          // restores MIRRTEXT corrections stored on the original attribute.
+          attribute.TransformBy(block.BlockTransform.Inverse());
+          attribute.HorizontalMode = (TextHorizontalMode)geometry.HorizontalMode;
+          attribute.VerticalMode = (TextVerticalMode)geometry.VerticalMode;
+          attribute.Position = new Point3d(geometry.Position);
+          if (!attribute.IsDefaultAlignment) attribute.AlignmentPoint = new Point3d(geometry.AlignmentPoint);
+          attribute.Rotation = geometry.Rotation;
+          attribute.Height = geometry.Height;
+          attribute.WidthFactor = geometry.WidthFactor;
+          attribute.Oblique = geometry.Oblique;
+          attribute.IsMirroredInX = geometry.MirroredX;
+          attribute.IsMirroredInY = geometry.MirroredY;
+          attribute.TransformBy(block.BlockTransform);
+        }
+        if (member.Attributes.TryGetValue(tag, out string text)) attribute.TextString = text;
+        if (attribute.IsMTextAttribute) attribute.UpdateMTextAttribute();
+        if (geometry == null)
+          attribute.AdjustAlignment(db);
+        else
+        {
+          // TransformBy can realign justified text. Preserve the independently
+          // captured grip/alignment positions after transforming its text axes.
+          if (!attribute.IsDefaultAlignment)
+            attribute.AlignmentPoint = new Point3d(geometry.AlignmentPoint).TransformBy(block.BlockTransform);
+          attribute.Position = new Point3d(geometry.Position).TransformBy(block.BlockTransform);
+        }
+      }
+      block.RecordGraphicsModified(true);
     }
 
     private static void ApplyTemplateDynamicProperties(BlockReference block, TemplateMember member)

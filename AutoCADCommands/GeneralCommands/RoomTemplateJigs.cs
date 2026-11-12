@@ -33,8 +33,9 @@ namespace ElectricalCommands
     private bool _hasSample;
     private bool _pendingRedraw;
 
-    // createPreviewBlock returns an unattached block reference for a symbol or note
-    // (or null when its definition is unavailable); the jig owns and disposes it.
+    // Previews live in an anonymous definition owned by the caller's transaction,
+    // which erases them and commits cleanup when the drag ends (or null if a
+    // definition is unavailable).
     internal RoomTemplateGroupJig(
       Database database,
       TemplateGroup group,
@@ -153,13 +154,17 @@ namespace ElectricalCommands
 
         if (_previewBlocks.TryGetValue(index, out BlockReference block))
         {
-          block.Position = member.Position;
-          block.Rotation = member.Rotation;
-          block.ScaleFactors = new Scale3d(member.Scale);
+          UpdatePreview(block, member);
           draw.Geometry.Draw(block);
         }
       }
       return true;
+    }
+
+    internal static void UpdatePreview(BlockReference block, ResolvedTemplateMember member)
+    {
+      GeneralCommands.UpdateTemplateBlock(block.Database,
+        block.Database.TransactionManager.TopTransaction, block, member);
     }
 
     // Plain lines and a circle rather than a Leader, so the preview does not depend on
@@ -220,7 +225,7 @@ namespace ElectricalCommands
     {
       foreach (BlockReference block in _previewBlocks.Values)
       {
-        block.Dispose();
+        if (block.ObjectId.IsNull) block.Dispose();
       }
       _previewBlocks.Clear();
     }

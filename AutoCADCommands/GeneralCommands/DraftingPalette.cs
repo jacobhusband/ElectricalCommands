@@ -528,7 +528,7 @@ namespace ElectricalCommands
       AddSettingsRow(
         settingsGrid, "Schedule", _scheduleValue, linkSchedule,
         "Panel schedule", "Command: SETPANELSCHEDULE   Shortcut: SPS",
-        "Links the panel's Excel schedule workbook. RC writes receptacle circuits into it, so close the workbook in Excel before running RC.");
+        "Links the panel's Excel schedule workbook. RC writes receptacle circuits into it, so close the workbook in Excel before running RC. If the workbook has no sheet for the panel yet, you can create one by copying a template sheet.");
 
       _receptacleCircuitMaxComboBox = new ComboBox
       {

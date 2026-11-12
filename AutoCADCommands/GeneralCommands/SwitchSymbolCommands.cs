@@ -72,6 +72,24 @@ namespace ElectricalCommands
         }
       }
 
+      using (SymbolRotationJig rotationJig = new SymbolRotationJig(
+        SwitchSymbolGeometry.CreateEntities(db, style),
+        "\nSpecify direction for switch <upright>:",
+        location,
+        blockScale,
+        rotation,
+        SwitchSymbolGeometry.LetterHeight * blockScale))
+      {
+        PromptResult rotationResult = ed.Drag(rotationJig);
+        if (rotationResult.Status != PromptStatus.OK &&
+            rotationResult.Status != PromptStatus.None)
+        {
+          ed.WriteMessage("\nSWITCH canceled.");
+          return;
+        }
+        rotation = rotationJig.Rotation;
+      }
+
       try
       {
         string blockName = ResolveSwitchSymbolBlockName(style);
@@ -108,13 +126,13 @@ namespace ElectricalCommands
     }
   }
 
-  // Builds the switch symbol in plotted inches: a "$" centered on the origin,
-  // followed by "D" (dimmer) or "OS" (occupancy sensor). Glyphs are drawn as
-  // polylines in units of the letter height.
+  // Builds the switch symbol in plotted inches: a "$" whose stroke starts at the
+  // origin and runs up, followed by "D" (dimmer) or "OS" (occupancy sensor).
+  // Glyphs are drawn as polylines in units of the letter height.
   internal static class SwitchSymbolGeometry
   {
     // Letter height is 4.5" model at 1/4" = 1'-0", matching SCALEDTEXT.
-    private const double LetterHeight =
+    internal const double LetterHeight =
       4.5 / SymbolGeometry.QuarterScaleModelInchesPerPlottedInch;
 
     // How far the "$" stroke runs past the top and bottom of the S.
@@ -144,8 +162,8 @@ namespace ElectricalCommands
       List<Entity> entities = new List<Entity>
       {
         Prepare(database, new Line(
-          new Point3d(0.0, -StrokeHalfLength * LetterHeight, 0.0),
-          new Point3d(0.0, StrokeHalfLength * LetterHeight, 0.0))),
+          Point3d.Origin,
+          new Point3d(0.0, 2.0 * StrokeHalfLength * LetterHeight, 0.0))),
         Prepare(database, CreateGlyph(SGlyph, 0.0, false)),
       };
 
@@ -178,7 +196,8 @@ namespace ElectricalCommands
           i,
           new Point2d(
             (points[2 * i] + offsetX) * LetterHeight,
-            points[2 * i + 1] * LetterHeight),
+            // Glyphs are centered on the stroke's midpoint, which sits above the origin.
+            (points[2 * i + 1] + StrokeHalfLength) * LetterHeight),
           0.0, 0.0, 0.0);
       }
       glyph.Closed = closed;

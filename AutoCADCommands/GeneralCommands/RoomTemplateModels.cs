@@ -36,6 +36,11 @@ namespace ElectricalCommands
 
     // Block scale divided by the drawing's block scale at capture.
     public double ScaleRatio { get; set; } = 1.0;
+    // Older templates stored X alone. Their Y/Z were normally positive, even
+    // when X was negative after MIRROR; never turn that into a three-axis flip.
+    public double? ScaleRatioY { get; set; }
+    public double? ScaleRatioZ { get; set; }
+    public List<TemplateAttribute> AttributeGeometry { get; set; } = new List<TemplateAttribute>();
 
     public Dictionary<string, string> Attributes { get; set; } =
       new Dictionary<string, string>();
@@ -72,6 +77,23 @@ namespace ElectricalCommands
     public List<TemplateMember> Members { get; set; } = new List<TemplateMember>();
   }
 
+  // Attribute geometry in the block's local coordinates. Values alone cannot
+  // reproduce attributes moved with grips or corrected by MIRRTEXT.
+  internal sealed class TemplateAttribute
+  {
+    public string Tag { get; set; }
+    public double[] Position { get; set; }
+    public double[] AlignmentPoint { get; set; }
+    public double Rotation { get; set; }
+    public double Height { get; set; }
+    public double WidthFactor { get; set; }
+    public double Oblique { get; set; }
+    public int HorizontalMode { get; set; }
+    public int VerticalMode { get; set; }
+    public bool MirroredX { get; set; }
+    public bool MirroredY { get; set; }
+  }
+
   internal sealed class RoomTemplate
   {
     public string Name { get; set; } = string.Empty;
@@ -89,7 +111,7 @@ namespace ElectricalCommands
     internal TemplateMember Member { get; set; }
     internal Point3d Position { get; set; }
     internal double Rotation { get; set; }
-    internal double Scale { get; set; }
+    internal Scale3d ScaleFactors { get; set; }
 
     // Leaders: the vertices to draw, tip first. Empty when the note covers the tip.
     internal Point3d[] LeaderPath { get; set; } = new Point3d[0];
@@ -162,7 +184,7 @@ namespace ElectricalCommands
         Vector3d offset = new Vector3d(member.X, member.Y, 0.0).RotateBy(frame, Vector3d.ZAxis);
         resolved[index].Position = origin + offset;
         resolved[index].Rotation = frame + member.RelativeRotation;
-        resolved[index].Scale = blockScale * member.ScaleRatio;
+        resolved[index].ScaleFactors = ResolveScale(member, blockScale);
       }
 
       for (int index = 0; index < group.Members.Count; index++)
@@ -184,30 +206,16 @@ namespace ElectricalCommands
           blockScale
         );
         resolved[index].Rotation = ucsRotation + member.RelativeRotation;
-        resolved[index].Scale = blockScale * member.ScaleRatio;
+        resolved[index].ScaleFactors = ResolveScale(member, blockScale);
       }
 
-      // Leaders re-route toward their note the way KNL does, so a rotated or
-      // mirrored group still gets a clean leader that leaves the hexagon properly.
+      // Keep the captured path and note center. Recomputing a KNL layout here
+      // changes the saved group even when it is placed without any rotation.
       for (int index = 0; index < group.Members.Count; index++)
       {
         TemplateMember member = group.Members[index];
         if (member.Kind != TemplateMemberKind.Leader)
         {
-          continue;
-        }
-
-        Point3d tip = resolved[index].Position;
-        bool hasNote =
-          member.NoteIndex >= 0
-          && member.NoteIndex < group.Members.Count
-          && group.Members[member.NoteIndex].Kind == TemplateMemberKind.Note;
-        if (hasNote)
-        {
-          ResolvedTemplateMember note = resolved[member.NoteIndex];
-          KeyNoteLeaderLayout layout = KeyNoteLeaderLayout.Compute(tip, note.Position, blockScale);
-          note.Position = layout.NoteCenter;
-          resolved[index].LeaderPath = layout.Path ?? new Point3d[0];
           continue;
         }
 
@@ -231,6 +239,17 @@ namespace ElectricalCommands
       }
 
       return resolved;
+    }
+
+    private static Scale3d ResolveScale(TemplateMember member, double blockScale)
+    {
+      // Legacy notes lost their MIRRTEXT-corrected attributes. The hexagon is
+      // symmetric, so a positive scale restores readable text without moving it.
+      double x = member.Kind == TemplateMemberKind.Note && !member.ScaleRatioY.HasValue
+        ? Math.Abs(member.ScaleRatio) : member.ScaleRatio;
+      return new Scale3d(blockScale * x,
+        blockScale * (member.ScaleRatioY ?? Math.Abs(member.ScaleRatio)),
+        blockScale * (member.ScaleRatioZ ?? Math.Abs(member.ScaleRatio)));
     }
 
     private static Point3d AnnotationPoint(

@@ -17,14 +17,14 @@ namespace ElectricalCommands
   {
     private const double KeyNoteHexWidth = 0.2504;
     private const double KeyNoteHexHeight = 0.216852;
-    private const double KeyNoteTableBaseMargin = 0.025;
-    private const double KeyNoteTableVerticalMargin = 0.125;
     private const double KeyNoteTableColumnGap = 0.10;
     private const double KeyNoteRotationTolerance = Math.PI / 180.0;
 
-    [CommandMethod("KEYNOTETABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
-    [CommandMethod("KNTABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
-    [CommandMethod("KNT", CommandFlags.Modal | CommandFlags.UsePickSet)]
+    // Command-line version of KEYNOTETABLE, which opens the note editor
+    // (NoteTableCommand.cs). Selecting an existing table renumbers it in
+    // place.
+    [CommandMethod("-KEYNOTETABLE", CommandFlags.Modal | CommandFlags.UsePickSet)]
+    [CommandMethod("-KNT", CommandFlags.Modal | CommandFlags.UsePickSet)]
     public static void CreateKeyNoteTable()
     {
       Document document = Application.DocumentManager.MdiActiveDocument;
@@ -66,97 +66,15 @@ namespace ElectricalCommands
         UpdateExistingKeyNoteTable(database, editor, selectedTableId);
         return;
       }
-      bool useEveryDbTextLine = false;
-      bool containsMText;
-      bool containsDbText;
-      try
+
+      KeyNoteTablePlan plan = ReadKeyNoteTextSelection(
+        database,
+        editor,
+        "KEYNOTETABLE",
+        sourceIds);
+      if (plan == null)
       {
-        GetKeyNoteTableSelectionTypes(
-          database,
-          sourceIds,
-          out containsMText,
-          out containsDbText);
-      }
-      catch (System.Exception ex)
-      {
-        editor.WriteMessage($"\nKEYNOTETABLE selection error: {ex.Message}");
         return;
-      }
-
-      if (containsMText && containsDbText)
-      {
-        editor.WriteMessage(
-          "\nSelect either MText columns or DBText lines in one run; " +
-          "mixed selections are not converted together.");
-        return;
-      }
-
-      if (containsDbText)
-      {
-        PromptKeywordOptions groupingOptions = new PromptKeywordOptions(
-          "\nGroup DBText into notes [Automatic/EveryLine] <Automatic>: ",
-          "Automatic EveryLine")
-        {
-          AllowNone = true,
-        };
-        PromptResult groupingResult = editor.GetKeywords(groupingOptions);
-        if (groupingResult.Status != PromptStatus.OK &&
-            groupingResult.Status != PromptStatus.None)
-        {
-          editor.WriteMessage("\nKEYNOTETABLE canceled.");
-          return;
-        }
-        useEveryDbTextLine = groupingResult.Status == PromptStatus.OK &&
-          string.Equals(
-            groupingResult.StringResult,
-            "EveryLine",
-            StringComparison.OrdinalIgnoreCase);
-      }
-
-      KeyNoteTablePlan plan;
-      try
-      {
-        using (Transaction transaction =
-          database.TransactionManager.StartOpenCloseTransaction())
-        {
-          plan = containsMText
-            ? BuildKeyNotePlanFromMText(database, transaction, sourceIds)
-            : BuildKeyNotePlanFromDbText(
-              database,
-              transaction,
-              sourceIds,
-              useEveryDbTextLine);
-          transaction.Commit();
-        }
-      }
-      catch (System.Exception ex)
-      {
-        editor.WriteMessage($"\nKEYNOTETABLE could not read the notes: {ex.Message}");
-        return;
-      }
-
-      if (plan == null || plan.Columns.Count == 0 || plan.NoteCount == 0)
-      {
-        editor.WriteMessage("\nNo nonblank keyed-note text was found.");
-        return;
-      }
-
-      editor.WriteMessage(
-        $"\nDetected {plan.NoteCount} note{(plan.NoteCount == 1 ? string.Empty : "s")} " +
-        $"in {plan.Columns.Count} column{(plan.Columns.Count == 1 ? string.Empty : "s")}.");
-      if (containsDbText && !useEveryDbTextLine &&
-          plan.NoteCount == plan.DbVisualLineCount && plan.DbVisualLineCount > 1)
-      {
-        editor.WriteMessage(
-          "\nEach DBText line was detected as a separate note; " +
-          "no continuation-line spacing or indentation pattern was found.");
-      }
-      else if (containsDbText && !useEveryDbTextLine && plan.NoteCount == 1 &&
-               plan.DbVisualLineCount > 1)
-      {
-        editor.WriteMessage(
-          "\nWarning: all DBText lines were grouped as one note. " +
-          "The source geometry does not contain a detectable note-break pattern.");
       }
 
       PromptIntegerOptions numberOptions = new PromptIntegerOptions(
@@ -279,6 +197,110 @@ namespace ElectricalCommands
       {
         editor.WriteMessage($"\nKEYNOTETABLE error: {ex.Message}");
       }
+    }
+
+    // Reads selected MText or DBText into a keyed-note plan, asking how DBText
+    // lines are grouped into notes. Returns null, after saying why, when the
+    // selection holds no usable note text or the user cancels.
+    private static KeyNoteTablePlan ReadKeyNoteTextSelection(
+      Database database,
+      Editor editor,
+      string commandName,
+      ObjectId[] sourceIds)
+    {
+      bool useEveryDbTextLine = false;
+      bool containsMText;
+      bool containsDbText;
+      try
+      {
+        GetKeyNoteTableSelectionTypes(
+          database,
+          sourceIds,
+          out containsMText,
+          out containsDbText);
+      }
+      catch (System.Exception ex)
+      {
+        editor.WriteMessage($"\n{commandName} selection error: {ex.Message}");
+        return null;
+      }
+
+      if (containsMText && containsDbText)
+      {
+        editor.WriteMessage(
+          "\nSelect either MText columns or DBText lines in one run; " +
+          "mixed selections are not converted together.");
+        return null;
+      }
+
+      if (containsDbText)
+      {
+        PromptKeywordOptions groupingOptions = new PromptKeywordOptions(
+          "\nGroup DBText into notes [Automatic/EveryLine] <Automatic>: ",
+          "Automatic EveryLine")
+        {
+          AllowNone = true,
+        };
+        PromptResult groupingResult = editor.GetKeywords(groupingOptions);
+        if (groupingResult.Status != PromptStatus.OK &&
+            groupingResult.Status != PromptStatus.None)
+        {
+          editor.WriteMessage($"\n{commandName} canceled.");
+          return null;
+        }
+        useEveryDbTextLine = groupingResult.Status == PromptStatus.OK &&
+          string.Equals(
+            groupingResult.StringResult,
+            "EveryLine",
+            StringComparison.OrdinalIgnoreCase);
+      }
+
+      KeyNoteTablePlan plan;
+      try
+      {
+        using (Transaction transaction =
+          database.TransactionManager.StartOpenCloseTransaction())
+        {
+          plan = containsMText
+            ? BuildKeyNotePlanFromMText(database, transaction, sourceIds)
+            : BuildKeyNotePlanFromDbText(
+              database,
+              transaction,
+              sourceIds,
+              useEveryDbTextLine);
+          transaction.Commit();
+        }
+      }
+      catch (System.Exception ex)
+      {
+        editor.WriteMessage($"\n{commandName} could not read the notes: {ex.Message}");
+        return null;
+      }
+
+      if (plan == null || plan.Columns.Count == 0 || plan.NoteCount == 0)
+      {
+        editor.WriteMessage("\nNo nonblank keyed-note text was found.");
+        return null;
+      }
+
+      editor.WriteMessage(
+        $"\nDetected {plan.NoteCount} note{(plan.NoteCount == 1 ? string.Empty : "s")} " +
+        $"in {plan.Columns.Count} column{(plan.Columns.Count == 1 ? string.Empty : "s")}.");
+      if (containsDbText && !useEveryDbTextLine &&
+          plan.NoteCount == plan.DbVisualLineCount && plan.DbVisualLineCount > 1)
+      {
+        editor.WriteMessage(
+          "\nEach DBText line was detected as a separate note; " +
+          "no continuation-line spacing or indentation pattern was found.");
+      }
+      else if (containsDbText && !useEveryDbTextLine && plan.NoteCount == 1 &&
+               plan.DbVisualLineCount > 1)
+      {
+        editor.WriteMessage(
+          "\nWarning: all DBText lines were grouped as one note. " +
+          "The source geometry does not contain a detectable note-break pattern.");
+      }
+      return plan;
     }
 
     private static ObjectId FindSelectedTableId(
@@ -484,12 +506,12 @@ namespace ElectricalCommands
             expectedNumber++;
           }
 
-          FormatKeyNoteTableCells(table);
+          ApplyNoteTableStyle(table, NoteTableKind.Keyed, templateScale, textStyleId);
           table.GenerateLayout();
-          CompressKeyNoteTableRows(table);
+          FitNoteTableRowHeights(table, database, NoteTableKind.Keyed);
           table.GenerateLayout();
           TryRecomputeTableBlock(table);
-          CompressKeyNoteTableRows(table);
+          FitNoteTableRowHeights(table, database, NoteTableKind.Keyed);
           TryRecomputeTableBlock(table);
 
           transaction.Commit();
@@ -723,12 +745,11 @@ namespace ElectricalCommands
 
       double scale = GetKeyNoteColumnScale(singleColumn);
       double minimumRowHeight =
-        KeyNoteHexHeight * scale +
-        KeyNoteTableVerticalMargin;
+        (NoteTableTitleHeight + KeyNoteHexHeight + NoteTableNoteGap * 2.0) * scale;
       if (height <= minimumRowHeight)
       {
         editor.WriteMessage(
-          $"\nThe selected height is too small to contain one keyed-note row. " +
+          $"\nThe selected height is too small for the title and one keyed note. " +
           $"Specify a height greater than " +
           $"{minimumRowHeight.ToString("0.###", CultureInfo.InvariantCulture)}.");
         return false;
@@ -1213,11 +1234,11 @@ namespace ElectricalCommands
         ObjectId tableId = space.AppendEntity(table);
         transaction.AddNewlyCreatedDBObject(table, true);
         table.GenerateLayout();
-        CompressKeyNoteTableRows(table);
+        FitNoteTableRowHeights(table, database, NoteTableKind.Keyed);
         table.GenerateLayout();
         ConfigureKeyNoteTableBreaks(table, plan);
         table.GenerateLayout();
-        CompressKeyNoteTableRows(table);
+        FitNoteTableRowHeights(table, database, NoteTableKind.Keyed);
         TryRecomputeTableBlock(table);
 
         if (eraseSource)
@@ -1286,10 +1307,10 @@ namespace ElectricalCommands
         stage = "setting the table rotation";
         table.Rotation = plan.Rotation;
         stage = "creating the table rows and columns";
-        table.SetSize(rowCount, columnCount);
+        // Row 0 is the KEYED NOTES title; notes start on row 1.
+        table.SetSize(rowCount + 1, columnCount);
         stage = "removing table-style title and header merges";
         UnmergeKeyNoteTableCells(table);
-        table.VerticalCellMargin = KeyNoteTableVerticalMargin;
         if (!string.IsNullOrWhiteSpace(plan.Layer))
         {
           stage = $"assigning table layer '{plan.Layer}'";
@@ -1307,7 +1328,7 @@ namespace ElectricalCommands
           int textColumn = symbolColumn + 1;
           table.Columns[symbolColumn].Width = keyWidths[columnIndex];
           double scale = GetKeyNoteColumnScale(column);
-          double margin = KeyNoteTableBaseMargin * scale;
+          double margin = NoteTableTextIndent * scale;
           double contentWidth;
           if (plan.ForcedPairWidth > 1e-9)
           {
@@ -1338,42 +1359,29 @@ namespace ElectricalCommands
           table.Columns[textColumn].Width = contentWidth;
         }
 
+        // One size for the whole table, so mixed source text heights still
+        // give matching hexagons and text.
+        double tableScale = plan.Columns.Max(GetKeyNoteColumnScale);
         int number = firstNumber;
         for (int sourceColumn = 0; sourceColumn < plan.Columns.Count; sourceColumn++)
         {
           KeyNoteSourceColumn column = plan.Columns[sourceColumn];
           int symbolColumn = sourceColumn * 2;
           int textColumn = symbolColumn + 1;
-          for (int row = 0; row < rowCount; row++)
+          for (int index = 0; index < rowCount; index++)
           {
-            stage = $"formatting row {row + 1}, column {sourceColumn + 1}";
-            HideKeyNoteCellGrid(table, row, symbolColumn);
-            HideKeyNoteCellGrid(table, row, textColumn);
+            int row = index + 1;
+            stage = $"filling row {row + 1}, column {sourceColumn + 1}";
             EnsureKeyNoteTableCellContent(table, row, symbolColumn);
             EnsureKeyNoteTableCellContent(table, row, textColumn);
-            SetKeyNoteCellMargins(
-              table,
-              row,
-              symbolColumn,
-              0.0,
-              KeyNoteTableVerticalMargin,
-              KeyNoteTableBaseMargin);
-            SetKeyNoteCellMargins(
-              table,
-              row,
-              textColumn,
-              0.0,
-              KeyNoteTableVerticalMargin,
-              KeyNoteTableBaseMargin);
-            if (row >= column.Entries.Count)
+            if (index >= column.Entries.Count)
             {
               table.SetTextString(row, symbolColumn, 0, string.Empty);
               table.SetTextString(row, textColumn, 0, string.Empty);
               continue;
             }
 
-            KeyNoteEntry entry = column.Entries[row];
-            double scale = GetKeyNoteEntryScale(entry);
+            KeyNoteEntry entry = column.Entries[index];
 
             stage = $"placing keyed-note symbol {number}";
             table.SetBlockTableRecordId(
@@ -1383,14 +1391,13 @@ namespace ElectricalCommands
               blockId,
               false);
             table.SetIsAutoScale(row, symbolColumn, 0, false);
-            table.SetScale(row, symbolColumn, 0, scale);
+            table.SetScale(row, symbolColumn, 0, tableScale);
             table.SetBlockAttributeValue(
               row,
               symbolColumn,
               0,
               attributeDefinitionId,
               number.ToString(CultureInfo.InvariantCulture));
-            table.Cells[row, symbolColumn].Alignment = CellAlignment.TopCenter;
 
             stage = $"writing note text for symbol {number}";
             table.SetTextString(
@@ -1398,22 +1405,22 @@ namespace ElectricalCommands
               textColumn,
               0,
               ConvertPlainTextToMTextContents(entry.PlainText));
-            table.SetTextHeight(row, textColumn, 0, entry.TextHeight);
-            table.SetTextStyleId(row, textColumn, 0, entry.TextStyleId);
-            table.Cells[row, textColumn].Alignment = CellAlignment.TopLeft;
-            table.SetContentColor(
-              row,
-              textColumn,
-              0,
-              ResolveKeyNoteTableColor(entry.ColorIndex));
             number++;
           }
         }
 
+        stage = "writing the title and styling the cells";
+        SetNoteTableTitle(table, NoteTableKind.Keyed);
+        ApplyNoteTableStyle(
+          table,
+          NoteTableKind.Keyed,
+          tableScale,
+          EnsureKnTextStyle(database));
+
         stage = "generating the initial table layout";
         table.GenerateLayout();
         stage = "sizing table rows";
-        CompressKeyNoteTableRows(table);
+        FitNoteTableRowHeights(table, database, NoteTableKind.Keyed);
         stage = "generating the final table layout";
         table.GenerateLayout();
         TryRecomputeTableBlock(table);
@@ -1428,54 +1435,6 @@ namespace ElectricalCommands
       }
     }
 
-    private static void FormatKeyNoteTableCells(Table table)
-    {
-      if (table == null)
-      {
-        return;
-      }
-
-      table.VerticalCellMargin = KeyNoteTableVerticalMargin;
-      for (int row = 0; row < table.Rows.Count; row++)
-      {
-        for (int column = 0; column < table.Columns.Count; column++)
-        {
-          HideKeyNoteCellGrid(table, row, column);
-          SetKeyNoteCellMargins(
-            table,
-            row,
-            column,
-            0.0,
-            KeyNoteTableVerticalMargin,
-            KeyNoteTableBaseMargin);
-        }
-      }
-    }
-
-    private static void CompressKeyNoteTableRows(Table table)
-    {
-      if (table == null)
-      {
-        return;
-      }
-
-      for (int row = 0; row < table.Rows.Count; row++)
-      {
-        try
-        {
-          double minimumHeight = table.Rows[row].MinimumHeight;
-          if (minimumHeight > 1e-9)
-          {
-            table.Rows[row].Height = minimumHeight;
-          }
-        }
-        catch
-        {
-          // A second pass runs after the table is database-resident because
-          // some table styles cannot calculate MinimumHeight while transient.
-        }
-      }
-    }
 
     private static void TryRecomputeTableBlock(Table table)
     {
@@ -1550,19 +1509,6 @@ namespace ElectricalCommands
           $"AutoCAD did not create table-cell content at row {row + 1}, " +
           $"column {column + 1}.");
       }
-    }
-
-    private static Color ResolveKeyNoteTableColor(short colorIndex)
-    {
-      if (colorIndex == 0)
-      {
-        return Color.FromColorIndex(ColorMethod.ByBlock, 0);
-      }
-      if (colorIndex < 0 || colorIndex >= 256)
-      {
-        return Color.FromColorIndex(ColorMethod.ByLayer, 256);
-      }
-      return Color.FromColorIndex(ColorMethod.ByAci, colorIndex);
     }
 
     private static void HideKeyNoteCellGrid(Table table, int row, int column)
@@ -1686,7 +1632,7 @@ namespace ElectricalCommands
     private static double GetKeyNoteSymbolColumnWidth(KeyNoteSourceColumn column)
     {
       double scale = GetKeyNoteColumnScale(column);
-      return (KeyNoteHexWidth + KeyNoteTableBaseMargin * 2.0) * scale;
+      return (KeyNoteHexWidth + NoteTableNumberPad * 2.0) * scale;
     }
 
     private static double GetKeyNoteColumnScale(KeyNoteSourceColumn column)

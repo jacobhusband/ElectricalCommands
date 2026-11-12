@@ -224,9 +224,19 @@ namespace ElectricalCommands
       KeyNoteLeaderEnd end,
       double scale)
     {
+      Leader leader = CreateAnnotationLeader(db, layout.Path, end, scale);
+      leader.Layer = KnLayerName;
+      return leader;
+    }
+
+    private static Leader CreateAnnotationLeader(
+      Database db,
+      Point3d[] path,
+      KeyNoteLeaderEnd end,
+      double scale)
+    {
       Leader leader = new Leader();
       leader.SetDatabaseDefaults(db);
-      leader.Layer = KnLayerName;
       leader.ColorIndex = 256;
       leader.IsSplined = false;
       leader.HasArrowHead = true;
@@ -236,7 +246,7 @@ namespace ElectricalCommands
       leader.Dimldrblk = end == KeyNoteLeaderEnd.Circle
         ? EnsureKnLeaderCircleBlock(db)
         : ObjectId.Null;
-      foreach (Point3d vertex in layout.Path)
+      foreach (Point3d vertex in path)
       {
         leader.AppendVertex(vertex);
       }

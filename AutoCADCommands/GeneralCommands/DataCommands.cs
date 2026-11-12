@@ -10,7 +10,9 @@ namespace ElectricalCommands
 {
   public partial class GeneralCommands
   {
-    private const string DataBlockName = "DATA";
+    // Avoid reusing imported dynamic DATA blocks, whose default angle/visibility
+    // can make the inserted symbol disagree with our static preview.
+    private const string DataBlockName = "ACIES_DATA";
 
     // Remembered for the AutoCAD session so repeating DATA reuses the last direction.
     private static SymbolSide _lastDataSide = SymbolSide.South;
@@ -66,18 +68,18 @@ namespace ElectricalCommands
 
       try
       {
-        // One definition drawn pointing south; the insert is rotated to the side.
+        // Zero rotation points north; a 180-degree rotation points south.
         InsertSymbolBlock(
           db,
           DataBlockName,
-          () => DataGeometry.CreateEntities(db, SymbolSide.South),
+          () => DataGeometry.CreateEntities(db, SymbolSide.North),
           location,
           blockScale,
           ucsRotation + DataGeometry.ResolveRotation(side));
 
         _lastDataSide = side;
         ed.WriteMessage(
-          $"\nInserted {DataBlockName} pointing {side.ToString().ToLowerInvariant()} " +
+          $"\nInserted DATA pointing {side.ToString().ToLowerInvariant()} " +
           $"at {scale.DisplayText} (X/Y/Z scale {FormatNumber(blockScale)}).");
       }
       catch (System.Exception ex)
@@ -89,7 +91,7 @@ namespace ElectricalCommands
 
   // Builds the data symbol centered on the origin in plotted inches:
   // a cyan triangle whose apex points toward the requested side. The block
-  // definition is drawn pointing south, so existing DATA blocks stay compatible.
+  // definition is drawn pointing north, so 0/90/180/270 face N/W/S/E.
   internal static class DataGeometry
   {
     private const double ModelToPlotted = SymbolGeometry.QuarterScaleModelInchesPerPlottedInch;
@@ -98,28 +100,28 @@ namespace ElectricalCommands
     internal const double HalfWidth = 5.3865 / ModelToPlotted / 2.0;
     internal const double HalfHeight = 5.3865 / ModelToPlotted / 2.0;
 
-    // Rotation that turns the south-pointing definition toward the given side.
+    // Rotation that turns the north-pointing definition toward the given side.
     internal static double ResolveRotation(SymbolSide side)
     {
       switch (side)
       {
         case SymbolSide.North:
-          return Math.PI;
-        case SymbolSide.East:
-          return Math.PI / 2.0;
-        case SymbolSide.West:
-          return 3.0 * Math.PI / 2.0;
-        default:
           return 0.0;
+        case SymbolSide.East:
+          return 3.0 * Math.PI / 2.0;
+        case SymbolSide.West:
+          return Math.PI / 2.0;
+        default:
+          return Math.PI;
       }
     }
 
     internal static List<Entity> CreateEntities(Database database, SymbolSide side)
     {
       Polyline triangle = new Polyline();
-      triangle.AddVertexAt(0, new Point2d(-HalfWidth, HalfHeight), 0.0, 0.0, 0.0);
-      triangle.AddVertexAt(1, new Point2d(HalfWidth, HalfHeight), 0.0, 0.0, 0.0);
-      triangle.AddVertexAt(2, new Point2d(0.0, -HalfHeight), 0.0, 0.0, 0.0);
+      triangle.AddVertexAt(0, new Point2d(-HalfWidth, -HalfHeight), 0.0, 0.0, 0.0);
+      triangle.AddVertexAt(1, new Point2d(HalfWidth, -HalfHeight), 0.0, 0.0, 0.0);
+      triangle.AddVertexAt(2, new Point2d(0.0, HalfHeight), 0.0, 0.0, 0.0);
       triangle.Closed = true;
       triangle.TransformBy(Matrix3d.Rotation(
         ResolveRotation(side),

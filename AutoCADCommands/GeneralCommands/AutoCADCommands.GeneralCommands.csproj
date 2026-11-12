@@ -26,13 +26,21 @@
   <ItemGroup>
     <PackageReference Update="Microsoft.Office.Interop.Excel" GeneratePathProperty="true" />
     <PackageReference Update="MicrosoftOfficeCore" GeneratePathProperty="true" />
+    <!-- OCR engine for ETAGOCR. -->
+    <PackageReference Include="Tesseract" Version="5.2.0" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="tessdata\eng.traineddata" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- WPF XAML Pages -->
   <ItemGroup>
     <Page Include="AddNotePickerWindow.xaml" />
     <Page Include="DedicatedEquipmentPickerWindow.xaml" />
+    <Page Include="NoteTableWindow.xaml" />
     <Page Include="OpenDrawingLayerWindow.xaml" />
+    <Page Include="PanelSheetCreateWindow.xaml" />
     <Page Include="ProjectChecklistWindow.xaml" />
     <Page Include="RoomNamingWindow.xaml" />
     <Page Include="SwitchConfigurationWindow.xaml" />
@@ -131,6 +139,17 @@
       SourceFiles="@(PanelScheduleInterop)"
       DestinationFolder="$(TargetSubFolder)"
       Condition="'$(TargetFramework)' == 'net8.0-windows'" />
+
+    <!-- ETAGOCR: Tesseract's managed wrapper (net8 does not copy package DLLs), its x64 native DLLs, and the English data. -->
+    <Copy
+      SourceFiles="$(PkgTesseract)\lib\netstandard2.0\Tesseract.dll"
+      DestinationFolder="$(TargetSubFolder)"
+      Condition="'$(TargetFramework)' == 'net8.0-windows'" />
+    <ItemGroup>
+      <TesseractNative Include="$(PkgTesseract)\x64\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(TesseractNative)" DestinationFolder="$(TargetSubFolder)\x64" />
+    <Copy SourceFiles="tessdata\eng.traineddata" DestinationFolder="$(TargetSubFolder)\tessdata" />
   </Target>
 
 </Project>
